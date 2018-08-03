@@ -1046,7 +1046,7 @@ config SERIAL_SIFIVE_CONSOLE
 
 config SERIAL_LANTIQ
 	tristate "Lantiq serial driver"
-	depends on (LANTIQ || X86) || COMPILE_TEST
+	depends on (LANTIQ || X86 || INTEL_MIPS) || COMPILE_TEST
 	select SERIAL_CORE
 	help
 	  Support for UART on Lantiq and Intel SoCs.
