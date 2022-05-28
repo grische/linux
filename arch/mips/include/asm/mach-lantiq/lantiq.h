@@ -15,6 +15,8 @@
 #define ltq_w32(val, reg)	__raw_writel(val, reg)
 #define ltq_w32_mask(clear, set, reg)	\
 	ltq_w32((ltq_r32(reg) & ~(clear)) | (set), reg)
+#define ltq_r16(reg)		__raw_readw(reg)
+#define ltq_w16(val, reg)	__raw_writew(val, reg)
 #define ltq_r8(reg)		__raw_readb(reg)
 #define ltq_w8(val, reg)	__raw_writeb(val, reg)
 
@@ -38,14 +40,21 @@ extern int ltq_eiu_get_irq(int exin);
 extern int clk_activate(struct clk *clk);
 extern void clk_deactivate(struct clk *clk);
 extern struct clk *clk_get_cpu(void);
+extern struct clk *clk_get_ddr(void);
 extern struct clk *clk_get_fpi(void);
 extern struct clk *clk_get_io(void);
 extern struct clk *clk_get_ppe(void);
+extern struct clk *clk_get_xbar(void);
 
 /* find out what bootsource we have */
 extern unsigned char ltq_boot_select(void);
 /* find out the soc type */
-extern int ltq_soc_type(void);
+extern void ltq_reset_once(unsigned int module, ulong u);
+extern void ltq_hw_reset(unsigned int module);
+extern void ltq_rst_init(void);
+extern unsigned int ltq_get_cpu_id(void);
+extern unsigned int ltq_get_soc_type(void);
+extern unsigned int ltq_get_soc_rev(void);
 
 #define IOPORT_RESOURCE_START	0x10000000
 #define IOPORT_RESOURCE_END	0xffffffff
