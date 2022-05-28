@@ -6,6 +6,8 @@ ifeq ($(W),)
 subdir-ccflags-y := -Werror
 endif
 
+generic-y += irq_work.h
+
 # platform specific definitions
 include arch/mips/Kbuild.platforms
 obj-y := $(platform-y)

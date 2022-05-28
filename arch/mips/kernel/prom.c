@@ -37,6 +37,13 @@ char *mips_get_machine_name(void)
 
 #ifdef CONFIG_USE_OF
 
+int __init early_init_dt_reserve_memory_arch(phys_addr_t base,
+					phys_addr_t size, bool nomap)
+{
+	add_memory_region(base, size, BOOT_MEM_RESERVED);
+	return 0;
+}
+
 void __init __dt_setup_arch(void *bph)
 {
 	if (!early_init_dt_scan(bph))

@@ -24,6 +24,10 @@
 #include <asm/prefetch.h>
 #include <asm/vdso/processor.h>
 
+#ifdef CONFIG_SOC_GRX500
+#define ARCH_LOW_ADDRESS_LIMIT MAX_DMA_ADDRESS
+#endif
+
 /*
  * System setup and hardware flags..
  */
