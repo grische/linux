@@ -104,7 +104,7 @@ static int __init plat_enable_iocoherency(void)
 {
 	int supported = 0;
 
-	if (mips_cm_numiocu() != 0) {
+	if (mips_cps_numiocu(0) != 0) {
 		/* Nothing special needs to be done to enable coherency */
 		pr_info("Coherence Manager IOCU detected\n");
 		/* Second IOCU for MPE or other master access register */
