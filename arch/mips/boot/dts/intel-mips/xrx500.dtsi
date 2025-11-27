@@ -123,19 +123,20 @@
 	 *	pcie_phy0			12	24
 	 *	pcie_phy1			13	11
 	 *	pcie_phy2			10	10
-	 *	gphy_fw "phy2"			29	28
-	 *	gphy_fw "phy3"			28	23
-	 *	gphy_fw "phy4"			26	22
-	 *	gphy_fw "phy5"			25	25
-	 *	gphy_fw "phyF" (GRX550 only)	31	30
+	 *	gphy@f8a			29	28
+	 *	gphy@f8e			28	23
+	 *	gphy@f92			26	22
+	 *	gphy@f96			25	25
+	 *	gphy@f9a (GRX550 only)		31	30
 	 *
 	 * Two positions in RCU_RST_STAT are reset *causes* rather than line
-	 * statuses, and neither has a request counterpart: bit 31 is the
-	 * watchdog, which the watchdog node below reads through this same
-	 * syscon, and bit 29 is the global software reset that the reboot
-	 * node requests with RCU_RST_REQ bit 30. Bit 31 therefore means one
-	 * thing in the request register -- the fifth GPHY's line -- and
-	 * something else entirely in the status register.
+	 * statuses, and neither is the status of the line whose request bit
+	 * sits at the same index: bit 31 is the watchdog, which the watchdog
+	 * node below reads through this same syscon, and bit 29 is the global
+	 * software reset that the reboot node requests with RCU_RST_REQ bit
+	 * 30. Bit 31 therefore means one thing in the request register -- the
+	 * fifth GPHY's line -- and something else entirely in the status
+	 * register.
 	 */
 	rcu: rcu@16000000 {
 		compatible = "lantiq,xrx200-rcu", "simple-mfd", "syscon";
