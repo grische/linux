@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Intel xRX500 GSWIP-3.x ethernet driver suite.
+#
+# INTEL_XRX500_NET is separate from LANTIQ_XRX200 because INTEL_MIPS and
+# LANTIQ are mutually exclusive entries in arch/mips/Kconfig's "System
+# type" choice, so this port cannot depend on SOC_TYPE_XWAY.
+
+menuconfig INTEL_XRX500_NET
+	bool "Intel xRX500 / GRX350 ethernet drivers"
+	depends on INTEL_MIPS && OF && HAS_IOMEM
+	default n
+	select MFD_SYSCON
+	select REGMAP_MMIO
+	select RESET_CONTROLLER
+	select RESET_LANTIQ
+	help
+	  Selects the Intel xRX500-family ethernet driver suite, beginning
+	  with a passive register-access HAL for the GSWIP-3.x switch core.
+	  Say N here unless you are building for a GRX350-class board such
+	  as the AVM FRITZ!Box 7560.
+
+	  Selects MFD_SYSCON + REGMAP_MMIO + RESET_CONTROLLER + RESET_LANTIQ
+	  because the rcu0 reset-controller (lantiq,xrx200-reset, declared
+	  inside the rcu@ syscon node) is the GPHY reset producer for the
+	  phy-xrx500 GPHY firmware loader. RESET_LANTIQ defaults to
+	  SOC_TYPE_XWAY which the INTEL_MIPS target does NOT set, and it
+	  lives inside the RESET_CONTROLLER menu, so both are selected here
+	  for the intel-mips/xrx500 family.
+
+if INTEL_XRX500_NET
+
+source "drivers/net/ethernet/lantiq/switch-api/Kconfig"
+
+endif # INTEL_XRX500_NET

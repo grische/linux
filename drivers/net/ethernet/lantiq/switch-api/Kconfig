@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config INTEL_XRX500_GSWIP_API
+	tristate "Intel xRX500 GSWIP-3.x register-access HAL"
+	depends on INTEL_XRX500_NET
+	#
+	# The netdev driver ships inside this composite and reaches its
+	# ports through PHYLINK.
+	#
+	select PHYLINK
+	default n
+	help
+	  Passive register-access HAL for the Intel xRX500 (GRX350-class)
+	  GSWIP-3.x switch core. This module binds two SoC-scope platform
+	  devices (gswip@1c000000 and gswip@1a000000), ioremaps their
+	  register windows, and exposes the four word/field accessors used
+	  by higher-level GSWIP feature drivers. It performs no PCE
+	  microcode load, no switch soft-reset toggle, no PHY/MDIO
+	  bring-up, no clock/reset gating, and no interrupt wiring.
+
+	  To compile this driver as a module, choose M here. The module
+	  will be called intel-xrx500-gswip.
