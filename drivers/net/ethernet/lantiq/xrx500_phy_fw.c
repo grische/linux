@@ -530,8 +530,13 @@ struct platform_driver xway_phy_driver = {
 	},
 };
 
+/*
+ * The bus driver must not scan for PHYs that have no firmware yet, so the
+ * loader registers first.
+ */
 static struct platform_driver * const xrx500_mdio_drivers[] = {
 	&xway_phy_driver,
+	&ltq_gswip_mdio_driver,
 };
 
 static int __init xrx500_mdio_init(void)
@@ -550,6 +555,6 @@ module_exit(xrx500_mdio_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Grische <github@grische.xyz>");
-MODULE_DESCRIPTION("Intel xRX500 (GRX350) GPHY firmware loader");
+MODULE_DESCRIPTION("Intel xRX500 (GRX350) GPHY firmware loader and MDIO bus");
 /* The loader takes the name from DT; this is what the board files set. */
 MODULE_FIRMWARE("lantiq/xrx500-phy-fw.bin");
