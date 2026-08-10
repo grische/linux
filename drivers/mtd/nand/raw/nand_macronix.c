@@ -10,6 +10,22 @@
 #include "linux/delay.h"
 #include "internals.h"
 
+/*
+ * On-die BCH ECC support for MX30LF[1/2/4]GE8AB parts. Bit 7 of ID byte 4
+ * indicates the chip has internal ECC. Ported from the AVM FRITZ!Box 7560
+ * GPL release (Linux 4.9.198, drivers/mtd/nand/nand_macronix.c); it never
+ * landed upstream. Without it, the NAND framework rejects probe with
+ * -EINVAL at nand_base.c "No ECC functions supplied; hardware ECC not
+ * possible".
+ */
+#define MACRONIX_NAND_ID4_IS_INTERNAL_ECC	BIT(7)
+
+#define MACRONIX_NAND_STATUS_ECC_MASK		(BIT(3) | BIT(4))
+#define MACRONIX_NAND_STATUS_ECC_01BIT		0
+#define MACRONIX_NAND_STATUS_ECC_2BIT		BIT(4)
+#define MACRONIX_NAND_STATUS_ECC_3BIT		BIT(3)
+#define MACRONIX_NAND_STATUS_ECC_4BIT		(BIT(3) | BIT(4))
+
 #define MACRONIX_READ_RETRY_BIT BIT(0)
 #define MACRONIX_NUM_READ_RETRY_MODES 6
 
@@ -481,6 +497,121 @@ static void macronix_nand_setup_otp(struct nand_chip *chip)
 	mtd->_lock_user_prot_reg = macronix_30lfxg18ac_lock_otp;
 }
 
+/*
+ * MX30LF4GE8AB visible-ECC OOB layout. Used only for parts where ID byte 1
+ * == 0xdc (the 4 Gbit variant). MX30LF1GE8AB / MX30LF2GE8AB hide their ECC
+ * bytes and route through the generic large-page layout instead.
+ */
+static int nand_ooblayout_ecc_mx30lf4ge8ab(struct mtd_info *mtd, int section,
+					   struct mtd_oob_region *oobregion)
+{
+	if (section > 3)
+		return -ERANGE;
+	oobregion->offset = 16 * section + 8;
+	oobregion->length = 8;
+	return 0;
+}
+
+static int nand_ooblayout_free_mx30lf4ge8ab(struct mtd_info *mtd, int section,
+					    struct mtd_oob_region *oobregion)
+{
+	if (section > 3)
+		return -ERANGE;
+	oobregion->offset = !section ? 2 : 16 * section;
+	oobregion->length = !section ? 6 : 8;
+	return 0;
+}
+
+static const struct mtd_ooblayout_ops nand_ooblayout_mx30lf4ge8ab_ops = {
+	.ecc = nand_ooblayout_ecc_mx30lf4ge8ab,
+	.free = nand_ooblayout_free_mx30lf4ge8ab,
+};
+
+static int macronix_nand_ecc_status(struct mtd_info *mtd, struct nand_chip *chip)
+{
+	unsigned int max_bitflips = 0;
+	u8 status;
+	int ret;
+
+	ret = nand_status_op(chip, &status);
+	if (ret)
+		return ret;
+
+	if (status & NAND_STATUS_FAIL) {
+		mtd->ecc_stats.failed++;
+	} else {
+		switch (status & MACRONIX_NAND_STATUS_ECC_MASK) {
+		case MACRONIX_NAND_STATUS_ECC_01BIT:
+			max_bitflips = 0;
+			break;
+		case MACRONIX_NAND_STATUS_ECC_2BIT:
+			max_bitflips = 2;
+			break;
+		case MACRONIX_NAND_STATUS_ECC_3BIT:
+			max_bitflips = 3;
+			break;
+		case MACRONIX_NAND_STATUS_ECC_4BIT:
+			max_bitflips = 4;
+			break;
+		}
+		mtd->ecc_stats.corrected += max_bitflips;
+	}
+
+	return max_bitflips;
+}
+
+static int macronix_nand_ecc_read_page(struct nand_chip *chip, u8 *buf,
+				       int oob_required, int page)
+{
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	int ret;
+
+	ret = nand_read_page_raw(chip, buf, oob_required, page);
+	if (ret)
+		return ret;
+
+	return macronix_nand_ecc_status(mtd, chip);
+}
+
+static int macronix_nand_ecc_read_subpage(struct nand_chip *chip,
+					  u32 data_offs, u32 readlen,
+					  u8 *bufpoi, int page)
+{
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	int ret;
+
+	ret = nand_read_page_op(chip, page, data_offs,
+				bufpoi + data_offs, readlen);
+	if (ret)
+		return ret;
+
+	return macronix_nand_ecc_status(mtd, chip);
+}
+
+static int macronix_nand_ecc_init(struct nand_chip *chip)
+{
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	int hidden_ecc = chip->id.data[1] != 0xdc;
+
+	chip->ecc.bytes = hidden_ecc ? 0 : 8;
+	chip->ecc.size = 512;
+	chip->ecc.strength = 4;
+	chip->ecc.algo = NAND_ECC_ALGO_BCH;
+	chip->ecc.read_page = macronix_nand_ecc_read_page;
+	chip->ecc.read_subpage = macronix_nand_ecc_read_subpage;
+	chip->ecc.write_page = nand_write_page_raw;
+	chip->ecc.read_page_raw = nand_read_page_raw_notsupp;
+	chip->ecc.write_page_raw = nand_write_page_raw_notsupp;
+
+	chip->options |= NAND_SUBPAGE_READ;
+
+	mtd_set_ooblayout(mtd, hidden_ecc
+				? nand_get_large_page_ooblayout()
+				: &nand_ooblayout_mx30lf4ge8ab_ops);
+
+	return 0;
+}
+
 static int macronix_nand_init(struct nand_chip *chip)
 {
 	if (nand_is_slc(chip))
@@ -491,6 +622,12 @@ static int macronix_nand_init(struct nand_chip *chip)
 	macronix_nand_block_protection_support(chip);
 	macronix_nand_deep_power_down_support(chip);
 	macronix_nand_setup_otp(chip);
+
+	if (nand_is_slc(chip) &&
+	    chip->ecc.engine_type == NAND_ECC_ENGINE_TYPE_ON_DIE &&
+	    chip->id.len >= 5 &&
+	    (chip->id.data[4] & MACRONIX_NAND_ID4_IS_INTERNAL_ECC))
+		return macronix_nand_ecc_init(chip);
 
 	return 0;
 }
