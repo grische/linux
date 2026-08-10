@@ -125,6 +125,9 @@ obj-$(CONFIG_ARCH_HISI)			+= hisilicon/
 obj-y					+= imgtec/
 obj-y					+= imx/
 obj-y					+= ingenic/
+ifeq ($(CONFIG_COMMON_CLK), y)
+obj-y							+=intel/
+endif
 obj-y					+= keystone/
 obj-y					+= mediatek/
 obj-$(CONFIG_ARCH_MESON)		+= meson/
