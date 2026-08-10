@@ -10,3 +10,11 @@
 obj-$(CONFIG_INTEL_XRX500_GSWIP_API) += intel-xrx500-gswip.o
 
 intel-xrx500-gswip-y := switch-api/gsw_init.o switch-api/gsw_flow_core.o switch-api/gsw_flow_pce.o
+
+#
+# The GPHY firmware is proprietary and lives in the rootfs, so the loader
+# is kept out of the kernel image and gets a module of its own.
+#
+obj-$(CONFIG_INTEL_XRX500_MDIO) += intel-xrx500-mdio.o
+
+intel-xrx500-mdio-y := xrx500_phy_fw.o

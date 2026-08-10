@@ -20,3 +20,19 @@ config INTEL_XRX500_GSWIP_API
 
 	  To compile this driver as a module, choose M here. The module
 	  will be called intel-xrx500-gswip.
+
+config INTEL_XRX500_MDIO
+	tristate "Intel xRX500 GPHY firmware loader"
+	depends on INTEL_XRX500_GSWIP_API
+	select FW_LOADER
+	select RESET_CONTROLLER
+	default n
+	help
+	  Loader for the firmware the integrated Gigabit PHYs run. The
+	  firmware is proprietary and is not carried in the kernel tree,
+	  so build this as a module (M) and let it read the blob from
+	  /lib/firmware; built in, it has to reach the firmware before any
+	  filesystem is mounted.
+
+	  To compile this driver as a module, choose M here. The module
+	  will be called intel-xrx500-mdio.
