@@ -10,6 +10,13 @@
 obj-$(CONFIG_INTEL_XRX500_GSWIP_API) += intel-xrx500-gswip.o
 
 intel-xrx500-gswip-y := switch-api/gsw_init.o switch-api/gsw_flow_core.o switch-api/gsw_flow_pce.o
+intel-xrx500-gswip-y += datapath/datapath_misc.o datapath/datapath_api.o datapath/datapath_instance.o
+intel-xrx500-gswip-y += cqm/grx500/cbm.o cqm/grx500/cbm_basic.o cqm/grx500/cbm_buf.o
+intel-xrx500-gswip-y += cqm/grx500/cbm_intr.o cqm/grx500/fsqm.o cqm/grx500/cbm_dma.o
+intel-xrx500-gswip-y += cqm/grx500/cbm_dp.o
+intel-xrx500-gswip-y += cqm/grx500/cbm_ports.o
+intel-xrx500-gswip-y += dma/hdma.o
+intel-xrx500-gswip-y += tmu/tmu_init.o tmu/drv_tmu_ll.o
 
 #
 # The GPHY firmware is proprietary and lives in the rootfs, so the loader
@@ -25,11 +32,11 @@ intel-xrx500-mdio-y := xrx500_phy_fw.o
 # Without the bus, phylink_of_phy_connect() has no PHY to find.
 #
 intel-xrx500-mdio-y += switch-api/mdio_xrx500.o
-intel-xrx500-gswip-y += dma/hdma.o
-intel-xrx500-gswip-y += cqm/grx500/cbm_basic.o cqm/grx500/cbm_buf.o cqm/grx500/fsqm.o
-intel-xrx500-gswip-y += cqm/grx500/cbm_dma.o
-intel-xrx500-gswip-y += tmu/tmu_init.o tmu/drv_tmu_ll.o
-intel-xrx500-gswip-y += datapath/datapath_misc.o datapath/datapath_api.o datapath/datapath_instance.o
-intel-xrx500-gswip-y += cqm/grx500/cbm_dp.o
-intel-xrx500-gswip-y += cqm/grx500/cbm_ports.o
-intel-xrx500-gswip-y += cqm/grx500/cbm.o
+
+#
+# The netdev/phylink driver consumes gsw_w32() and gsw_get_swcore_ops()
+# from switch-api/, so it ships in the same module as gsw_init.o and
+# gsw_flow_core.o. It binds "intel,xrx500-net" and instantiates one
+# netdev per LAN port.
+#
+intel-xrx500-gswip-y += intel_xrx500.o
