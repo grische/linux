@@ -26,3 +26,4 @@ intel-xrx500-mdio-y := xrx500_phy_fw.o
 #
 intel-xrx500-mdio-y += switch-api/mdio_xrx500.o
 intel-xrx500-gswip-y += dma/hdma.o
+intel-xrx500-gswip-y += cqm/grx500/cbm_basic.o cqm/grx500/cbm_buf.o cqm/grx500/fsqm.o
