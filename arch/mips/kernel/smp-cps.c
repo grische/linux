@@ -154,9 +154,16 @@ static bool __init check_64bit_reset(void)
 
 static int __init allocate_cps_vecs(void)
 {
-	/* Try to allocate in KSEG1 first */
+	/*
+	 * Try to allocate in the physical-address window addressable through
+	 * KSEG1. On standard MIPS this is the low 512 MiB, but on platforms
+	 * with EVA segmentation the same KSEG1 virtual range is mapped to a
+	 * PHYS_OFFSET-shifted RAM aperture, so anchor the range on
+	 * PHYS_OFFSET to allow allocation from real RAM on those systems.
+	 */
 	cps_vec_pa = memblock_phys_alloc_range(BEV_VEC_SIZE, BEV_VEC_ALIGN,
-						0x0, CSEGX_SIZE - 1);
+						PHYS_OFFSET,
+						PHYS_OFFSET + CSEGX_SIZE - 1);
 
 	if (cps_vec_pa)
 		core_entry_reg = CKSEG1ADDR(cps_vec_pa) &
