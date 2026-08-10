@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# MIPS SoC platform
+#
+
+cflags-$(CONFIG_INTEL_MIPS)			+= -I$(srctree)/arch/mips/include/asm/mach-intel-mips
+ifdef CONFIG_EVA
+#	ifdef CONFIG_EVA_2GB
+#		load-$(CONFIG_LANTIQ)		= 0xffffffff20020000
+#	endif
+#	ifdef CONFIG_EVA_1GB
+#		load-$(CONFIG_LANTIQ)		= 0xffffffff60020000
+#	endif
+#	ifdef CONFIG_EVA_LEGACY
+#		load-$(CONFIG_LANTIQ)		= 0xffffffff80500000
+#	endif
+	load-$(CONFIG_INTEL_MIPS)		= 0xffffffff80500000
+else
+	load-$(CONFIG_INTEL_MIPS)		= 0xffffffff80020000
+endif
