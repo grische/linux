@@ -207,7 +207,7 @@ struct __large_struct { unsigned long buf[100]; };
 	long __gu_tmp;							\
 									\
 	__asm__ __volatile__(						\
-	"1:	"insn("%1", "%3")"				\n"	\
+	"1:	"insn("%1", "(%3)")"				\n"	\
 	"2:							\n"	\
 	"	.insn						\n"	\
 	"	.section .fixup,\"ax\"				\n"	\
@@ -219,7 +219,8 @@ struct __large_struct { unsigned long buf[100]; };
 	"	"__UA_ADDR "\t1b, 3b				\n"	\
 	"	.previous					\n"	\
 	: "=r" (__gu_err), "=r" (__gu_tmp)				\
-	: "0" (0), "o" (__m(addr)), "i" (-EFAULT));			\
+	: "0" (0), "r" (addr), "i" (-EFAULT)				\
+	: "memory");			\
 									\
 	(val) = (__typeof__(*(addr))) __gu_tmp;				\
 }
@@ -298,7 +299,7 @@ do {									\
 #define __put_data_asm(insn, ptr)					\
 {									\
 	__asm__ __volatile__(						\
-	"1:	"insn("%z2", "%3")"	# __put_data_asm	\n"	\
+	"1:	"insn("%z2", "(%3)")"	# __put_data_asm	\n"	\
 	"2:							\n"	\
 	"	.insn						\n"	\
 	"	.section	.fixup,\"ax\"			\n"	\
@@ -309,8 +310,9 @@ do {									\
 	"	" __UA_ADDR "	1b, 3b				\n"	\
 	"	.previous					\n"	\
 	: "=r" (__pu_err)						\
-	: "0" (0), "Jr" (__pu_val), "o" (__m(ptr)),			\
-	  "i" (-EFAULT));						\
+	: "0" (0), "Jr" (__pu_val), "r" (ptr),				\
+	  "i" (-EFAULT)							\
+	: "memory");						\
 }
 
 #define __put_data_asm_ll32(insn, ptr)					\
