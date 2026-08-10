@@ -15,6 +15,10 @@ config DTB_INTEL_MIPS_GRX500
 	bool "Intel MIPS GRX500 Board"
 	select BUILTIN_DTB
 
+config DTB_INTEL_MIPS_FRITZ7560
+	bool "AVM FRITZ!Box 7560"
+	select BUILTIN_DTB
+
 endchoice
 
 endif

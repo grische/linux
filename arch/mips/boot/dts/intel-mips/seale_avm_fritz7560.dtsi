@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * AVM FRITZ!Box 7560 (HW221, GRX350) board-specific shared definitions.
+ *
+ * Phase 2 layers a persistent NAND-backed rootfs onto the Phase-1 RAM-boot
+ * baseline. Partition labels, offsets, and sizes are reproduced byte-for-byte
+ * from AVM's stock layout so that a vendor recovery (TFTP via the urlader)
+ * can hand the kernel back to AVM-firmware without remapping flash.
+ */
+
+&ebu_nand {
+	status = "okay";
+
+	/* FRITZ!Box 7560's Macronix NAND is wired to EBU chip-select 1. */
+	lantiq,cs = <1>;
+
+	nand@0 {
+		reg = <0>;
+		label = "nand0";
+
+		/*
+		 * Macronix MX30LF1GE8AB on-die 4-bit BCH ECC. Selected via
+		 * the legacy "nand-ecc-mode" binding; the modern
+		 * "nand-ecc-engine" property is a phandle, not a string,
+		 * and is not applicable when the chip itself is the ECC
+		 * engine.
+		 */
+		nand-ecc-mode = "on-die";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			/*
+			 * AVM urlader (first-stage bootloader). Read-only:
+			 * overwriting it bricks the device past the point of
+			 * recovery without JTAG/SPI-flashing the chip.
+			 */
+			partition@0 {
+				label = "urlader";
+				reg = <0x0 0x100000>;
+				read-only;
+			};
+
+			/*
+			 * AVM TFFS environment (serial, MAC, calibration). Kept
+			 * writable so the fritz-tffs userspace package can fix
+			 * up serial/MAC entries in some recovery flows.
+			 */
+			partition@100000 {
+				label = "nand-tffs";
+				reg = <0x100000 0x400000>;
+			};
+
+			/* Primary kernel slot. Written by sysupgrade. */
+			partition@500000 {
+				label = "kernel";
+				reg = <0x500000 0x800000>;
+			};
+
+			/* AVM secondary/recovery kernel slot. Written by sysupgrade. */
+			partition@d00000 {
+				label = "reserved-kernel";
+				reg = <0xd00000 0x800000>;
+			};
+
+			/* UBI volume hosting rootfs / rootfs_data. */
+			partition@1500000 {
+				label = "ubi";
+				reg = <0x1500000 0x6b00000>;
+			};
+		};
+	};
+};
+
+/ {
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+	};
+};
