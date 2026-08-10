@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Intel xRX500 packet datapath.
+#
+# INTEL_XRX500_NET is separate from LANTIQ_XRX200 because INTEL_MIPS and
+# LANTIQ are mutually exclusive entries in arch/mips/Kconfig's "System
+# type" choice, so this port cannot depend on SOC_TYPE_XWAY.
+
+menuconfig INTEL_XRX500_NET
+	bool "Intel xRX500 / GRX350 ethernet drivers"
+	depends on INTEL_MIPS && OF && HAS_IOMEM
+	default n
+	help
+	  Selects the packet datapath of the Intel xRX500 family: the buffer
+	  manager that owns the segment pools and the egress queues, the DMA
+	  controllers that move frames between them and the switch macros, and
+	  the network device that carries the processor's end of it.
+
+	  The switch macros themselves are driven as DSA switches and are
+	  configured under Distributed Switch Architecture instead.
+
+	  Say N here unless you are building for a GRX350-class board such as
+	  the AVM FRITZ!Box 7560.
+
+if INTEL_XRX500_NET
+
+config INTEL_XRX500_BM
+	bool "xRX500 packet buffer manager"
+	default n
+	help
+	  The central buffer manager, the traffic manager it dequeues
+	  through, and the packet DMA controllers. Together they own the
+	  reserved segment pools every frame is carried in, the free-segment
+	  queue those segments are drawn from and returned to, and the
+	  per-port egress resources a frame is enqueued on.
+
+	  Not a module: the buffer economy is a set of reserved memory
+	  regions the driver maintains by hand, and the MIPS cache
+	  maintenance that takes is not exported to modules.
+
+	  Say N unless you are bringing this datapath up.
+
+endif # INTEL_XRX500_NET
