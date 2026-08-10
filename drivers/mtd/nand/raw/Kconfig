@@ -395,6 +395,15 @@ config MTD_NAND_INTEL_LGM
 	  Enables support for NAND Flash chips on Intel's LGM SoC.
 	  NAND flash controller interfaced through the External Bus Unit.
 
+config MTD_NAND_LANTIQ_XRX500
+	bool "Lantiq xRX500 (GRX350) EBU NAND controller"
+	depends on MIPS && OF && HAS_IOMEM
+	help
+	  Enables support for NAND Flash chips on the Lantiq / Intel xRX500
+	  (GRX350) family of SoCs, attached to the External Bus Unit (EBU)
+	  in legacy NAND mode. Used by the AVM FRITZ!Box 7560 and similar
+	  Lantiq-based boards. Uses the modern exec_op NAND API.
+
 config MTD_NAND_ROCKCHIP
 	tristate "Rockchip NAND controller"
 	depends on ARCH_ROCKCHIP && HAS_IOMEM
