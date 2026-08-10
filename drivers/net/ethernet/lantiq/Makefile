@@ -9,4 +9,4 @@
 
 obj-$(CONFIG_INTEL_XRX500_GSWIP_API) += intel-xrx500-gswip.o
 
-intel-xrx500-gswip-y := switch-api/gsw_init.o switch-api/gsw_flow_core.o
+intel-xrx500-gswip-y := switch-api/gsw_init.o switch-api/gsw_flow_core.o switch-api/gsw_flow_pce.o
