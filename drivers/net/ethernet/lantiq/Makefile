@@ -25,3 +25,4 @@ intel-xrx500-mdio-y := xrx500_phy_fw.o
 # Without the bus, phylink_of_phy_connect() has no PHY to find.
 #
 intel-xrx500-mdio-y += switch-api/mdio_xrx500.o
+intel-xrx500-gswip-y += dma/hdma.o
