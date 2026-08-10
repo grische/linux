@@ -512,12 +512,21 @@ static void gic_mask_local_irq_all_vpes(struct irq_data *d)
 	struct gic_all_vpes_chip_data *cd;
 	int intr, cpu;
 
-	if (!mips_cps_multicluster_cpus())
-		return;
-
 	intr = GIC_HWIRQ_TO_LOCAL(d->hwirq);
 	cd = irq_data_get_irq_chip_data(d);
 	cd->mask = false;
+
+	/*
+	 * Single-cluster systems must still mask the IRQ on the currently
+	 * executing VPE; secondary VPEs pick the new mask state up via
+	 * gic_all_vpes_irq_cpu_online() as they come online. Multi-cluster
+	 * systems iterate to push the mask to all online VPEs through the
+	 * GIC redirect block.
+	 */
+	if (!mips_cps_multicluster_cpus()) {
+		write_gic_vl_rmask(BIT(intr));
+		return;
+	}
 
 	for_each_online_cpu_gic(cpu, &gic_lock)
 		write_gic_vo_rmask(BIT(intr));
@@ -528,12 +537,14 @@ static void gic_unmask_local_irq_all_vpes(struct irq_data *d)
 	struct gic_all_vpes_chip_data *cd;
 	int intr, cpu;
 
-	if (!mips_cps_multicluster_cpus())
-		return;
-
 	intr = GIC_HWIRQ_TO_LOCAL(d->hwirq);
 	cd = irq_data_get_irq_chip_data(d);
 	cd->mask = true;
+
+	if (!mips_cps_multicluster_cpus()) {
+		write_gic_vl_smask(BIT(intr));
+		return;
+	}
 
 	for_each_online_cpu_gic(cpu, &gic_lock)
 		write_gic_vo_smask(BIT(intr));
@@ -701,6 +712,13 @@ static int gic_irq_domain_map(struct irq_domain *d, unsigned int virq,
 	if (mips_cps_multicluster_cpus()) {
 		for_each_online_cpu_gic(cpu, &gic_lock)
 			write_gic_vo_map(mips_gic_vx_map_reg(intr), map);
+	} else {
+		/*
+		 * On single-cluster systems gic_cpu_startup() runs on the
+		 * boot CPU only, so a secondary released by firmware never
+		 * unmasks its own local interrupts.
+		 */
+		write_gic_vl_map(mips_gic_vx_map_reg(intr), map);
 	}
 
 	return 0;
