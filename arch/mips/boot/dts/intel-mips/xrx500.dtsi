@@ -1,0 +1,244 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 Grische <github@grische.xyz>
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	compatible = "intel,xrx500";
+
+	/*
+	 * The driver takes each controller's id from its alias; the numbering
+	 * indexes enum dma_controller.
+	 */
+	aliases {
+		dma1 = &dma1tx;
+		dma2 = &dma1rx;
+		dma3 = &dma2tx;
+		dma4 = &dma2rx;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "mti,interaptiv";
+			clocks = <&cgu CLK_CPU>;
+			reg = <0>;
+		};
+
+		cpu1: cpu@1 {
+			device_type = "cpu";
+			compatible = "mti,interaptiv";
+			reg = <1>;
+		};
+	};
+
+	cpu_intc: interrupt-controller {
+		compatible = "mti,cpu-interrupt-controller";
+
+		interrupt-controller;
+		#address-cells = <0>;
+		#interrupt-cells = <1>;
+	};
+
+	gic: gic@12320000 {
+		compatible = "mti,gic";
+		reg = <0x12320000 0x20000>;
+
+		interrupt-controller;
+		#interrupt-cells = <3>;
+		/*
+		 * Declare the interrupt-parent even though the mti,gic
+		 * binding doesn't require it, such that the kernel can
+		 * figure out that cpu_intc is the root interrupt
+		 * controller & should be probed first.
+		 */
+		interrupt-parent = <&cpu_intc>;
+		mti,reserved-ipi-vectors = <56 8>;
+	};
+
+	cgu: cgu@16200000 {
+		compatible = "intel,grx500-cgu", "syscon";
+		reg = <0x16200000 0x200>;
+		#clock-cells = <1>;
+	};
+
+	/*
+	 * Reset Control Unit. The mainline lantiq,xrx200-reset driver must be
+	 * a syscon child: its reg is a byte offset into the parent regmap,
+	 * not an absolute address. #reset-cells = <2> is [set_bit,
+	 * status_bit], which on this SoC are not always the same number.
+	 */
+	rcu: rcu@16000000 {
+		compatible = "lantiq,xrx200-rcu", "simple-mfd", "syscon";
+		reg = <0x16000000 0x100>;
+		ranges = <0x0 0x16000000 0x100>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		rcu_reset0: reset-controller@10 {
+			compatible = "lantiq,xrx200-reset";
+			reg = <0x10 0x4>, <0x14 0x4>;
+			#reset-cells = <2>;
+		};
+	};
+
+	asc0: serial@16600000 {
+		compatible = "lantiq,asc";
+		reg = <0x16600000 0x100000>;
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 103 IRQ_TYPE_LEVEL_HIGH>,
+			<GIC_SHARED 105 IRQ_TYPE_LEVEL_HIGH>,
+			<GIC_SHARED 106 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&cgu CLK_SSX4>, <&cgu GCLK_UART>;
+		clock-names = "freq", "asc";
+	};
+
+	ebu_nand: nand-controller@16f00000 {
+		compatible = "lantiq,nand-xrx500";
+		/*
+		 * Two reg blocks: the EBU register window (256 bytes at
+		 * 0x16f00000) and the chip-select-1 NAND data window
+		 * (1 MiB at 0x17c00000). The CS1 window is fixed by the
+		 * EBU's ADDR_SEL1 region map (ADDR_MASK(5) on xRX500
+		 * selects a 1 MiB aperture starting at 0x17c00000).
+		 */
+		reg = <0x16f00000 0x100>,
+		      <0x17c00000 0x100000>;
+		reg-names = "ebunand", "nand_cs1";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+
+	/*
+	 * GSWIP-3.x register windows: the two switch cores and the shared
+	 * top-level block, given as physical addresses.
+	 */
+	gswl: gswip@1c000000 {
+		compatible = "intel,xrx500-gswip-3.0";
+		reg = <0x1c000000 0x4000>;
+		lantiq,gswip-instance = <0>;
+		status = "disabled";
+	};
+
+	gswr: gswip@1a000000 {
+		compatible = "intel,xrx500-gswip-3.0";
+		reg = <0x1a000000 0x4000>;
+		lantiq,gswip-instance = <1>;
+		status = "disabled";
+	};
+
+	/*
+	 * Central Buffer Manager. The reg-names order must match the driver's
+	 * ioremap table. The interrupts are level-high.
+	 */
+	cbm: cbm@1e700000 {
+		compatible = "lantiq,cbm-xrx500";
+		reg = <0x1e700000 0x1000>,    /* tmu      */
+		      <0x1e710000 0x10000>,   /* cbm      */
+		      <0x1e720000 0x4000>,    /* qidt     */
+		      <0x1e730000 0x14000>,   /* sbim     */
+		      <0x1e750000 0x400>,     /* qeqcnt   */
+		      <0x1e750800 0x400>,     /* qdqcnt   */
+		      <0x1e760000 0x10000>,   /* ls       */
+		      <0x1e780000 0x20000>,   /* eqm      */
+		      <0x1e7c0000 0x30000>,   /* dqm      */
+		      <0x1e800000 0x100000>,  /* fsqm0    */
+		      <0x1e900000 0x100000>,  /* fsqm1    */
+		      <0x1e500000 0x100000>;  /* dma_desc */
+		reg-names = "tmu", "cbm", "qidt", "sbim",
+			    "qeqcnt", "qdqcnt", "ls", "eqm", "dqm",
+			    "fsqm0", "fsqm1", "dma_desc";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 174 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SHARED 178 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SHARED 179 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SHARED 180 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SHARED 181 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&cgu CLK_CBM>, <&cgu GCLK_CBM>;
+		clock-names = "freq", "cbm";
+		status = "disabled";
+	};
+
+	/* The three GSWIP-3.0 DMA controller register windows. */
+	dma1tx: dma@1a100000 {
+		compatible = "lantiq,dma-xrx500";
+		reg = <0x1a100000 0x10000>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 65 IRQ_TYPE_LEVEL_HIGH>;
+		lantiq,dma-pkt-arb = <2>; /* 0 - burst, 1 - mulitburst, 2 - pkt */
+		lantiq,dma-burst = <16>; /* 2, 4, 8, 16 */
+		lantiq,dma-polling-cnt = <108>;
+		lantiq,dma-chan-fc = <1>;
+		lantiq,dma-desc-fod = <1>;
+		lantiq,dma-desc-in-sram = <1>; /* A11 - 0, A21 - 1 */
+		lantiq,dma-drb = <0>;
+		lantiq,dma-byte-en = <1>;
+		lantiq,budget = <20>;
+		lantiq,dma-lab-cnt = <2>; /* 0, 1, 2, 3 */
+		lantiq,dma-txendi = <3>;
+		lantiq,dma-rxendi = <3>;
+		status = "okay";
+	};
+
+	dma1rx: dma@1a200000 {
+		compatible = "lantiq,dma-xrx500";
+		reg = <0x1a200000 0x10000>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 66 IRQ_TYPE_LEVEL_HIGH>;
+		lantiq,dma-pkt-arb = <2>; /* 0 - burst, 1 - mulitburst, 2 - pkt */
+		lantiq,dma-burst = <16>; /* 2, 4, 8, 16 */
+		lantiq,dma-polling-cnt = <24>;
+		lantiq,dma-chan-fc = <0>;
+		lantiq,dma-desc-fod = <1>;
+		lantiq,dma-desc-in-sram = <0>;
+		lantiq,dma-drb = <0>;
+		lantiq,dma-byte-en = <0>;
+		lantiq,dma-txendi = <3>;
+		lantiq,dma-rxendi = <3>;
+		lantiq,budget = <20>;
+		status = "okay";
+	};
+
+	dma2tx: dma@1c100000 {
+		compatible = "lantiq,dma-xrx500";
+		reg = <0x1c100000 0x10000>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 67 IRQ_TYPE_LEVEL_HIGH>;
+		lantiq,dma-pkt-arb = <2>; /* 0 - burst, 1 - mulitburst, 2 - pkt */
+		lantiq,dma-burst = <16>; /* 2, 4, 8, 16 */
+		lantiq,dma-polling-cnt = <24>;
+		lantiq,dma-chan-fc = <1>;
+		lantiq,dma-desc-fod = <1>;
+		lantiq,dma-desc-in-sram = <0>;
+		lantiq,dma-drb = <0>;
+		lantiq,dma-byte-en = <1>;
+		lantiq,dma-txendi = <3>;
+		lantiq,dma-rxendi = <3>;
+		lantiq,budget = <20>;
+		status = "okay";
+	};
+
+	dma2rx: dma@1c200000 {
+		compatible = "lantiq,dma-xrx500";
+		reg = <0x1c200000 0x10000>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 68 IRQ_TYPE_LEVEL_HIGH>;
+		lantiq,dma-pkt-arb = <2>; /* 0 - burst, 1 - mulitburst, 2 - pkt */
+		lantiq,dma-burst = <16>; /* 2, 4, 8, 16 */
+		lantiq,dma-polling-cnt = <24>;
+		lantiq,dma-chan-fc = <0>;
+		lantiq,dma-desc-fod = <1>;
+		lantiq,dma-desc-in-sram = <0>;
+		lantiq,dma-drb = <0>;
+		lantiq,dma-byte-en = <1>;
+		lantiq,dma-txendi = <3>;
+		lantiq,dma-rxendi = <3>;
+		lantiq,budget = <20>;
+		status = "okay";
+	};
+};
