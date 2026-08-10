@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 Grische <github@grische.xyz>
+/dts-v1/;
+
+#include <dt-bindings/interrupt-controller/mips-gic.h>
+#include <dt-bindings/clock/intel,grx500-clk.h>
+
+#include "xrx500.dtsi"
+#include "seale_avm_fritz7560.dtsi"
+
+/ {
+	model = "AVM FRITZ!Box 7560";
+	compatible = "avm,fritz7560", "intel,xrx500";
+
+	/*
+	 * The boot loader carries a table of device-tree blobs keyed by
+	 * hardware sub-revision. Declaring the tag is cosmetic here — the
+	 * loader passes this kernel no device tree and the appended blob is
+	 * parsed unconditionally — but it stops the loader reporting an
+	 * unmatched sub-revision.
+	 */
+	avm-hw-revision {
+		compatible = "avm,avm_hw_revision";
+		revision = "221";
+		subrevision = "1";
+	};
+
+	/*
+	 * xrx500.dtsi already declares cpu0/cpu1 (interAptiv). The FRITZ!Box 7560 has
+	 * a 4-core interAptiv cluster ("VPE topology {2,2} total 4" per line
+	 * 197), so augment the inherited cpus block with cpu2/cpu3. The cpus
+	 * node is merged by dtc with the same path declared in xrx500.dtsi;
+	 * #address-cells / #size-cells are inherited.
+	 */
+	cpus {
+		cpu2: cpu@2 {
+			device_type = "cpu";
+			compatible = "mti,interaptiv";
+			reg = <2>;
+		};
+
+		cpu3: cpu@3 {
+			device_type = "cpu";
+			compatible = "mti,interaptiv";
+			reg = <3>;
+		};
+	};
+
+	/*
+	 * 128 MiB DDR at PHYS_OFFSET 0x20000000. Match the 5.10 reference
+	 * DTS for this board. The chip has 256 MiB physical but AVM's 4Kec
+	 * bootcore (kernel2 at load 0x8DFFFFFC) lives in the upper region;
+	 * conservative Phase 1 exposes only the bottom 128 MiB to the
+	 * InterAptiv kernel.
+	 * Reserved-memory regions (gphy_fw, cbm_std_pool, cbm_jbo_pool from
+	 * the 5.10 DTS) are deferred to Phase 2/3 where they're load-bearing.
+	 */
+	memory@20000000 {
+		device_type = "memory";
+		reg = <0x20000000 0x08000000>;
+	};
+
+	aliases {
+		serial0 = &asc0;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs = "";
+	};
+};
