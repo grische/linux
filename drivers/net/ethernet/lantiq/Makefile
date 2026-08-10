@@ -30,3 +30,5 @@ intel-xrx500-gswip-y += cqm/grx500/cbm_basic.o cqm/grx500/cbm_buf.o cqm/grx500/f
 intel-xrx500-gswip-y += cqm/grx500/cbm_dma.o
 intel-xrx500-gswip-y += tmu/tmu_init.o tmu/drv_tmu_ll.o
 intel-xrx500-gswip-y += datapath/datapath_misc.o datapath/datapath_api.o datapath/datapath_instance.o
+intel-xrx500-gswip-y += cqm/grx500/cbm_dp.o
+intel-xrx500-gswip-y += cqm/grx500/cbm_ports.o
