@@ -11,6 +11,7 @@
  */
 
 #include <linux/bug.h>
+#include <linux/export.h>
 #include <linux/kernel.h>
 #include <linux/types.h>
 
@@ -989,3 +990,4 @@ int gsw_hw_reinit_gswl(void)
 
 	return gsw_hw_reinit(GSW_PDATA_GET(ops));
 }
+EXPORT_SYMBOL_GPL(gsw_hw_reinit_gswl);

@@ -22,17 +22,20 @@ config INTEL_XRX500_GSWIP_API
 	  will be called intel-xrx500-gswip.
 
 config INTEL_XRX500_MDIO
-	tristate "Intel xRX500 GPHY firmware loader"
+	tristate "Intel xRX500 GPHY firmware loader and MDIO bus"
 	depends on INTEL_XRX500_GSWIP_API
 	select FW_LOADER
+	select OF_MDIO
+	select PHYLIB
 	select RESET_CONTROLLER
 	default n
 	help
-	  Loader for the firmware the integrated Gigabit PHYs run. The
-	  firmware is proprietary and is not carried in the kernel tree,
-	  so build this as a module (M) and let it read the blob from
-	  /lib/firmware; built in, it has to reach the firmware before any
-	  filesystem is mounted.
+	  Firmware loader and MDIO bus driver for the integrated Gigabit
+	  PHYs. The firmware is proprietary and is not carried in the
+	  kernel tree, so build this as a module (M) and let it read the
+	  blob from /lib/firmware; built in, the loader has to reach the
+	  firmware before any filesystem is mounted. The bus driver rides
+	  in the same module because it waits on the loader.
 
 	  To compile this driver as a module, choose M here. The module
 	  will be called intel-xrx500-mdio.
