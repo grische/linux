@@ -71,6 +71,63 @@
 	};
 };
 
+/*
+ * The second switch macro, which is where this die's WAN socket lands. It is
+ * a tree of its own with a conduit of its own: nothing forwards between the
+ * two macros in hardware, so a bridge spanning them would blackhole, and a
+ * conduit carries exactly one CPU port.
+ */
+&gswr {
+	status = "okay";
+
+	/*
+	 * The same sub-aperture of the same block as the LAN macro's bus, so
+	 * the driver reaches it through the identical offset from this node's
+	 * own window.
+	 *
+	 * The address on the bus is 1, which is the number of the register
+	 * slots the external port's PHY address is written into. It has
+	 * nothing to do with the port's own number.
+	 */
+	mdio {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		gphy_wan: ethernet-phy@1 {
+			compatible = "ethernet-phy-idd565.a409",
+				     "ethernet-phy-ieee802.3-c22";
+			reg = <0x01>;
+		};
+	};
+
+	ports {
+		port@f {
+			reg = <15>;
+			label = "wan";
+			phy-mode = "internal";
+			phy-handle = <&gphy_wan>;
+		};
+	};
+};
+
+&conduit_wan {
+	status = "okay";
+};
+
+/*
+ * The fifth integrated PHY, which carries the WAN socket. On this die request
+ * bit 31 is that core's own reset line and not a group master reset, which is
+ * how the vendor device tree names it. Its status is reported in bit 30, and
+ * bit 31 of the status register belongs to the watchdog instead.
+ */
+&gphy_fw {
+	gphy@f9a {
+		reg = <0xf9a>;
+		resets = <&rcu_reset0 31 30>;
+		reset-names = "gphy";
+	};
+};
+
 &usb0_phy {
 	status = "okay";
 	vbus-supply = <&usb_vbus>;
