@@ -266,20 +266,28 @@ static void __init cps_smp_setup(void)
 		__cpu_logical_map[v] = v;
 	}
 
-	/* Set a coherent default CCA (CWB) */
-	change_c0_config(CONF_CM_CMASK, 0x5);
+	/*
+	 * Skip the CPS fabric writes on intel-mips: the firmware boot chain
+	 * establishes CM membership and the coherent CCA before the kernel is
+	 * entered, and re-programming either from cached code is neither
+	 * necessary nor safe here.
+	 */
+	if (!IS_ENABLED(CONFIG_INTEL_MIPS)) {
+		/* Set a coherent default CCA (CWB) */
+		change_c0_config(CONF_CM_CMASK, 0x5);
 
-	/* Initialise core 0 */
-	mips_cps_core_init();
+		/* Initialise core 0 */
+		mips_cps_core_init();
 
-	/* Make core 0 coherent with everything */
-	write_gcr_cl_coherence(0xff);
+		/* Make core 0 coherent with everything */
+		write_gcr_cl_coherence(0xff);
 
-	if (allocate_cps_vecs())
-		pr_err("Failed to allocate CPS vectors\n");
+		if (allocate_cps_vecs())
+			pr_err("Failed to allocate CPS vectors\n");
 
-	if (core_entry_reg && mips_cm_revision() >= CM_REV_CM3)
-		write_gcr_bev_base(core_entry_reg);
+		if (core_entry_reg && mips_cm_revision() >= CM_REV_CM3)
+			write_gcr_bev_base(core_entry_reg);
+	}
 
 #ifdef CONFIG_MIPS_MT_FPAFF
 	/* If we have an FPU, enroll ourselves in the FPU-full mask */
