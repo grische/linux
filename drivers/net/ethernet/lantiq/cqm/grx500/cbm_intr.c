@@ -91,6 +91,24 @@ static struct net_device *g_cbm_rx_netdev;
 #define CBM_RX_RESCHED_CAP 1000
 static u32 g_cbm_resched_cnt[CPU_DQM_PORT_NUM];
 
+static DEFINE_RAW_SPINLOCK(g_cbm_irnen_ls_lock);
+
+static void cbm_irnen_ls_rmw(u32 pid, bool enable)
+{
+	u32 mask = (u32)(3UL << (pid * 2 + 16));
+	unsigned long flags;
+	u32 val;
+
+	raw_spin_lock_irqsave(&g_cbm_irnen_ls_lock, flags);
+	val = __raw_readl(g_cbm_ls_base + IRNEN_LS);
+	if (enable)
+		val |= mask;
+	else
+		val &= ~mask;
+	__raw_writel(val, g_cbm_ls_base + IRNEN_LS);
+	raw_spin_unlock_irqrestore(&g_cbm_irnen_ls_lock, flags);
+}
+
 /* Sub-handlers */
 
 /*
@@ -353,9 +371,7 @@ irqreturn_t cbm_isr_4(int irq, void *dev_id)
 		 * AVM 2684 — mask the LS IRQ enable: clear bits 3 << (0*2 +
 		 * 16) at g_cbm_ls_base + IRNEN_LS (0x918).
 		 */
-		__raw_writel(__raw_readl(g_cbm_ls_base + IRNEN_LS) &
-				     ~(u32)(3UL << (0 * 2 + 16)),
-			     g_cbm_ls_base + IRNEN_LS);
+		cbm_irnen_ls_rmw(0, false);
 		/* AVM 2685 — dummy read-back to flush the mask write. */
 		__raw_readl(g_cbm_ls_base + IRNEN_LS);
 		pr_debug("cbm: isr4: load spreader interrupt on pid 0; schedule tasklet\n");
@@ -399,9 +415,7 @@ irqreturn_t cbm_isr_5(int irq, void *dev_id)
 	if (cbm_irncr & 0x0200) {
 		__raw_writel(0, g_cbm_base + CBM_INT_LINE(5, cbm_irnen));
 		__raw_readl(g_cbm_base + CBM_INT_LINE(5, cbm_irnen));
-		__raw_writel(__raw_readl(g_cbm_ls_base + IRNEN_LS) &
-				     ~(u32)(3UL << (1 * 2 + 16)),
-			     g_cbm_ls_base + IRNEN_LS);
+		cbm_irnen_ls_rmw(1, false);
 		__raw_readl(g_cbm_ls_base + IRNEN_LS);
 		tasklet_schedule(&cbm_tasklet[1]);
 		return IRQ_HANDLED;
@@ -447,9 +461,7 @@ irqreturn_t cbm_isr_6(int irq, void *dev_id)
 	if (cbm_irncr & 0x0400) {
 		__raw_writel(0, g_cbm_base + CBM_INT_LINE(6, cbm_irnen));
 		__raw_readl(g_cbm_base + CBM_INT_LINE(6, cbm_irnen));
-		__raw_writel(__raw_readl(g_cbm_ls_base + IRNEN_LS) &
-				     ~(u32)(3UL << (2 * 2 + 16)),
-			     g_cbm_ls_base + IRNEN_LS);
+		cbm_irnen_ls_rmw(2, false);
 		__raw_readl(g_cbm_ls_base + IRNEN_LS);
 		tasklet_schedule(&cbm_tasklet[2]);
 		return IRQ_HANDLED;
@@ -490,9 +502,7 @@ irqreturn_t cbm_isr_7(int irq, void *dev_id)
 	if (cbm_irncr & 0x0800) {
 		__raw_writel(0, g_cbm_base + CBM_INT_LINE(7, cbm_irnen));
 		__raw_readl(g_cbm_base + CBM_INT_LINE(7, cbm_irnen));
-		__raw_writel(__raw_readl(g_cbm_ls_base + IRNEN_LS) &
-				     ~(u32)(3UL << (3 * 2 + 16)),
-			     g_cbm_ls_base + IRNEN_LS);
+		cbm_irnen_ls_rmw(3, false);
 		__raw_readl(g_cbm_ls_base + IRNEN_LS);
 		tasklet_schedule(&cbm_tasklet[3]);
 		return IRQ_HANDLED;
@@ -715,9 +725,7 @@ static void do_cbm_tasklet(unsigned long cpu)
 		__raw_readl(g_cbm_base + CBM_INT_LINE(4 + (int)cpu, cbm_irnicr)); /* dummy read */
 		__raw_readl(g_cbm_base + CBM_INT_LINE(4 + (int)cpu, cbm_irncr));  /* flush */
 		rmb();
-		__raw_writel(__raw_readl(g_cbm_ls_base + IRNEN_LS) |
-				     (u32)(3UL << (cpu * 2 + 16)),
-			     g_cbm_ls_base + IRNEN_LS);
+		cbm_irnen_ls_rmw((u32)cpu, true);
 		__raw_writel((u32)((1UL << cpu) << 8),
 			     g_cbm_base + CBM_INT_LINE(4 + (int)cpu, cbm_irnen));
 	}

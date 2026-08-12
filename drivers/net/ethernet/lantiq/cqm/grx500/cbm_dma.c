@@ -17,7 +17,7 @@
 #include <linux/dev_printk.h>
 #include <linux/ratelimit.h>
 #include <linux/errno.h>
-#include <linux/smp.h>
+#include <linux/irqflags.h>
 #include <asm/io.h>
 #include <asm/barrier.h>
 
@@ -31,6 +31,15 @@
 #define CBM_PORT_F_STANDARD_BUF  0x1U
 #define CBM_PORT_F_JUMBO_BUF     0x2U
 #define CBM_DMA_DESC_OWN         1U
+
+/*
+ * init_cbm_eqm_ldma_port() - arm the EQM DMA ingress port the DSL companion
+ * feeds.
+ *
+ * The vendor runs this sequence unconditionally at boot, with no driver gate,
+ * so arming the port with no consumer attached is its own steady state.
+ */
+#define CBM_EQM_BUFREQ_PORT      0
 
 /*
  * Build-time guard for the DMA data offset: CBM_FIXED_RX_OFFSET is
@@ -103,7 +112,7 @@ int setup_eqm_dma_desc(int pid, int desc_count, u32 flags, u32 buf_offset)
 			frm_size = g_cbm_buff.jbo_frm_size;
 
 		{
-			int cpu_pid = smp_processor_id();
+			int cpu_pid = CBM_EQM_BUFREQ_PORT;
 			u32 popped_phys = 0;
 			void *va = cbm_fsqm_buf_alloc(cpu_pid, flags, &popped_phys);
 
@@ -199,7 +208,7 @@ int init_cbm_eqm_ldma_port(void)
 	for (i = 0; i < 32; i++) {
 		void __iomem *desc = g_cbm_eqm_base + SDESC0_0_IGP_15 + i * 8;
 		u32 buf_phys = 0;
-		void *va = cbm_fsqm_buf_alloc(smp_processor_id(),
+		void *va = cbm_fsqm_buf_alloc(CBM_EQM_BUFREQ_PORT,
 					      CBM_PORT_F_STANDARD_BUF,
 					      &buf_phys);
 
@@ -256,6 +265,7 @@ void *cbm_fsqm_buf_alloc(int pid, u32 flags, u32 *buf_phys)
 	u32 buf_addr = CBM_FSQM_BUF_EMPTY;
 	unsigned int i = 0;
 	bool jumbo = !(flags & CBM_PORT_F_STANDARD_BUF);
+	unsigned long irqflags;
 	void *va;
 
 	if (!g_cbm_eqm_base) {
@@ -270,10 +280,12 @@ void *cbm_fsqm_buf_alloc(int pid, u32 flags, u32 *buf_phys)
 
 	reg = jumbo ? CBM_EQM_CPU_PORT(pid, new_jptr)
 		    : CBM_EQM_CPU_PORT(pid, new_sptr);
+	local_irq_save(irqflags);
 	do {
 		buf_addr = cbm_eqm_r32(reg);
 	} while ((buf_addr & CBM_FSQM_BUF_EMPTY) == CBM_FSQM_BUF_EMPTY &&
 		 i++ < CBM_FSQM_BUF_WAIT_CYCLES);
+	local_irq_restore(irqflags);
 
 	if ((buf_addr & CBM_FSQM_BUF_EMPTY) == CBM_FSQM_BUF_EMPTY) {
 		pr_err_ratelimited("cbm: cbm_fsqm_buf_alloc(pid=%d): FSQM %s pool empty\n",
@@ -307,6 +319,8 @@ EXPORT_SYMBOL_GPL(cbm_fsqm_buf_alloc);
  */
 int cbm_fsqm_buf_free(int pid, u32 buf_phys)
 {
+	unsigned long irqflags;
+
 	if (!g_cbm_dqm_base) {
 		pr_err_ratelimited("cbm: cbm_fsqm_buf_free: g_cbm_dqm_base not mapped\n");
 		return -ENODEV;
@@ -314,9 +328,11 @@ int cbm_fsqm_buf_free(int pid, u32 buf_phys)
 	if (pid < 0 || pid >= 4)
 		return -EINVAL;
 
+	local_irq_save(irqflags);
 	cbm_dqm_w32(CBM_DQM_CPU_PORT(pid, ptr_rtn),
 		    buf_phys & CBM_FSQM_BUF_EMPTY);
 	wmb();
+	local_irq_restore(irqflags);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(cbm_fsqm_buf_free);
