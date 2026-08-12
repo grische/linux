@@ -729,22 +729,23 @@ static int intel_xrx500_ndo_stop(struct net_device *dev)
 }
 
 /**
- * intel_xrx500_tx_drop_skb_locked() - common tx-drop fastpath.
+ * intel_xrx500_tx_drop_locked() - common tx-drop fastpath, skb NOT freed.
  *
  * @port:    the per-port state.
- *
- * @skb:     the frame to drop (consumed via dev_kfree_skb_any).
  *
  * @flags:   the irqsave flags captured at spin_lock_irqsave entry.
  *
  * @reason:  free-text string included in the pr_err_ratelimited line
  *           so post-mortems can disambiguate the failure mode.
+ *
+ * Use this variant only where the skb has ALREADY been freed by the failing
+ * call; every other drop path wants intel_xrx500_tx_drop_skb_locked() below,
+ * which adds the dev_kfree_skb_any.
  */
 static netdev_tx_t
-intel_xrx500_tx_drop_skb_locked(struct intel_xrx500_port *port,
-				struct sk_buff *skb,
-				unsigned long flags,
-				const char *reason)
+intel_xrx500_tx_drop_locked(struct intel_xrx500_port *port,
+			    unsigned long flags,
+			    const char *reason)
 {
 	atomic_long_inc(&port->stats.tx_dropped);
 
@@ -753,8 +754,19 @@ intel_xrx500_tx_drop_skb_locked(struct intel_xrx500_port *port,
 	pr_err_ratelimited("intel-xrx500: %s tx drop: %s\n",
 			   netdev_name(port->netdev), reason);
 
-	dev_kfree_skb_any(skb);
 	return NETDEV_TX_OK;
+}
+
+static netdev_tx_t
+intel_xrx500_tx_drop_skb_locked(struct intel_xrx500_port *port,
+				struct sk_buff *skb,
+				unsigned long flags,
+				const char *reason)
+{
+	netdev_tx_t ret = intel_xrx500_tx_drop_locked(port, flags, reason);
+
+	dev_kfree_skb_any(skb);
+	return ret;
 }
 
 /**
@@ -819,8 +831,8 @@ static netdev_tx_t intel_xrx500_ndo_start_xmit(struct sk_buff *skb,
 	 */
 	if (skb->len < ETH_ZLEN) {
 		if (skb_padto(skb, ETH_ZLEN))
-			return intel_xrx500_tx_drop_skb_locked(port, skb, flags,
-							      "skb_padto failed");
+			return intel_xrx500_tx_drop_locked(port, flags,
+							   "skb_padto failed");
 		if (skb->len < ETH_ZLEN)
 			skb_put(skb, ETH_ZLEN - skb->len);
 	}
