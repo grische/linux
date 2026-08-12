@@ -83,13 +83,13 @@ irqreturn_t cbm_isr_7(int irq, void *dev_id);
  */
 #define CBM_PMAC_RX_HDR_LEN 8
 
-static struct cbm_desc g_cbm_dlist[NR_CPUS][64];
+static struct cbm_desc g_cbm_dlist[CPU_DQM_PORT_NUM][64];
 static unsigned long g_cpu_port_alloc;
-static struct tasklet_struct cbm_tasklet[NR_CPUS];
+static struct tasklet_struct cbm_tasklet[CPU_DQM_PORT_NUM];
 static struct net_device *g_cbm_rx_netdev;
 
 #define CBM_RX_RESCHED_CAP 1000
-static u32 g_cbm_resched_cnt[NR_CPUS];
+static u32 g_cbm_resched_cnt[CPU_DQM_PORT_NUM];
 
 /* Sub-handlers */
 
