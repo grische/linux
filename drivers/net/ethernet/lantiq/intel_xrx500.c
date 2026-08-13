@@ -206,7 +206,7 @@ int cbm_cpu_enqueue_hw(int pid, u32 dw0, u32 dw1, u32 data_phys, u32 dw3);
 
 int turn_on_DMA_p2p(void);
 
-void cbm_rx_set_netdev(struct net_device *dev);
+void cbm_rx_set_netdev(u32 sppid, struct net_device *dev);
 
 #define XRX500_CBM_TX_DATA_OFFSET (128u + NET_IP_ALIGN + NET_SKB_PAD)
 
@@ -657,7 +657,7 @@ static int intel_xrx500_ndo_open(struct net_device *dev)
 
 	phylink_start(port->phylink);
 
-	cbm_rx_set_netdev(dev);
+	cbm_rx_set_netdev(port->dp_port_id, dev);
 
 	port->state_open = true;
 	return 0;
@@ -722,7 +722,7 @@ static int intel_xrx500_ndo_stop(struct net_device *dev)
 			first_err = ret;
 	}
 
-	cbm_rx_set_netdev(NULL);
+	cbm_rx_set_netdev(port->dp_port_id, NULL);
 
 	port->state_open = false;
 	return first_err;
@@ -943,6 +943,53 @@ static netdev_tx_t intel_xrx500_ndo_start_xmit(struct sk_buff *skb,
 	/* Frame copied + enqueued; release the skb. */
 	dev_consume_skb_any(skb);
 	return NETDEV_TX_OK;
+}
+
+/**
+ * intel_xrx500_rx_account() - count one delivered RX frame on @dev.
+ *
+ * @dev: one of this driver's netdevs (never another driver's).
+ *
+ * @len: the frame length to charge, POST PMAC-header strip.
+ *
+ * The CBM LS-tasklet RX engine (cqm/grx500/cbm_intr.c) calls this immediately
+ * before netif_receive_skb. It lives here, rather than the RX engine reaching
+ * through netdev_priv() itself, because these are the counters
+ * ndo_get_stats64 reports and this TU owns their layout and their writer
+ * discipline.
+ *
+ * Two things were wrong before. The RX path incremented ndev->stats.*, the
+ * generic net_device counters, but intel_xrx500_ndo_get_stats64 reads ONLY the
+ * private struct — and when ndo_get_stats64 exists the core memsets the storage
+ * and calls it, never consulting dev->stats. So every RX frame was counted into
+ * a bucket nothing read: `ip -s link show eth0` reported RX 0 forever while
+ * br-lan, an ordinary bridge netdev on the core's per-CPU tstats path,
+ * accumulated all of it. That is the whole of "RX only ever visible on br-lan"
+ * (eth0 RX 0 against br-lan RX 5814 across a working ping). Second, it charged
+ * the pre-skb_pull length, over-counting every frame by the 8 PMAC header
+ * bytes; callers now pass skb->len after the pull.
+ */
+void intel_xrx500_rx_account(struct net_device *dev, unsigned int len)
+{
+	struct intel_xrx500_port *port = netdev_priv(dev);
+	unsigned long flags;
+
+	flags = u64_stats_update_begin_irqsave(&port->stats.syncp);
+	u64_stats_inc(&port->stats.rx_packets);
+	u64_stats_add(&port->stats.rx_bytes, len);
+	u64_stats_update_end_irqrestore(&port->stats.syncp, flags);
+}
+
+/**
+ * intel_xrx500_rx_drop_account() - count one dropped RX frame on @dev.
+ *
+ * @dev: one of this driver's netdevs.
+ */
+void intel_xrx500_rx_drop_account(struct net_device *dev)
+{
+	struct intel_xrx500_port *port = netdev_priv(dev);
+
+	atomic_long_inc(&port->stats.rx_dropped);
 }
 
 /**
