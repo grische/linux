@@ -189,6 +189,11 @@
 };
 
 / {
+	/*
+	 * Every line here is active low: the panel LEDs hang off 3V3 and
+	 * the SoC pin sinks them, so driving the pin high extinguishes
+	 * the LED. Confirmed on hardware, one GPIO at a time.
+	 */
 	leds {
 		compatible = "gpio-leds";
 
@@ -201,38 +206,40 @@
 		 */
 		led_power: led-0 {
 			label = "green:power";
-			gpios = <&gpio1 4 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio1 4 GPIO_ACTIVE_LOW>;
 			default-state = "on";
 		};
 
-		led_internet: led-1 {
-			label = "green:internet";
-			gpios = <&gpio0 18 GPIO_ACTIVE_HIGH>;
+		/* Vendor name: gpio_avm_led_internet. Drives "Fon". */
+		led_fon: led-1 {
+			label = "green:fon";
+			gpios = <&gpio0 18 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
 
-		led_festnetz: led-2 {
-			label = "green:festnetz";
-			gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+		/* Vendor name: gpio_avm_led_festnetz. Drives "DECT". */
+		led_dect: led-2 {
+			label = "green:dect";
+			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
 
 		led_wlan: led-3 {
 			label = "green:wlan";
-			gpios = <&gpio0 14 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
 
 		led_info: led-4 {
 			label = "green:info";
-			gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
 
 		/* Bank 1, pin 2 == SoC pin 34. */
 		led_info_red: led-5 {
 			label = "red:info";
-			gpios = <&gpio1 2 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
 	};
