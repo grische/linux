@@ -2333,7 +2333,7 @@ int hdma_port_enable(int port_id)
 			if (ret) {
 				pr_err("hdma_port_enable(%d): init_cbm_dqm_dma_port(%d) failed: %d\n",
 				       port_id, e->cbm_deq, ret);
-				return ret;
+				goto err_release;
 			}
 
 			ret = ltq_dma_chan_desc_cfg(chan,
@@ -2342,7 +2342,7 @@ int hdma_port_enable(int port_id)
 			if (ret) {
 				pr_err("hdma_port_enable(%d): ltq_dma_chan_desc_cfg(%s, DQM-window) failed: %d\n",
 				       port_id, e->label, ret);
-				return ret;
+				goto err_release;
 			}
 			pr_info("hdma_port_enable(%d): %s CBM-managed, desc@phys 0x%08x x%u\n",
 				port_id, e->label,
@@ -2355,20 +2355,21 @@ int hdma_port_enable(int port_id)
 		if (ret) {
 			pr_err("hdma_port_enable(%d): ltq_dma_chan_desc_alloc(%s) failed: %d\n",
 			       port_id, e->label, ret);
-			return ret;
+			goto err_release;
 		}
 		pch = dma_chan_l2p(chan);
 		if (!pch) {
 			pr_err("hdma_port_enable(%d): dma_chan_l2p(%s) returned NULL\n",
 			       port_id, e->label);
-			return -EINVAL;
+			ret = -EINVAL;
+			goto err_release;
 		}
 		ret = ltq_dma_chan_desc_cfg(chan, pch->desc_phys,
 					    HDMA_PORT_DESC_NUM);
 		if (ret) {
 			pr_err("hdma_port_enable(%d): ltq_dma_chan_desc_cfg(%s) failed: %d\n",
 			       port_id, e->label, ret);
-			return ret;
+			goto err_release;
 		}
 chan_on:
 		ltq_dma_chan_irq_disable(chan);
@@ -2376,7 +2377,7 @@ chan_on:
 		if (ret) {
 			pr_err("hdma_port_enable(%d): ltq_dma_chan_open(%s) failed: %d\n",
 			       port_id, e->label, ret);
-			return ret;
+			goto err_release;
 		}
 		pr_info("hdma_port_enable(%d): opened %s (cid=%u pid=%u nid=%u)\n",
 			port_id, e->label, e->cid, e->pid, e->nid);
@@ -2384,6 +2385,20 @@ chan_on:
 
 	hdma_deq_set_armed(port_id);
 	return 0;
+
+err_release:
+	while (1) {
+		const struct port7_chan_desc *e = &tbl[i];
+		u32 c = _DMA_C(e->cid, e->pid, e->nid);
+
+		ltq_dma_chan_close(c);
+		ltq_dma_chan_desc_free(c);
+		ltq_free_dma(c);
+		if (i == 0)
+			break;
+		i--;
+	}
+	return ret;
 }
 
 /*
