@@ -187,3 +187,98 @@
 	memory-region-names = "cbm-std-pool", "cbm-jbo-pool";
 	status = "okay";
 };
+
+/ {
+	leds {
+		compatible = "gpio-leds";
+
+		/*
+		 * Bank 1, pin 4 == SoC pin 36. Lit as soon as the driver
+		 * probes: the urlader already turns the power LED on, and
+		 * blinking it off mid-boot would look like a failed boot.
+		 * The led-boot / led-running aliases hand it to userspace
+		 * afterwards.
+		 */
+		led_power: led-0 {
+			label = "green:power";
+			gpios = <&gpio1 4 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		led_internet: led-1 {
+			label = "green:internet";
+			gpios = <&gpio0 18 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		led_festnetz: led-2 {
+			label = "green:festnetz";
+			gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		led_wlan: led-3 {
+			label = "green:wlan";
+			gpios = <&gpio0 14 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		led_info: led-4 {
+			label = "green:info";
+			gpios = <&gpio0 0 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		/* Bank 1, pin 2 == SoC pin 34. */
+		led_info_red: led-5 {
+			label = "red:info";
+			gpios = <&gpio1 2 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+	};
+
+	/*
+	 * Polled rather than interrupt-driven: the GPIO banks do not
+	 * publish an irq domain (see xrx500.dtsi). 100 ms is fast enough
+	 * for both the short-press and the long-press handlers.
+	 */
+	keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <100>;
+
+		button-dect {
+			label = "dect";
+			linux,code = <KEY_PHONE>;
+			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
+		};
+
+		button-wlan {
+			label = "wlan";
+			linux,code = <KEY_RFKILL>;
+			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	aliases {
+		led-boot = &led_power;
+		led-running = &led_power;
+		led-failsafe = &led_info_red;
+		led-upgrade = &led_info;
+		led-wifi = &led_wlan;
+	};
+};
+
+/*
+ * DECT reset, active high. No DECT driver exists in this tree, so the
+ * line is hogged and driven asserted at boot to hold the Dialog DECT
+ * companion chip quiesced instead of leaving it half-initialised and
+ * chattering on the shared SSI bus.
+ */
+&gpio0 {
+	dect-reset-hog {
+		gpio-hog;
+		gpios = <10 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "dect-reset";
+	};
+};
