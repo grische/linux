@@ -97,6 +97,54 @@
 		clock-names = "freq", "asc";
 	};
 
+	/*
+	 * Equilibrium pinmux / pad controller. eqbr_build_groups() walks
+	 * every child, enabled or not, and returns -EINVAL for the first one
+	 * that has "groups" but neither "pins" nor "pinmux" — which fails the
+	 * whole pinctrl probe, not just that group. Pin groups therefore live
+	 * in the narrowest file that needs them.
+	 */
+	pinctrl: pinctrl@16c80000 {
+		compatible = "intel,pinctrl-xrx500";
+		reg = <0x16c80000 0x80000>;
+	};
+
+	/*
+	 * GPIO banks. Three constraints that are invisible in the code:
+	 *
+	 * - The node order matters: the driver walks them with a global
+	 * for_each_node_by_name().
+	 * - gpio-ranges spans 32 pins, not the 30 that are wired:
+	 *   bgpio_init() needs
+	 * a power-of-two register width.
+	 * - interrupts is mandatory even where nothing uses it, because
+	 *   gpiolib_reg()
+	 * always parses it.
+	 */
+	gpio0: gpio@16c00000 {
+		reg = <0x16c00000 0x80>;
+
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <32>;
+		gpio-ranges = <&pinctrl 0 0 32>;
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 172 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	gpio1: gpio@16c00100 {
+		reg = <0x16c00100 0x80>;
+
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <32>;
+		gpio-ranges = <&pinctrl 0 32 32>;
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 173 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
 	ebu_nand: nand-controller@16f00000 {
 		compatible = "lantiq,nand-xrx500";
 		/*
