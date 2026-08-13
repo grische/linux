@@ -326,9 +326,11 @@ int hdma_port_enable(int port_id);
 
 int hdma_ig192_toe_dma3_reset(void);
 
+/*
+ * AVM per-channel SW-poll knob (DMA_C_SWPOLL): takes one channel off the
+ * controller-global CH_FL flow-control engine.
+ */
 int ltq_dma_chan_sw_poll_cfg(u32 chan, int enable);
-int hdma_swtx_init(u32 chan, int n, int buf_size);
-int hdma_swtx_xmit(u32 chan, const void *data, int len);
 
 int ltq_dma_p2p_cfg(u32 rx_chan, u32 tx_chan);
 

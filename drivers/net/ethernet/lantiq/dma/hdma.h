@@ -150,7 +150,19 @@ struct dmax_chan {
 	int curr_desc;
 	int prev_desc;
 	dma_addr_t desc_phys; /* Descriptor base physical address */
+	/*
+	 * CPU-side view of the descriptor ring. On this platform it is the
+	 * CKSEG1 uncached alias of @desc_phys, NOT the pointer
+	 * dma_alloc_coherent returned — see ltq_dma_chan_desc_alloc().
+	 */
 	u32 desc_base;
+	/*
+	 * The raw dma_alloc_coherent() return value, kept ONLY as the cookie
+	 * dma_free_coherent() has to be handed back in ltq_dma_chan_desc_free().
+	 * Never dereferenced: on a PHYS_OFFSET platform it is arithmetically
+	 * wrong (see ltq_dma_chan_desc_alloc()).
+	 */
+	void *desc_alloc_va;
 	int desc_len;
 	enum dma_chan_txwgt txwgt;
 	int pkt_size;
