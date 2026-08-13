@@ -1701,10 +1701,16 @@ int ltq_dma_chan_desc_free(u32 chan)
 
 	/*
 	 * desc_alloc_va NULL with desc_base set means this channel does not OWN
-	 * the ring: either the CBM-managed path pointed desc_base at the DQM
-	 * MMIO window, or dma_p2p_cfg copied the RX channel's ring onto this TX
-	 * channel (hdma.c dma_p2p_cfg). Releasing it here would free MMIO or
-	 * double-free the RX ring — drop the slot without freeing.
+	 * the ring, and there is exactly one way to get there: dma_p2p_cfg()
+	 * copies the RX channel's desc_base/desc_phys/desc_len onto the TX
+	 * channel of a peripheral-to-peripheral pair, without an allocation of
+	 * its own. Freeing here would double-free the RX channel's ring, so drop
+	 * the slot without freeing.
+	 *
+	 * The CBM-managed egress channels do NOT reach this branch: they never
+	 * allocate a ring, and ltq_dma_chan_desc_cfg() (which points them at the
+	 * DQM MMIO window) writes desc_phys, not desc_base, so desc_base stays 0
+	 * and the idempotent guard above returns first.
 	 */
 	if (!pch->desc_alloc_va) {
 		pch->desc_base = 0;
