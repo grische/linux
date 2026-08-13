@@ -598,8 +598,8 @@ static int intel_xrx500_open_step4_tx(struct intel_xrx500_port *port)
 
 	port->state_tx_initialized = true;
 
-	pr_info("intel-xrx500: %s TX path CPU-ENQUEUE (DMA2TX ch5)\n",
-		netdev_name(port->netdev));
+	pr_info("intel-xrx500: %s TX path CPU-ENQUEUE (cbm_deq_port %u)\n",
+		netdev_name(port->netdev), port->cbm_deq_port);
 
 	return 0;
 }
