@@ -23,6 +23,10 @@
 
 #include "cbm.h"
 #include "cbm_regs.h"
+#include "../../datapath/datapath_api_gswip30.h"
+
+void intel_xrx500_rx_account(struct net_device *dev, unsigned int len);
+void intel_xrx500_rx_drop_account(struct net_device *dev);
 
 /* FSQM_IRNCR - local register-offset literal. */
 #define FSQM_IRNCR 0x10
@@ -86,12 +90,57 @@ irqreturn_t cbm_isr_7(int irq, void *dev_id);
 static struct cbm_desc g_cbm_dlist[CPU_DQM_PORT_NUM][64];
 static unsigned long g_cpu_port_alloc;
 static struct tasklet_struct cbm_tasklet[CPU_DQM_PORT_NUM];
-static struct net_device *g_cbm_rx_netdev;
+
+#define CBM_RX_SPPID_MIN	2
+#define CBM_RX_SPPID_MAX	5
+#define CBM_RX_SPPID_DEFAULT	5	/* dp5 / eth0 / LAN1 */
+
+static struct net_device *g_cbm_rx_netdev[CBM_RX_SPPID_MAX + 1];
+static struct net_device *g_cbm_rx_netdev_default;
+static u32 g_cbm_rx_mask;
 
 #define CBM_RX_RESCHED_CAP 1000
 static u32 g_cbm_resched_cnt[CPU_DQM_PORT_NUM];
 
 static DEFINE_RAW_SPINLOCK(g_cbm_irnen_ls_lock);
+
+static u32 cbm_rx_pmac_sppid(const void *hdr)
+{
+	const struct pmac_rx_hdr *pmac = hdr;
+
+	return pmac->sppid;
+}
+
+/* Any netdev bound at all? One test to skip the whole delivery path. */
+static bool cbm_rx_netdev_bound(void)
+{
+	return g_cbm_rx_mask != 0;
+}
+
+/*
+ * Resolve the delivery netdev for @sppid, falling back to the default netdev
+ * (the dp5/eth0 registration) with a ratelimited warning when the source port
+ * is out of range or has nothing registered. Returning the fallback rather
+ * than NULL is the point: a wrong sppid assumption must cost attribution
+ * accuracy, not RX.
+ */
+static struct net_device *cbm_rx_resolve_netdev(u32 sppid)
+{
+	struct net_device *ndev = NULL;
+
+	if (sppid >= CBM_RX_SPPID_MIN && sppid <= CBM_RX_SPPID_MAX)
+		ndev = g_cbm_rx_netdev[sppid];
+
+	if (ndev)
+		return ndev;
+
+	if (g_cbm_rx_netdev_default)
+		pr_warn_ratelimited("cbm: RX sppid=%u has no registered netdev; delivering to %s (mask=0x%x)\n",
+				    sppid,
+				    netdev_name(g_cbm_rx_netdev_default),
+				    g_cbm_rx_mask);
+	return g_cbm_rx_netdev_default;
+}
 
 static void cbm_irnen_ls_rmw(u32 pid, bool enable)
 {
@@ -631,11 +680,13 @@ static void do_cbm_tasklet(unsigned long cpu)
 
 		/* Walk staged descriptors to the desc2 == 0 sentinel. */
 		while (desc_list->desc2) {
+			u32 desc0 = desc_list->desc0;
+			u32 desc1 = desc_list->desc1;
 			u32 desc2_phys = desc_list->desc2;
 			u32 desc3 = desc_list->desc3;
 			int data_len = (int)(desc3 & 0x0000FFFFu);
 			int data_offset = (int)((desc3 & 0x03800000u) >> 23);
-			struct net_device *ndev = g_cbm_rx_netdev;
+			struct net_device *ndev = NULL;
 			void *buf_virt = NULL;
 			u32 seg_off;
 
@@ -650,14 +701,27 @@ static void do_cbm_tasklet(unsigned long cpu)
 				continue;
 			}
 
-			if (ndev)
+			if (cbm_rx_netdev_bound())
 				buf_virt = cbm_buf_phys_to_virt(desc2_phys);
 
-			if (ndev && buf_virt) {
-				struct sk_buff *skb;
+			if (buf_virt) {
+				const u8 *pmac = (const u8 *)buf_virt + data_offset;
 
 				dma_cache_inv((unsigned long)buf_virt,
 					      (unsigned long)(data_offset + data_len));
+
+				pr_info_once("cbm: first RX frame: pmac=%02x %02x %02x %02x %02x %02x %02x %02x (sppid=%u) desc0=0x%08x desc1=0x%08x (ep=%u) len=%d off=%d\n",
+					     pmac[0], pmac[1], pmac[2], pmac[3],
+					     pmac[4], pmac[5], pmac[6], pmac[7],
+					     cbm_rx_pmac_sppid(pmac),
+					     desc0, desc1, (desc1 >> 8) & 0xFu,
+					     data_len, data_offset);
+
+				ndev = cbm_rx_resolve_netdev(cbm_rx_pmac_sppid(pmac));
+			}
+
+			if (ndev) {
+				struct sk_buff *skb;
 
 				skb = netdev_alloc_skb_ip_align(ndev, data_len);
 				if (skb) {
@@ -668,11 +732,11 @@ static void do_cbm_tasklet(unsigned long cpu)
 					skb_pull(skb, CBM_PMAC_RX_HDR_LEN);
 					skb->dev = ndev;
 					skb->protocol = eth_type_trans(skb, ndev);
+					intel_xrx500_rx_account(ndev, skb->len);
 					netif_receive_skb(skb);
-					ndev->stats.rx_packets++;
-					ndev->stats.rx_bytes += data_len;
 				} else {
 					pr_err_ratelimited("cbm: do_cbm_tasklet: skb alloc failed; dropping frame (segment recycled)\n");
+					intel_xrx500_rx_drop_account(ndev);
 				}
 			}
 
@@ -732,14 +796,41 @@ static void do_cbm_tasklet(unsigned long cpu)
 }
 
 /*
- * cbm_rx_set_netdev — bind (or, with NULL, unbind) the single netdev the RX
- * engine delivers to. Accepts NULL: do_cbm_tasklet then drops and recycles
- * each frame, so an unbind racing an in-flight tasklet is safe (no leak, no
- * oops).
+ * cbm_rx_set_netdev - bind (@dev) or unbind (NULL) the netdev the RX engine
+ * delivers frames whose PMAC sppid is @sppid to.
  */
-void cbm_rx_set_netdev(struct net_device *dev)
+void cbm_rx_set_netdev(u32 sppid, struct net_device *dev)
 {
-	g_cbm_rx_netdev = dev;
+	u32 i;
+
+	if (sppid < CBM_RX_SPPID_MIN || sppid > CBM_RX_SPPID_MAX) {
+		pr_err("cbm: cbm_rx_set_netdev: sppid %u out of range %u..%u\n",
+		       sppid, CBM_RX_SPPID_MIN, CBM_RX_SPPID_MAX);
+		return;
+	}
+
+	g_cbm_rx_netdev[sppid] = dev;
+	if (dev)
+		g_cbm_rx_mask |= BIT(sppid);
+	else
+		g_cbm_rx_mask &= ~BIT(sppid);
+
+	/*
+	 * Recompute the fallback target for an sppid with nothing registered:
+	 * prefer the designated default port (dp5/eth0, whose datapath is the
+	 * proven one), else the lowest bound port, else none. Recomputing beats
+	 * patching it in place — an unbind of the default must not leave a
+	 * dangling pointer, and a rebind must resurrect it.
+	 */
+	g_cbm_rx_netdev_default = g_cbm_rx_netdev[CBM_RX_SPPID_DEFAULT];
+	for (i = CBM_RX_SPPID_MIN;
+	     !g_cbm_rx_netdev_default && i <= CBM_RX_SPPID_MAX; i++)
+		g_cbm_rx_netdev_default = g_cbm_rx_netdev[i];
+
+	pr_info("cbm: RX demux: sppid %u -> %s (mask=0x%x, default=%s)\n",
+		sppid, dev ? netdev_name(dev) : "(unbound)", g_cbm_rx_mask,
+		g_cbm_rx_netdev_default ?
+			netdev_name(g_cbm_rx_netdev_default) : "(none)");
 }
 
 /* cbm_rx_engine_init — one-time RX engine arm. */
