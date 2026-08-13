@@ -232,18 +232,21 @@ int cbm_dp_port_alloc(struct module *owner, struct net_device *dev,
 		return -EINVAL;
 	}
 
-	switch (port_id) {
-	case 5:
-		dma_chan = DMA2TX_CBM_P10_CLASS5;
-		break;
-	case 4:
-		/* eth1 / LAN2, deq 9 (channel = deq - 5). */
-		dma_chan = DMA2TX_CBM_P9_CLASS4;
-		break;
-	default:
-		dma_chan = _DMA_C(DMA2TX, DMA2TX_PORT, DMA_CHANNEL_0);
-		break;
-	}
+	/*
+	 * DMA2TX channel N, because CBM dequeue port N+5 is served by DMA2TX
+	 * channel (deq - 5) == N and DMA_CHANNEL_N == N. So
+	 *
+	 *   dp 5 (eth0/LAN1) -> deq 10 -> DMA2TX_CBM_P10_CLASS5 -> PMAC p5 -> GPHY5
+	 *   dp 4 (eth1/LAN2) -> deq  9 -> DMA2TX_CBM_P9_CLASS4  -> PMAC p4 -> GPHY4
+	 *   dp 3 (eth2/LAN3) -> deq  8 -> DMA2TX_CBM_P8_CLASS3  -> PMAC p3 -> GPHY3
+	 *   dp 2 (eth3/LAN4) -> deq  7 -> DMA2TX_CBM_P7_CLASS2  -> PMAC p2 -> GPHY2
+	 *
+	 * matching AVM epg_lookup_table (dp5 -> CBM_P10,
+	 * cqm/grx500/cbm.c:568) and DT DQ7..DQ10. This replaces a switch that
+	 * resolved only dp 5 and dp 4 and sent dp 2 / dp 3 to a DMA_CHANNEL_0
+	 * placeholder.
+	 */
+	dma_chan = _DMA_C(DMA2TX, DMA2TX_PORT, (u32)port_id);
 
 	data->dp_port = (u32)port_id;
 	data->deq_port = (u32)port_id + 5;
