@@ -230,7 +230,7 @@ config PINCTRL_EP93XX
 config PINCTRL_EQUILIBRIUM
 	tristate "Generic pinctrl and GPIO driver for Intel Lightning Mountain SoC"
 	depends on OF && HAS_IOMEM
-	depends on X86 || COMPILE_TEST
+	depends on X86 || INTEL_MIPS || COMPILE_TEST
 	select PINMUX
 	select PINCONF
 	select GPIOLIB
