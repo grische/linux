@@ -4,6 +4,8 @@
 
 #include <dt-bindings/interrupt-controller/mips-gic.h>
 #include <dt-bindings/clock/intel,grx500-clk.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
 
 #include "xrx500.dtsi"
 #include "seale_avm_fritz7560.dtsi"
