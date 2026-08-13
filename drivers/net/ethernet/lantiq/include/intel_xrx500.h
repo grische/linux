@@ -163,4 +163,7 @@ struct intel_xrx500_priv {
 	void				*gswl_dev;
 };
 
+void intel_xrx500_rx_account(struct net_device *dev, unsigned int len);
+void intel_xrx500_rx_drop_account(struct net_device *dev);
+
 #endif /* _LANTIQ_INTEL_XRX500_H_ */

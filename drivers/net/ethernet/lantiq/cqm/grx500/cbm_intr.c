@@ -25,8 +25,7 @@
 #include "cbm_regs.h"
 #include "../../datapath/datapath_api_gswip30.h"
 
-void intel_xrx500_rx_account(struct net_device *dev, unsigned int len);
-void intel_xrx500_rx_drop_account(struct net_device *dev);
+#include "../../include/intel_xrx500.h"
 
 /* FSQM_IRNCR - local register-offset literal. */
 #define FSQM_IRNCR 0x10
@@ -129,17 +128,16 @@ static struct net_device *cbm_rx_resolve_netdev(u32 sppid)
 	struct net_device *ndev = NULL;
 
 	if (sppid >= CBM_RX_SPPID_MIN && sppid <= CBM_RX_SPPID_MAX)
-		ndev = g_cbm_rx_netdev[sppid];
+		ndev = READ_ONCE(g_cbm_rx_netdev[sppid]);
 
 	if (ndev)
 		return ndev;
 
-	if (g_cbm_rx_netdev_default)
+	ndev = READ_ONCE(g_cbm_rx_netdev_default);
+	if (ndev)
 		pr_warn_ratelimited("cbm: RX sppid=%u has no registered netdev; delivering to %s (mask=0x%x)\n",
-				    sppid,
-				    netdev_name(g_cbm_rx_netdev_default),
-				    g_cbm_rx_mask);
-	return g_cbm_rx_netdev_default;
+				    sppid, netdev_name(ndev), g_cbm_rx_mask);
+	return ndev;
 }
 
 static void cbm_irnen_ls_rmw(u32 pid, bool enable)
@@ -673,9 +671,11 @@ static void do_cbm_tasklet(unsigned long cpu)
 	if (pkt_recvd > 0) {
 		/* Stage the ring into g_cbm_dlist[cpu][] (AVM cbm.c:2599-2600). */
 		deq_ret = cbm_cpu_dequeue_list((u32)cpu);
-		if (deq_ret == CBM_FAILURE)
+		if (deq_ret == CBM_FAILURE) {
 			pr_err_ratelimited("cbm: do_cbm_tasklet: dequeue_list REJECTED for port %lu (alloc=0x%lx)\n",
 					   cpu, g_cpu_port_alloc);
+			g_cbm_dlist[cpu][0].desc2 = 0;
+		}
 		desc_list = &g_cbm_dlist[cpu][0];
 
 		/* Walk staged descriptors to the desc2 == 0 sentinel. */
@@ -725,14 +725,17 @@ static void do_cbm_tasklet(unsigned long cpu)
 
 				skb = netdev_alloc_skb_ip_align(ndev, data_len);
 				if (skb) {
+					unsigned int rx_len;
+
 					memcpy(skb_put(skb, data_len),
 					       (u8 *)buf_virt + data_offset,
 					       (size_t)data_len);
 					/* Strip the 8-byte PMAC RX header before L2. */
 					skb_pull(skb, CBM_PMAC_RX_HDR_LEN);
+					rx_len = skb->len;
 					skb->dev = ndev;
 					skb->protocol = eth_type_trans(skb, ndev);
-					intel_xrx500_rx_account(ndev, skb->len);
+					intel_xrx500_rx_account(ndev, rx_len);
 					netif_receive_skb(skb);
 				} else {
 					pr_err_ratelimited("cbm: do_cbm_tasklet: skb alloc failed; dropping frame (segment recycled)\n");
@@ -801,6 +804,7 @@ static void do_cbm_tasklet(unsigned long cpu)
  */
 void cbm_rx_set_netdev(u32 sppid, struct net_device *dev)
 {
+	struct net_device *dflt;
 	u32 i;
 
 	if (sppid < CBM_RX_SPPID_MIN || sppid > CBM_RX_SPPID_MAX) {
@@ -809,7 +813,7 @@ void cbm_rx_set_netdev(u32 sppid, struct net_device *dev)
 		return;
 	}
 
-	g_cbm_rx_netdev[sppid] = dev;
+	WRITE_ONCE(g_cbm_rx_netdev[sppid], dev);
 	if (dev)
 		g_cbm_rx_mask |= BIT(sppid);
 	else
@@ -821,16 +825,20 @@ void cbm_rx_set_netdev(u32 sppid, struct net_device *dev)
 	 * proven one), else the lowest bound port, else none. Recomputing beats
 	 * patching it in place — an unbind of the default must not leave a
 	 * dangling pointer, and a rebind must resurrect it.
+	 *
+	 * Building it up in the global would leave the RX tasklet — which can
+	 * interrupt this process-context caller — reading a transiently NULL
+	 * or wrong fallback on every iteration. One store makes the worst
+	 * case "the previous fallback or the new one", never neither.
 	 */
-	g_cbm_rx_netdev_default = g_cbm_rx_netdev[CBM_RX_SPPID_DEFAULT];
-	for (i = CBM_RX_SPPID_MIN;
-	     !g_cbm_rx_netdev_default && i <= CBM_RX_SPPID_MAX; i++)
-		g_cbm_rx_netdev_default = g_cbm_rx_netdev[i];
+	dflt = g_cbm_rx_netdev[CBM_RX_SPPID_DEFAULT];
+	for (i = CBM_RX_SPPID_MIN; !dflt && i <= CBM_RX_SPPID_MAX; i++)
+		dflt = g_cbm_rx_netdev[i];
+	WRITE_ONCE(g_cbm_rx_netdev_default, dflt);
 
 	pr_info("cbm: RX demux: sppid %u -> %s (mask=0x%x, default=%s)\n",
 		sppid, dev ? netdev_name(dev) : "(unbound)", g_cbm_rx_mask,
-		g_cbm_rx_netdev_default ?
-			netdev_name(g_cbm_rx_netdev_default) : "(none)");
+		dflt ? netdev_name(dflt) : "(none)");
 }
 
 /* cbm_rx_engine_init — one-time RX engine arm. */
