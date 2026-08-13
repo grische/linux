@@ -849,6 +849,11 @@ int gsw_pmicro_code_init(void *cdev)
 				BM_RMON_CTRL_BCAST_CNT_SHIFT,
 				BM_RMON_CTRL_BCAST_CNT_SIZE, 1);
 		}
+
+		if (gswdev->sdev == LTQ_FLOW_DEV_INT_R)
+			gsw_w32(cdev, PCE_TFCR_NUM_NUM_OFFSET,
+				PCE_TFCR_NUM_NUM_SHIFT,
+				PCE_TFCR_NUM_NUM_SIZE, 0x80);
 	}
 
 	/*
@@ -942,16 +947,26 @@ int gsw_pmicro_code_init(void *cdev)
 	gsw_w32(cdev, MAC_PFSA_2_PFAD_OFFSET, MAC_PFSA_2_PFAD_SHIFT,
 		MAC_PFSA_2_PFAD_SIZE, 0xAC9A);
 
-	if (gswdev->sdev != LTQ_FLOW_DEV_INT_R)
+	if (gswdev->sdev != LTQ_FLOW_DEV_INT_R) {
+		/* "discard jumbo frames on the GSWIP-L" (AVM :2823-2830) */
 		gsw_w32(cdev, MAC_FLEN_LEN_OFFSET, MAC_FLEN_LEN_SHIFT,
 			MAC_FLEN_LEN_SIZE, 1518);
-
+	} else {
+		gsw_w32(cdev, MAC_FLEN_LEN_OFFSET, MAC_FLEN_LEN_SHIFT,
+			MAC_FLEN_LEN_SIZE, 1612);
+		gsw_w32(cdev, PMAC_CTRL_2_MLEN_OFFSET, PMAC_CTRL_2_MLEN_SHIFT,
+			PMAC_CTRL_2_MLEN_SIZE, 1);
+		gsw_w32(cdev, MAC_CTRL_2_MLEN_OFFSET, MAC_CTRL_2_MLEN_SHIFT,
+			MAC_CTRL_2_MLEN_SIZE, 1);
+	}
 
 	if (gswdev->sdev == LTQ_FLOW_DEV_INT) {
 		gsw_pmac_glbl_cfg(cdev);
 		gsw_pmac_ig_cfg(cdev);
 		gsw_pmac_eg_cfg(cdev);
 	} else if (gswdev->sdev == LTQ_FLOW_DEV_INT_R) {
+		gsw_w32(cdev, PMAC_CTRL_0_PADEN_OFFSET, PMAC_CTRL_0_PADEN_SHIFT,
+			PMAC_CTRL_0_PADEN_SIZE, 1);
 		gsw_pmac_ig_cfg_r(cdev);
 		gsw_pmac_eg_cfg_r(cdev);
 	}
