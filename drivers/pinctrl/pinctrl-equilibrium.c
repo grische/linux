@@ -951,6 +951,7 @@ static int eqbr_pinctrl_probe(struct platform_device *pdev)
 
 static const struct of_device_id eqbr_pinctrl_dt_match[] = {
 	{ .compatible = "intel,lgm-io" },
+	{ .compatible = "intel,pinctrl-xrx500" },
 	{}
 };
 MODULE_DEVICE_TABLE(of, eqbr_pinctrl_dt_match);
