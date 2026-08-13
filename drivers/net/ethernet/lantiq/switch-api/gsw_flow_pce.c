@@ -983,10 +983,17 @@ int gsw_hw_reinit(void *cdev)
 
 int gsw_hw_reinit_gswl(void)
 {
+	static bool done;
 	struct core_ops *ops = gsw_get_swcore_ops(0);
 
 	if (!ops)
 		return -ENODEV;
+
+	if (done) {
+		pr_info("gsw: GSW-L full re-init already done; skipping (whole-core SWRES must not re-run under live links)\n");
+		return -EALREADY;
+	}
+	done = true;
 
 	return gsw_hw_reinit(GSW_PDATA_GET(ops));
 }

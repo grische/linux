@@ -634,21 +634,37 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 
 	cbm_rx_engine_init();
 
-	init_cbm_dqm_dma_port(10);
-	tmu_create_flat_egress_path(1, 10, 4, 20, 1);
-	g_cbm_egress_preconfig[5] = true;
-	pr_info("cbm: dp5 egress preconfigured at probe (deq10/q20/sbid4) before controller enable\n");
+	{
+		int dp;
+
+		for (dp = 2; dp <= 5; dp++) {
+			u16 deq = (u16)(dp + 5);
+			u16 qid = (u16)(dp + 15);
+			u16 sbid = (u16)(qid - SBID_START);
+
+			init_cbm_dqm_dma_port((int)deq);
+			tmu_create_flat_egress_path(1, deq, sbid, qid, 1);
+			g_cbm_egress_preconfig[dp] = true;
+			pr_info("cbm: dp%d egress preconfigured at probe (deq%u/q%u/sbid%u) before controller enable\n",
+				dp, deq, qid, sbid);
+		}
+	}
 
 	cbm_enable_controllers();
 
 	{
-		int hret = hdma_port_enable(10);
+		int deq;
 
-		if (hret)
-			dev_warn(dev, "cbm: probe-time hdma_port_enable(10) = %d (ndo_open will retry)\n",
-				 hret);
-		else
-			pr_info("cbm: DMA2TX ch5 opened at probe-end (AVM order)\n");
+		for (deq = 7; deq <= 10; deq++) {
+			int hret = hdma_port_enable(deq);
+
+			if (hret)
+				dev_warn(dev, "cbm: probe-time hdma_port_enable(%d) = %d (ndo_open will retry)\n",
+					 deq, hret);
+			else
+				pr_info("cbm: DMA2TX ch%d opened at probe-end for deq %d (AVM order)\n",
+					deq - 5, deq);
+		}
 	}
 
 	cbm_eqm_rx_chan_open(DMA2RX_CBMP5_CLASS14, 5, CBM_PORT_F_STANDARD_BUF);

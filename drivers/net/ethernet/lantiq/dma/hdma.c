@@ -1945,13 +1945,51 @@ struct port7_chan_desc {
 
 static const struct port7_chan_desc port7_channels[] = {
 	{ .cid = DMA2TX, .pid = DMA2TX_PORT, .nid = DMA_CHANNEL_2,
-	  .label = "DMA2TX_CBM_P7_CLASS2", .cbm_deq = 0 },
+	  .label = "DMA2TX_CBM_P7_CLASS2", .cbm_deq = 7 },
+};
+
+static const struct port7_chan_desc port8_channels[] = {
+	{ .cid = DMA2TX, .pid = DMA2TX_PORT, .nid = DMA_CHANNEL_3,
+	  .label = "DMA2TX_CBM_P8_CLASS3", .cbm_deq = 8 },
+};
+
+static const struct port7_chan_desc port9_channels[] = {
+	{ .cid = DMA2TX, .pid = DMA2TX_PORT, .nid = DMA_CHANNEL_4,
+	  .label = "DMA2TX_CBM_P9_CLASS4", .cbm_deq = 9 },
 };
 
 static const struct port7_chan_desc port10_channels[] = {
 	{ .cid = DMA2TX, .pid = DMA2TX_PORT, .nid = DMA_CHANNEL_5,
 	  .label = "DMA2TX_CBM_P10_CLASS5", .cbm_deq = 10 },
 };
+
+/*
+ * hdma_port_chan_tbl — the per-CBM-dequeue-port channel table, or NULL for a
+ * dequeue port this driver does not serve. Shared by hdma_port_enable and
+ * hdma_port_disable so the two can never disagree about which channels belong
+ * to a port (they did once: disable knew only port 7, so eth0's channel 5
+ * leaked across a netifd ndo_stop -> ndo_open cycle and the re-open failed
+ * -EBUSY).
+ */
+static const struct port7_chan_desc *hdma_port_chan_tbl(int port_id, size_t *n)
+{
+	switch (port_id) {
+	case 7:
+		*n = ARRAY_SIZE(port7_channels);
+		return port7_channels;
+	case 8:
+		*n = ARRAY_SIZE(port8_channels);
+		return port8_channels;
+	case 9:
+		*n = ARRAY_SIZE(port9_channels);
+		return port9_channels;
+	case 10:
+		*n = ARRAY_SIZE(port10_channels);
+		return port10_channels;
+	default:
+		return NULL;
+	}
+}
 
 /*
  * The CBM DQM descriptor window is laid out per dequeue port and is
@@ -1967,16 +2005,34 @@ static const struct port7_chan_desc port10_channels[] = {
 		      ((u32)((deq) - 5) * 0x1000U)))
 
 /*
- * Opens the DMA channel(s) listed in port7_channels[] above.
- *
- * The desc_alloc + desc_cfg pair installs a HDMA_PORT_DESC_NUM placeholder
- * ring so ltq_dma_chan_open's pch->desc_configured WARN_ON guard is
- * satisfied. Narrow scope per task title 'CBM EQM port 7 admit'; no
- * hdma_port_disable wrapper is added.
+ * Opens the DMA channel(s) the CBM dequeue port @port_id owns, per
+ * hdma_port_chan_tbl().
  */
 #define HDMA_PORT_DESC_NUM 32
 
-static bool g_hdma_port10_armed;
+/*
+ * Once a CBM-managed DMA2TX egress channel is armed, keep it armed: the CBM
+ * dequeue port owns the descriptor window, and tearing the channel down
+ * leaves the port pointing at descriptors nothing will refill.
+ */
+#define HDMA_CBM_DEQ_FIRST 7
+#define HDMA_CBM_DEQ_LAST  10
+
+static u32 g_hdma_deq_armed;
+
+static bool hdma_deq_armed(int port_id)
+{
+	if (port_id < HDMA_CBM_DEQ_FIRST || port_id > HDMA_CBM_DEQ_LAST)
+		return false;
+	return !!(g_hdma_deq_armed & BIT(port_id - HDMA_CBM_DEQ_FIRST));
+}
+
+static void hdma_deq_set_armed(int port_id)
+{
+	if (port_id < HDMA_CBM_DEQ_FIRST || port_id > HDMA_CBM_DEQ_LAST)
+		return;
+	g_hdma_deq_armed |= BIT(port_id - HDMA_CBM_DEQ_FIRST);
+}
 
 extern int init_cbm_dqm_dma_port(int dqp);
 
@@ -2247,18 +2303,12 @@ int hdma_port_enable(int port_id)
 	u32 chan;
 	struct dmax_chan *pch;
 
-	if (port_id == 10 && g_hdma_port10_armed)
+	if (hdma_deq_armed(port_id))
 		return 0;
 
-	if (port_id == 7) {
-		tbl = port7_channels;
-		n = ARRAY_SIZE(port7_channels);
-	} else if (port_id == 10) {
-		tbl = port10_channels;
-		n = ARRAY_SIZE(port10_channels);
-	} else {
+	tbl = hdma_port_chan_tbl(port_id, &n);
+	if (!tbl)
 		return -EINVAL;
-	}
 
 	for (i = 0; i < n; i++) {
 		const struct port7_chan_desc *e = &tbl[i];
@@ -2326,8 +2376,7 @@ chan_on:
 			port_id, e->label, e->cid, e->pid, e->nid);
 	}
 
-	if (port_id == 10)
-		g_hdma_port10_armed = true;
+	hdma_deq_set_armed(port_id);
 	return 0;
 }
 
@@ -2344,8 +2393,8 @@ chan_on:
  *        ltq_dma_chan_desc_free's body)
  *   (3) ltq_free_dma         reverses ltq_request_dma
  *
- * Per-port channel source-of-truth: port7_channels[] (the same static const
- * lookup table hdma_port_enable iterates).
+ * Per-port channel source-of-truth: hdma_port_chan_tbl() (the same lookup
+ * hdma_port_enable uses).
  *
  * Failure handling: a single failing step records the error code into
  * `partial` and the loop continues.
@@ -2361,18 +2410,17 @@ int hdma_port_disable(int port_id)
 	int first_err = 0;
 	u32 chan;
 
-	if (port_id == 10)
+	/*
+	 * Never tear down a CBM-managed DMA2TX egress channel from the netdev
+	 * path: the descriptors belong to the CBM dequeue port, not to this
+	 * driver.
+	 */
+	if (hdma_deq_armed(port_id))
 		return 0;
 
-	if (port_id == 7) {
-		tbl = port7_channels;
-		n = ARRAY_SIZE(port7_channels);
-	} else if (port_id == 10) {
-		tbl = port10_channels;
-		n = ARRAY_SIZE(port10_channels);
-	} else {
+	tbl = hdma_port_chan_tbl(port_id, &n);
+	if (!tbl)
 		return -EINVAL;
-	}
 
 	for (i = 0; i < n; i++) {
 		const struct port7_chan_desc *e = &tbl[i];
