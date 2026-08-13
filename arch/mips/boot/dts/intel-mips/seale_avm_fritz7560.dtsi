@@ -33,7 +33,8 @@
 			#size-cells = <1>;
 
 			/*
-			 * AVM urlader (first-stage bootloader). Read-only:
+			 * AVM urlader (first-stage bootloader). It also holds
+			 * the only copy of the WiFi calibration data. Read-only:
 			 * overwriting it bricks the device past the point of
 			 * recovery without JTAG/SPI-flashing the chip.
 			 */
@@ -44,13 +45,15 @@
 			};
 
 			/*
-			 * AVM TFFS environment (serial, MAC, calibration). Kept
-			 * writable so the fritz-tffs userspace package can fix
-			 * up serial/MAC entries in some recovery flows.
+			 * AVM TFFS environment. Holds the only copy of this
+			 * device's identity (MAC addresses, serial number).
+			 * Read-only: it is never written from Linux, and
+			 * erasing it cannot be undone.
 			 */
 			partition@100000 {
 				label = "nand-tffs";
 				reg = <0x100000 0x400000>;
+				read-only;
 			};
 
 			/* Primary kernel slot. Written by sysupgrade. */
