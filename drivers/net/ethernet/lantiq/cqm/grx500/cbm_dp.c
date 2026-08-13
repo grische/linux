@@ -38,16 +38,18 @@
  * @port_id: CBM port (caller-supplied; 0..15 fits the 0xF0 mask).
  *
  * dp_port_id 2..5 -> { tmu_egress_port (EPN), tmu_queue (QID) }. The EPN is
- * dp_port_id + 10 (12..15, matching intel_xrx500.c:1941 port->tmu_egress_port
- * and the AVM-orientation table). The QID is taken from the AVM
- * xrx500_cbm_config[] DMA-port table (cbm_config.c): tmu_port 12..15 carry
- * tmu_queue 22..25. SBID_START=16 (AVM cbm.h:207) -> base_sbid = tmu_queue -
- * 16.
+ * dp_port_id + 5 and the QID is dp_port_id + 15, per AVM's epg_lookup_table
+ * and the xrx500_cbm_config[] DQ7..DQ10 rows; the EPN equals the CBM dequeue
+ * port, because AVM's conf_dqm_dma_port passes the same number to
+ * tmu_create_flat_egress_path and init_cbm_dqm_dma_port. SBID_START=16 (AVM
+ * cbm.h:207) -> base_sbid = tmu_queue - 16.
  *
- *   dp 2 -> EPN 12, QID 22   (eth3 / LAN4)
- *   dp 3 -> EPN 13, QID 23   (eth2 / LAN3)
- *   dp 4 -> EPN 14, QID 24   (eth1 / LAN2)
- *   dp 5 -> EPN 15, QID 25   (eth0 / LAN1)
+ *   dp 2 -> EPN  7, QID 17, SBID 1   (eth3 / LAN4)
+ *   dp 3 -> EPN  8, QID 18, SBID 2   (eth2 / LAN3)
+ *   dp 4 -> EPN  9, QID 19, SBID 3   (eth1 / LAN2)
+ *   dp 5 -> EPN 10, QID 20, SBID 4   (eth0 / LAN1)
+ *
+ * The code below has been on the +5/+15 form since; only this comment lagged.
  */
 
 static u32 cbm_dp_tmu_egress_port(int port_id)
