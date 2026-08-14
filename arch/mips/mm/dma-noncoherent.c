@@ -51,6 +51,16 @@ void arch_dma_prep_coherent(struct page *page, size_t size)
 
 void *arch_dma_set_uncached(void *addr, size_t size)
 {
+	/*
+	 * __pa() yields an address measured from physical zero on the legacy
+	 * memory map, which is also where the uncached window at UNCAC_BASE
+	 * begins, so the two compose directly.  Under EVA __pa() is anchored
+	 * on PHYS_OFFSET instead, while the window still starts at the base
+	 * of DRAM, so the anchor has to be taken back out.
+	 */
+	if (IS_ENABLED(CONFIG_EVA))
+		return (void *)(__pa(addr) - PHYS_OFFSET + UNCAC_BASE);
+
 	return (void *)(__pa(addr) + UNCAC_BASE);
 }
 
