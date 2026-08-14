@@ -2,6 +2,23 @@
 #
 # Phy drivers for Intel platforms
 #
+config PHY_INTEL_GRX500_PCIE
+	tristate "Intel GRX500 PCIe slim PHY driver"
+	depends on INTEL_MIPS || COMPILE_TEST
+	depends on OF && HAS_IOMEM
+	select GENERIC_PHY
+	select MFD_SYSCON
+	select RESET_CONTROLLER
+	help
+	  Enable this to support the PCIe slim PHY that feeds the on-chip
+	  PCIe host bridges of the Intel MIPS (xRX500/GRX500) SoC family.
+	  Besides its own PDI register block the driver drives the shared
+	  LCPLL spread-spectrum generator in the CGU and the per-instance
+	  reference clock gate in the chip-top interface mux.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called phy-intel-grx500-pcie.ko.
+
 config PHY_INTEL_KEEMBAY_EMMC
 	tristate "Intel Keem Bay EMMC PHY driver"
 	depends on ARCH_KEEMBAY || COMPILE_TEST
