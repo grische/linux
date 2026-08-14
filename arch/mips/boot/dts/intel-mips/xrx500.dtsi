@@ -83,6 +83,19 @@
 			reg = <0x10 0x4>, <0x14 0x4>;
 			#reset-cells = <2>;
 		};
+
+		/*
+		 * Restart handler. Bit 30 of RCU_RST_REQ triggers the SoC
+		 * reset, and the write must be a read-modify-write under the
+		 * mask: a legacy full-word write clears reset lines that are
+		 * latched elsewhere in the same register.
+		 */
+		reboot {
+			compatible = "syscon-reboot";
+			offset = <0x10>;	/* RCU_RST_REQ */
+			mask = <0x40000000>;	/* RCU_RD_SRST */
+			value = <0x40000000>;
+		};
 	};
 
 	asc0: serial@16600000 {
