@@ -292,3 +292,52 @@
 		line-name = "dect-reset";
 	};
 };
+
+&pcie_phy0 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+&pcie_phy1 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+&pcie_phy2 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+/*
+ * Inbound byte swapping is enabled on the two radio ports and disabled
+ * on RC2. This SoC is big endian and the DWC core is not, so inbound
+ * DMA is byte-swapped on the way through -- except for the VRX318,
+ * whose driver already presents its shared memory in the endianness the
+ * host expects, and swapping again would undo it. The vendor tree
+ * arrives at the same split: grx_common.dtsi sets inbound-swap on all
+ * three, and vrx318.dtsi, included only by boards carrying that chip,
+ * clears it on RC2.
+ *
+ * Outbound is never swapped, on any port.
+ */
+&pcie0 {
+	status = "okay";
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+};
+
+&pcie1 {
+	status = "okay";
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+};
+
+/* VRX318 DSL companion -- see the inbound-swap note above. */
+&pcie2 {
+	status = "okay";
+	intel,inbound-swap = <0>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 16 GPIO_ACTIVE_LOW>;
+};
