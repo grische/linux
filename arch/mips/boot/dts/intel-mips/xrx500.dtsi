@@ -66,6 +66,15 @@
 	};
 
 	/*
+	 * Chip-top configuration block: a pure syscon. Consumers reach single
+	 * fields through a phandle plus an offset.
+	 */
+	chiptop: syscon@16080000 {
+		compatible = "intel,grx500-chiptop", "syscon";
+		reg = <0x16080000 0x1000>;
+	};
+
+	/*
 	 * Reset Control Unit. The mainline lantiq,xrx200-reset driver must be
 	 * a syscon child: its reg is a byte offset into the parent regmap,
 	 * not an absolute address. #reset-cells = <2> is [set_bit,
