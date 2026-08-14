@@ -59,8 +59,23 @@
 
 #define RESET_INTERVAL_MS		100
 
+/**
+ * struct intel_pcie_soc - Per-SoC quirks and hooks
+ * @dw_pcie_ops: DesignWare core accessor overrides for this SoC
+ * @host_ops: DesignWare host bridge hooks for this SoC
+ * @irn_mask: Application logic interrupts to unmask once the link is up
+ * @core_rst_optional: SoC has no core reset line of its own
+ */
+struct intel_pcie_soc {
+	const struct dw_pcie_ops	*dw_pcie_ops;
+	const struct dw_pcie_host_ops	*host_ops;
+	u32				irn_mask;
+	bool				core_rst_optional;
+};
+
 struct intel_pcie {
 	struct dw_pcie		pci;
+	const struct intel_pcie_soc *soc;
 	void __iomem		*app_base;
 	struct gpio_desc	*reset_gpio;
 	u32			rst_intrvl;
@@ -199,7 +214,7 @@ static void intel_pcie_device_rst_deassert(struct intel_pcie *pcie)
 static void intel_pcie_core_irq_disable(struct intel_pcie *pcie)
 {
 	pcie_app_wr(pcie, PCIE_APP_IRNEN, 0);
-	pcie_app_wr(pcie, PCIE_APP_IRNCR, PCIE_APP_IRN_INT);
+	pcie_app_wr(pcie, PCIE_APP_IRNCR, pcie->soc->irn_mask);
 }
 
 static int intel_pcie_get_resources(struct platform_device *pdev)
@@ -217,7 +232,11 @@ static int intel_pcie_get_resources(struct platform_device *pdev)
 		return ret;
 	}
 
-	pcie->core_rst = devm_reset_control_get(dev, NULL);
+	if (pcie->soc->core_rst_optional)
+		pcie->core_rst = devm_reset_control_get_optional_exclusive(dev,
+									  NULL);
+	else
+		pcie->core_rst = devm_reset_control_get(dev, NULL);
 	if (IS_ERR(pcie->core_rst)) {
 		ret = PTR_ERR(pcie->core_rst);
 		if (ret != -EPROBE_DEFER)
@@ -318,8 +337,8 @@ static int intel_pcie_host_setup(struct intel_pcie *pcie)
 		goto app_init_err;
 
 	/* Enable integrated interrupts */
-	pcie_app_wr_mask(pcie, PCIE_APP_IRNEN, PCIE_APP_IRN_INT,
-			 PCIE_APP_IRN_INT);
+	pcie_app_wr_mask(pcie, PCIE_APP_IRNEN, pcie->soc->irn_mask,
+			 pcie->soc->irn_mask);
 
 	return 0;
 
@@ -387,6 +406,12 @@ static const struct dw_pcie_host_ops intel_pcie_dw_ops = {
 	.init = intel_pcie_rc_init,
 };
 
+static const struct intel_pcie_soc lgm_pcie_soc = {
+	.dw_pcie_ops		= &intel_pcie_ops,
+	.host_ops		= &intel_pcie_dw_ops,
+	.irn_mask		= PCIE_APP_IRN_INT,
+};
+
 static int intel_pcie_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -398,6 +423,10 @@ static int intel_pcie_probe(struct platform_device *pdev)
 	pcie = devm_kzalloc(dev, sizeof(*pcie), GFP_KERNEL);
 	if (!pcie)
 		return -ENOMEM;
+
+	pcie->soc = device_get_match_data(dev);
+	if (!pcie->soc)
+		return -ENODEV;
 
 	platform_set_drvdata(pdev, pcie);
 	pci = &pcie->pci;
@@ -413,8 +442,8 @@ static int intel_pcie_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	pci->ops = &intel_pcie_ops;
-	pp->ops = &intel_pcie_dw_ops;
+	pci->ops = pcie->soc->dw_pcie_ops;
+	pp->ops = pcie->soc->host_ops;
 
 	ret = dw_pcie_host_init(pp);
 	if (ret) {
@@ -431,7 +460,7 @@ static const struct dev_pm_ops intel_pcie_pm_ops = {
 };
 
 static const struct of_device_id of_intel_pcie_match[] = {
-	{ .compatible = "intel,lgm-pcie" },
+	{ .compatible = "intel,lgm-pcie", .data = &lgm_pcie_soc },
 	{}
 };
 
