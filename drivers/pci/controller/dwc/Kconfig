@@ -175,7 +175,7 @@ config PCIE_HISI_STB
 
 config PCIE_INTEL_GW
 	bool "Intel Gateway PCIe controller "
-	depends on OF && (X86 || COMPILE_TEST)
+	depends on OF && (X86 || MIPS || COMPILE_TEST)
 	depends on PCI_MSI
 	select PCIE_DW_HOST
 	help
