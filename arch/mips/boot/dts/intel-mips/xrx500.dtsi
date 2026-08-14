@@ -94,6 +94,18 @@
 		};
 
 		/*
+		 * Second reset bank. RCU_RST_REQ2 is at 0x48 and
+		 * RCU_RST_STAT2 at 0x24, so a vendor reset id of 5 translates
+		 * to <&rcu_reset1 5 5>.
+		 */
+		rcu_reset1: reset-controller@48 {
+			compatible = "lantiq,xrx200-reset";
+			reg = <0x48 0x4>,	/* RCU_RST_REQ2 */
+			      <0x24 0x4>;	/* RCU_RST_STAT2 */
+			#reset-cells = <2>;
+		};
+
+		/*
 		 * Restart handler. Bit 30 of RCU_RST_REQ triggers the SoC
 		 * reset, and the write must be a read-modify-write under the
 		 * mask: a legacy full-word write clears reset lines that are
@@ -477,6 +489,38 @@
 		intel,syscon = <&chiptop>;
 		intel,inbound-shift = <13>;
 		intel,outbound-shift = <12>;
+		status = "disabled";
+	};
+
+	/*
+	 * Two Synopsys DesignWare USB3 DRD controllers, described as plain
+	 * snps,dwc3 nodes. The PHY driver owns the chip-top AXI endianness
+	 * word; intel,syscon's argument is that controller's AXI
+	 * configuration offset.
+	 */
+	usb1_phy: phy@1a600000 {
+		compatible = "intel,grx500-usb-phy";
+		reg = <0x1a600000 0x10000>;
+		#phy-cells = <0>;
+		clocks = <&cgu GCLK_USB1>;
+		resets = <&rcu_reset1 5 5>;
+		reset-names = "phy";
+		intel,syscon = <&chiptop>;
+		intel,syscon-offset = <0x34>;
+		status = "disabled";
+	};
+
+	usb1: usb@1a500000 {
+		compatible = "snps,dwc3";
+		reg = <0x1a500000 0x10000>;
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 83 IRQ_TYPE_LEVEL_HIGH>;
+
+		dr_mode = "host";
+		snps,dis_rxdet_inp3_quirk;
+		phys = <&usb1_phy>;
+		phy-names = "usb3-phy";
 		status = "disabled";
 	};
 };
