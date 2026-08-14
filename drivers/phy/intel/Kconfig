@@ -19,6 +19,25 @@ config PHY_INTEL_GRX500_PCIE
 	  To compile this driver as a module, choose M here: the module
 	  will be called phy-intel-grx500-pcie.ko.
 
+config PHY_INTEL_GRX500_USB
+	tristate "Intel GRX500 USB PHY driver"
+	depends on INTEL_MIPS || COMPILE_TEST
+	depends on OF && HAS_IOMEM
+	select GENERIC_PHY
+	select MFD_SYSCON
+	select RESET_CONTROLLER
+	select RESET_LANTIQ
+	help
+	  Enable this to support the USB PHYs that feed the on-chip DWC3
+	  controllers of the Intel MIPS (xRX500/GRX500) SoC family. Besides
+	  its own gate clock, reset line and optional VBUS supply the driver
+	  owns the AXI endianness field its controller needs in the chip-top
+	  syscon, which on this big-endian SoC has to be set before the
+	  controller does any DMA.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called phy-intel-grx500-usb.ko.
+
 config PHY_INTEL_KEEMBAY_EMMC
 	tristate "Intel Keem Bay EMMC PHY driver"
 	depends on ARCH_KEEMBAY || COMPILE_TEST
