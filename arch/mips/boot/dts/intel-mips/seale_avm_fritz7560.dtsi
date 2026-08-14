@@ -332,6 +332,33 @@
 	intel,inbound-swap = <1>;
 	intel,outbound-swap = <0>;
 	reset-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+
+	/*
+	 * The 2.4 GHz radio is an AR93xx whose EEPROM is blank, so it
+	 * enumerates as 168c:abcd (AR9300_DEVID_INVALID). ath9k_of_init()
+	 * only looks for calibration data in a file when the device has an
+	 * OF node carrying qca,no-eeprom, so without this node the driver
+	 * keeps AH_USE_EEPROM and the radio cannot come up at all -- there
+	 * is nothing on the part to fall back to.
+	 *
+	 * The outer node is the root port at devfn 0 on bus 0, the inner
+	 * one the endpoint at devfn 0 on bus 1; matching is by devfn, so
+	 * the compatible is documentation.
+	 */
+	pcie@0 {
+		reg = <0 0 0 0 0>;
+		#size-cells = <2>;
+		#address-cells = <3>;
+		device_type = "pci";
+		ranges;
+
+		wifi@0,0 {
+			compatible = "pci168c,abcd";
+			reg = <0 0 0 0 0>;
+			/* load from ath9k-eeprom-pci-0001:01:00.0.bin */
+			qca,no-eeprom;
+		};
+	};
 };
 
 /* VRX318 DSL companion -- see the inbound-swap note above. */
