@@ -275,12 +275,13 @@ int cbm_hw_init(struct platform_device *pdev)
 	int ret;
 
 	/*
-	 * Endian straps are sampled at block reset, so the value must be held
-	 * across the whole datapath bring-up.
+	 * The datapath initiators must be strapped big-endian before any CBM
+	 * or GSW reset: the straps are sampled at block reset, so the value
+	 * has to be held across bring-up. SPI_DEBUG_EN (IFMUX_CFG bit 18) is
+	 * cleared as the vendor's own chiptop setup does.
 	 */
 	{
 		void __iomem *ct = ioremap(0x16080000, 0x200);
-		void __iomem *rcu = ioremap(0x16000000, 0x100);
 
 		if (ct) {
 			u32 pre;
@@ -290,11 +291,7 @@ int cbm_hw_init(struct platform_device *pdev)
 			__raw_writel(pre & ~(BIT(22) | BIT(18)), ct + 0x120);
 			iounmap(ct);
 		}
-		if (rcu) {
-			__raw_writel(0x0000000F, rcu + 0x50);
-			iounmap(rcu);
-		}
-		pr_info("cbm: chiptop/RCU parity applied (ipt_endian, ifmux, wdt_rst_en)\n");
+		pr_info("cbm: chiptop parity applied (ipt_endian, ifmux)\n");
 	}
 
 	(void)pdev;
