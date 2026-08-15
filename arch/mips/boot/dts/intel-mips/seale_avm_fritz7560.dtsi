@@ -82,6 +82,14 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;
+
+		ramoops@23700000 {
+			compatible = "ramoops";
+			reg = <0x23700000 0x100000>;
+			record-size = <0x4000>;
+			console-size = <0x80000>;
+			mem-type = <1>;
+		};
 	};
 };
 
