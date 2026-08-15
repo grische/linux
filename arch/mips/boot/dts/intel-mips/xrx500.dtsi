@@ -119,6 +119,22 @@
 		};
 	};
 
+	/*
+	 * There is no watchdog block on this SoC — the timer is the GIC's
+	 * per-VP watchdog — so this node carries no reg and no unit address.
+	 * The RCU phandle supplies the reset-enable bit and the reset-cause
+	 * word. The interrupt is per-VP and optional.
+	 */
+	watchdog {
+		compatible = "intel,grx500-wdt";
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_LOCAL 0 IRQ_TYPE_NONE>;
+		clocks = <&cgu CLK_CPU>;
+		intel,rcu-syscon = <&rcu>;
+		timeout-sec = <30>;
+	};
+
 	asc0: serial@16600000 {
 		compatible = "lantiq,asc";
 		reg = <0x16600000 0x100000>;
