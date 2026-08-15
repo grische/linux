@@ -1842,6 +1842,21 @@ config INDYDOG
 	  timer expired and no process has written to /dev/watchdog during
 	  that time.
 
+config INTEL_GRX500_WDT
+	bool "Intel GRX500 watchdog"
+	depends on MIPS_GIC
+	depends on (INTEL_MIPS && OF) || COMPILE_TEST
+	select WATCHDOG_CORE
+	select MFD_SYSCON
+	help
+	  Hardware driver for the watchdog on Intel/Lantiq GRX500 (xRX500)
+	  SoCs. There is no watchdog block: the timer is the MIPS GIC's
+	  per-VP watchdog, and the SoC contributes the RCU register that
+	  turns an expiry into a chip reset.
+
+	  This cannot be built as a module -- it reaches the GIC through the
+	  CPS register accessors, and mips_gic_base is not exported.
+
 config JZ4740_WDT
 	tristate "Ingenic jz4740 SoC hardware watchdog"
 	depends on MIPS || COMPILE_TEST
