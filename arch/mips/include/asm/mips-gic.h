@@ -285,6 +285,23 @@ GIC_VX_ACCESSOR_RW(32, 0x080, other)
 GIC_VX_ACCESSOR_RO(32, 0x088, ident)
 #define GIC_VX_IDENT_VPNUM		GENMASK(5, 0)
 
+/* GIC_Vx_WD_CONFIG0 - Configure the local Virtual Processor's watchdog */
+GIC_VX_ACCESSOR_RW(32, 0x090, wd_config0)
+#define GIC_VX_WD_CONFIG0_WDRESET	BIT(7)
+#define GIC_VX_WD_CONFIG0_WDINTR	BIT(6)
+#define GIC_VX_WD_CONFIG0_NWAIT		BIT(5)
+#define GIC_VX_WD_CONFIG0_DEBUG		BIT(4)
+#define GIC_VX_WD_CONFIG0_TYPE		GENMASK(2, 1)
+#define GIC_VX_WD_CONFIG0_TYPE_SCD	0x1
+#define GIC_VX_WD_CONFIG0_TYPE_PIT	0x2
+#define GIC_VX_WD_CONFIG0_START		BIT(0)
+
+/* GIC_Vx_WD_COUNT0 - Current value of the local watchdog's countdown */
+GIC_VX_ACCESSOR_RW(32, 0x094, wd_count0)
+
+/* GIC_Vx_WD_INITIAL0 - Value the local watchdog's countdown reloads from */
+GIC_VX_ACCESSOR_RW(32, 0x098, wd_initial0)
+
 /* GIC_Vx_COMPARE - Value to compare with GIC_SH_COUNTER */
 GIC_VX_ACCESSOR_RW(64, 0x0a0, compare)
 
