@@ -182,6 +182,14 @@
 			reg = <0x24a00000 0x800000>;
 			no-map;
 		};
+
+		ramoops@23700000 {
+			compatible = "ramoops";
+			reg = <0x23700000 0x100000>;
+			record-size = <0x4000>;
+			console-size = <0x80000>;
+			mem-type = <1>;
+		};
 	};
 };
 
