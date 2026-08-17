@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Grische <github@grische.xyz>
 
+#include <dt-bindings/interrupt-controller/mips-gic.h>
+#include <dt-bindings/clock/intel,grx500-clk.h>
+
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
