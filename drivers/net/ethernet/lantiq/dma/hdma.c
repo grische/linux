@@ -33,6 +33,7 @@
 #include <linux/of_irq.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
+#include <linux/sizes.h>
 
 #include "hdma.h"
 #include "hdma_regs.h"
@@ -1605,6 +1606,33 @@ int ltq_dma_chan_class_cfg(u32 chan, u32 cls)
 }
 
 /*
+ * Upper bound on physical addresses this driver may take a CKSEG1 alias of.
+ *
+ * The uncached window on this SoC is the first 256 MiB of DRAM and nothing
+ * more. Kernel VA 0xA0000000-0xBFFFFFFF is mapped uncached onto physical
+ * 0x20000000-0x3FFFFFFF, of which only the lower half is DRAM; the upper
+ * half is the SoC's register space, appearing there at its nominal address
+ * plus 0x20000000. So the alias of a page above PHYS_OFFSET + SZ_256M is a
+ * register address, and writing a descriptor ring through it either takes a
+ * data bus error on an unpopulated hole or -- worse, because nothing faults
+ * -- lands in whatever registers are decoded there while the DMA engine
+ * goes on reading the untouched DRAM page.
+ *
+ * This bound is therefore a property of the uncached window, NOT the top of
+ * DRAM. Do not "fix" it by raising it to the board's RAM size: on a board
+ * with more than 256 MiB that trades a loud, diagnosable probe failure for
+ * register corruption. If rings need to come from somewhere the buddy
+ * allocator will not reach, reserve a low region in DT and carve from it --
+ * the way cbm-std-pool and cbm-jbo-pool already work.
+ *
+ * The same window bounds every coherent allocation on the platform and is
+ * enforced generically in arch/mips/mm/dma-noncoherent.c; this check stays
+ * because this driver aliases addresses by hand rather than using what the
+ * allocator returned.
+ */
+#define HDMA_UNCAC_DRAM_LIMIT	(PHYS_OFFSET + SZ_256M)
+
+/*
  * arch_dma_set_uncached() on MIPS is __pa(addr) + UNCAC_BASE
  * (arch/mips/mm/dma-noncoherent.c), and on this platform __pa() yields the
  * FULL physical address because PHYS_OFFSET is 0x20000000
@@ -1617,7 +1645,7 @@ int ltq_dma_chan_class_cfg(u32 chan, u32 cls)
  *
  * The GRX500 aliases DDR at physical 0, so CKSEG1ADDR(phys) is an uncached
  * window onto the very same DRAM page; the guard below accepts exactly the
- * native DDR window.
+ * range over which that alias is a view of DRAM and nothing else.
  */
 int ltq_dma_chan_desc_alloc(u32 chan, u32 desc_num)
 {
@@ -1652,10 +1680,12 @@ int ltq_dma_chan_desc_alloc(u32 chan, u32 desc_num)
 	if (!vaddr)
 		return -ENOMEM;
 
-	if (phys < 0x20000000ULL || phys >= 0x28000000ULL) {
+	if (phys < PHYS_OFFSET || phys + bytes > HDMA_UNCAC_DRAM_LIMIT) {
 		dev_err(pctrl->dev,
-			"desc_phys 0x%llx outside native DDR window, refusing the ring\n",
-			(unsigned long long)phys);
+			"desc ring 0x%llx+0x%zx outside the KSEG1-addressable DRAM window [0x%lx,0x%lx), refusing the ring\n",
+			(unsigned long long)phys, bytes,
+			(unsigned long)PHYS_OFFSET,
+			(unsigned long)HDMA_UNCAC_DRAM_LIMIT);
 		dma_free_coherent(pctrl->dev, bytes, vaddr, phys);
 		return -EINVAL;
 	}
