@@ -7,9 +7,6 @@
  */
 /dts-v1/;
 
-#include <dt-bindings/interrupt-controller/mips-gic.h>
-#include <dt-bindings/clock/intel,grx500-clk.h>
-
 #include "xrx500.dtsi"
 
 / {
