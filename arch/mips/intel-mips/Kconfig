@@ -19,6 +19,10 @@ config DTB_INTEL_MIPS_FRITZ7560
 	bool "AVM FRITZ!Box 7560"
 	select BUILTIN_DTB
 
+config DTB_INTEL_MIPS_FRITZ7590
+	bool "AVM FRITZ!Box 7590"
+	select BUILTIN_DTB
+
 endchoice
 
 endif
