@@ -28,27 +28,6 @@
 	};
 
 	/*
-	 * xrx500.dtsi already declares cpu0/cpu1 (interAptiv). The FRITZ!Box 7560 has
-	 * a 4-core interAptiv cluster ("VPE topology {2,2} total 4" per line
-	 * 197), so augment the inherited cpus block with cpu2/cpu3. The cpus
-	 * node is merged by dtc with the same path declared in xrx500.dtsi;
-	 * #address-cells / #size-cells are inherited.
-	 */
-	cpus {
-		cpu2: cpu@2 {
-			device_type = "cpu";
-			compatible = "mti,interaptiv";
-			reg = <2>;
-		};
-
-		cpu3: cpu@3 {
-			device_type = "cpu";
-			compatible = "mti,interaptiv";
-			reg = <3>;
-		};
-	};
-
-	/*
 	 * 128 MiB DDR at PHYS_OFFSET 0x20000000. Match the 5.10 reference
 	 * DTS for this board. The chip has 256 MiB physical but AVM's 4Kec
 	 * bootcore (kernel2 at load 0x8DFFFFFC) lives in the upper region;
