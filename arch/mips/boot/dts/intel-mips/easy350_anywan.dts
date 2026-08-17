@@ -2,9 +2,6 @@
 // Copyright (C) 2026 Grische <github@grische.xyz>
 /dts-v1/;
 
-#include <dt-bindings/interrupt-controller/mips-gic.h>
-#include <dt-bindings/clock/intel,grx500-clk.h>
-
 #include "xrx500.dtsi"
 
 / {
