@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 Grische <github@grische.xyz>
+/*
+ * AVM FRITZ!Box boards on the Lantiq/Intel xRX500 (Seale) SoC family.
+ * Board-family layer: everything common to every FRITZ!Box on this SoC, but
+ * nothing that is on the die. SoC-level description is in xrx500.dtsi;
+ * per-board data is in the board .dts.
+ */
+
+#include "xrx500.dtsi"
+
+/*
+ * Every FRITZ!Box on this SoC wires its flash to EBU chip-select 1, with the
+ * chip data window decoded at 0x17c00000. Both facts are in the vendor device
+ * tree (lantiq,cs = <1>, and the localbus ranges that place the window).
+ */
+&ebu_nand {
+	status = "okay";
+
+	lantiq,cs = <1>;
+
+	nand0: nand@0 {
+		reg = <0>;
+		label = "nand0";
+
+		/*
+		 * On-die ECC, selected through the legacy "nand-ecc-mode"
+		 * property on purpose: the modern "nand-ecc-engine" spelling is
+		 * a phandle, and a string there fails phandle resolution
+		 * silently, leaving the engine type at INVALID with no
+		 * diagnostic.
+		 */
+		nand-ecc-mode = "on-die";
+	};
+};
+
+/ {
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+	};
+};
