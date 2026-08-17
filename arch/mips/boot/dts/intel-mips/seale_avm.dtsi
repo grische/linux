@@ -1,0 +1,183 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 Grische <github@grische.xyz>
+/*
+ * AVM FRITZ!Box boards on the Lantiq/Intel xRX500 (Seale) SoC family.
+ * Board-family layer: everything common to every FRITZ!Box on this SoC, but
+ * nothing that is on the die. SoC-level description is in xrx500.dtsi;
+ * per-board data is in the board .dts.
+ */
+
+#include "xrx500.dtsi"
+
+/*
+ * Every FRITZ!Box on this SoC wires its flash to EBU chip-select 1, with the
+ * chip data window decoded at 0x17c00000. Both facts are in the vendor device
+ * tree (lantiq,cs = <1>, and the localbus ranges that place the window).
+ */
+&ebu_nand {
+	status = "okay";
+
+	lantiq,cs = <1>;
+
+	nand0: nand@0 {
+		reg = <0>;
+		label = "nand0";
+
+		/*
+		 * On-die ECC, selected through the legacy "nand-ecc-mode"
+		 * property on purpose: the modern "nand-ecc-engine" spelling is
+		 * a phandle, and a string there fails phandle resolution
+		 * silently, leaving the engine type at INVALID with no
+		 * diagnostic.
+		 */
+		nand-ecc-mode = "on-die";
+	};
+};
+
+/* Both GSWIP-3.0 instances; on-die blocks with no board wiring. */
+&gswl {
+	status = "okay";
+};
+
+&gswr {
+	status = "okay";
+};
+
+/ {
+	/*
+	 * GPHY firmware loader. The 0x280 window must cover the per-GPHY
+	 * LBADR/MBADR pairs at offsets 0x228..0x26f. The firmware must be
+	 * built in: this driver probes long before any rootfs is mounted.
+	 */
+	gphy_fw: phy-xrx500@1c003c00 {
+		compatible = "lantiq,phy-xrx500";
+		reg = <0x1c003c00 0x280>;
+		firmware-name = "lantiq/xrx500-phy-fw.bin";
+		status = "okay";
+	};
+
+	/*
+	 * GSWIP-3.0 MDIO bus on the GSW-L instance. The aperture is the
+	 * switch base plus (MDCTRL dword 0x004 + GSW30_TOP_OFFSET 0xf00) * 4,
+	 * a 0x20 span covering MDCTRL, MDREAD, MDWRITE and the two MDCCFG
+	 * registers. It overlaps the switch node's own reg claim on purpose,
+	 * which is why the driver maps it with devm_ioremap() rather than
+	 * requesting the region.
+	 *
+	 * The bus defers probing until the GPHY firmware loader has run: a
+	 * PHY without firmware never answers MDIO.
+	 */
+	gswip_mdio: gswip-mdio@1c003c10 {
+		compatible = "lantiq,gswip-mdio";
+		reg = <0x1c003c10 0x20>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		/*
+		 * Each label is consumed by the port whose intel,dp-port-id
+		 * equals this PHY's MDIO address. Getting the pairing wrong
+		 * gives a working link on the wrong front-panel socket, which
+		 * no probe-time check can catch.
+		 */
+		gphy_lan1: ethernet-phy@5 {
+			reg = <0x05>;
+		};
+
+		gphy_lan2: ethernet-phy@4 {
+			reg = <0x04>;
+		};
+
+		gphy_lan3: ethernet-phy@3 {
+			reg = <0x03>;
+		};
+
+		gphy_lan4: ethernet-phy@2 {
+			reg = <0x02>;
+		};
+	};
+
+	/*
+	 * Datapath netdev parent. Each child names one front-panel port and
+	 * its datapath port id; the driver allocates one netdev per child.
+	 */
+	intel_xrx500_net: ethernet {
+		compatible = "intel,xrx500-net";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		port@0 {
+			reg = <0>;
+			intel,dp-port-id = <5>;
+			phy-handle = <&gphy_lan1>;
+		};
+
+		port@1 {
+			reg = <1>;
+			intel,dp-port-id = <4>;
+			phy-handle = <&gphy_lan2>;
+		};
+
+		port@2 {
+			reg = <2>;
+			intel,dp-port-id = <3>;
+			phy-handle = <&gphy_lan3>;
+		};
+
+		port@3 {
+			reg = <3>;
+			intel,dp-port-id = <2>;
+			phy-handle = <&gphy_lan4>;
+		};
+	};
+
+	/*
+	 * CBM standard and jumbo buffer pools.
+	 *
+	 * Both the sizes and the addresses are facts about the SoC rather
+	 * than about any board. They abut exactly (0x23800000 + 0x1200000 =
+	 * 0x24a00000) and top out at 0x25200000.
+	 *
+	 * They are nonetheless declared here rather than in xrx500.dtsi,
+	 * because a reservation cannot be stated without the memory node it
+	 * comes out of, and easy350_anywan has no use for them.
+	 *
+	 * PRECONDITION for every board including this file: its memory node
+	 * must cover 0x23800000..0x25200000. True of the FRITZ!Box 7560 (128 MiB) and
+	 * the FRITZ!Box 7590 (224 MiB). A board with less RAM than that would have to
+	 * override these, and widening a board's memory node cannot move them
+	 * -- only extend past them.
+	 *
+	 * `no-map` keeps the regions out of the buddy allocator entirely so
+	 * that cbm_buf.c's carve allocator owns the only access path. The
+	 * kernel establishes no linear mapping for these pages, so cbm_buf.c
+	 * must memremap() at probe time and cannot rely on virt_to_phys()
+	 * against the resulting pointer.
+	 */
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		cbm_std_pool: cbm-std-pool@23800000 {
+			reg = <0x23800000 0x1200000>;
+			no-map;
+		};
+
+		cbm_jbo_pool: cbm-jbo-pool@24a00000 {
+			reg = <0x24a00000 0x800000>;
+			no-map;
+		};
+	};
+};
+
+/*
+ * The pools carry no restricted-dma-pool compatible, so the driver has to
+ * look them up explicitly through this phandle list.
+ */
+&cbm {
+	memory-region = <&cbm_std_pool>, <&cbm_jbo_pool>;
+	memory-region-names = "cbm-std-pool", "cbm-jbo-pool";
+	status = "okay";
+};

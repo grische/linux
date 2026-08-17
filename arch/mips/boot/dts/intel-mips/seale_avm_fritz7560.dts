@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Copyright (C) 2026 Grische <github@grische.xyz>
+/*
+ * AVM FRITZ!Box 7560 (HW221), GRX350. Board-specific data only; the SoC is
+ * described in xrx500.dtsi and the board family in seale_avm.dtsi.
+ */
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 
-#include "xrx500.dtsi"
-#include "seale_avm_fritz7560.dtsi"
+#include "seale_avm.dtsi"
 
 / {
 	model = "AVM FRITZ!Box 7560";
@@ -31,8 +34,10 @@
 	 * bootcore (kernel2 at load 0x8DFFFFFC) lives in the upper region;
 	 * conservative Phase 1 exposes only the bottom 128 MiB to the
 	 * InterAptiv kernel.
-	 * Reserved-memory regions (gphy_fw, cbm_std_pool, cbm_jbo_pool from
-	 * the 5.10 DTS) are deferred to Phase 2/3 where they're load-bearing.
+	 *
+	 * This covers the CBM pools that seale_avm.dtsi reserves at
+	 * 0x23800000..0x25200000, which is a precondition of including that
+	 * file rather than something this node may be shrunk below.
 	 */
 	memory@20000000 {
 		device_type = "memory";
@@ -47,4 +52,288 @@
 		stdout-path = "serial0:115200n8";
 		bootargs = "";
 	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		/*
+		 * Crash persistence. mem-type = <1> asks for
+		 * pgprot_noncached: nothing flushes the cache on the watchdog
+		 * path, so a cached record would not survive. The zone sizes
+		 * fill reg exactly; fs/pstore/ram.c fails the whole probe if
+		 * they overflow it. Kept low enough that a recovery image
+		 * staged in RAM cannot overwrite the record being diagnosed.
+		 */
+		ramoops@23700000 {
+			compatible = "ramoops";
+			reg = <0x23700000 0x100000>;
+			record-size = <0x4000>;
+			console-size = <0x80000>;
+			mem-type = <1>;
+		};
+	};
+
+	/*
+	 * Front-panel LEDs, buttons and the DECT reset line. Every line here
+	 * is active low: the lamps sink from 3V3.
+	 */
+	leds {
+		compatible = "gpio-leds";
+
+		/*
+		 * Bank 1, pin 4 == SoC pin 36. The boot loader already lights
+		 * this lamp; default-on avoids a dark gap at probe.
+		 */
+		led_power: led-0 {
+			label = "green:power";
+			gpios = <&gpio1 4 GPIO_ACTIVE_LOW>;
+			default-state = "on";
+		};
+
+		/* Vendor name: gpio_avm_led_internet. Drives "Fon". */
+		led_fon: led-1 {
+			label = "green:fon";
+			gpios = <&gpio0 18 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		/* Vendor name: gpio_avm_led_festnetz. Drives "DECT". */
+		led_dect: led-2 {
+			label = "green:dect";
+			gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led_wlan: led-3 {
+			label = "green:wlan";
+			gpios = <&gpio0 14 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		led_info: led-4 {
+			label = "green:info";
+			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+
+		/* Bank 1, pin 2 == SoC pin 34. */
+		led_info_red: led-5 {
+			label = "red:info";
+			gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;
+			default-state = "off";
+		};
+	};
+
+	/*
+	 * Polled rather than interrupt-driven: the GPIO banks do not
+	 * publish an irq domain (see xrx500.dtsi). 100 ms is fast enough
+	 * for both the short-press and the long-press handlers.
+	 */
+	keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <100>;
+
+		button-dect {
+			label = "dect";
+			linux,code = <KEY_PHONE>;
+			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
+		};
+
+		button-wlan {
+			label = "wlan";
+			linux,code = <KEY_RFKILL>;
+			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	aliases {
+		led-boot = &led_power;
+		led-running = &led_power;
+		led-failsafe = &led_info_red;
+		led-upgrade = &led_info;
+		led-wifi = &led_wlan;
+	};
+
+	/*
+	 * The single USB host port on the back of the box. VBUS is a
+	 * GPIO-backed fixed regulator, active high, consumed by the PHY.
+	 */
+	usb_vbus: regulator-usb-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb_vbus";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+};
+
+/*
+ * Macronix MX30LF1GE8AB, 128 MiB. The labels and offsets are the layout the
+ * vendor boot loader installs, so a vendor recovery still finds them.
+ */
+&nand0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/*
+		 * AVM urlader (first-stage bootloader). It also holds
+		 * the only copy of the WiFi calibration data. Read-only:
+		 * overwriting it bricks the device past the point of
+		 * recovery without JTAG/SPI-flashing the chip.
+		 */
+		partition@0 {
+			label = "urlader";
+			reg = <0x0 0x100000>;
+			read-only;
+		};
+
+		/*
+		 * AVM TFFS environment. Holds the only copy of this
+		 * device's identity (MAC addresses, serial number).
+		 * Read-only: it is never written from Linux, and
+		 * erasing it cannot be undone.
+		 */
+		partition@100000 {
+			label = "nand-tffs";
+			reg = <0x100000 0x400000>;
+			read-only;
+		};
+
+		/* Primary kernel slot. Written by sysupgrade. */
+		partition@500000 {
+			label = "kernel";
+			reg = <0x500000 0x800000>;
+		};
+
+		/* AVM secondary/recovery kernel slot. Written by sysupgrade. */
+		partition@d00000 {
+			label = "reserved-kernel";
+			reg = <0xd00000 0x800000>;
+		};
+
+		/* UBI volume hosting rootfs / rootfs_data. */
+		partition@1500000 {
+			label = "ubi";
+			reg = <0x1500000 0x6b00000>;
+		};
+	};
+};
+
+/*
+ * The four LAN GPHYs this board populates. The reset bit list is not
+ * contiguous, so every entry is spelled out; the set bit and the status bit
+ * are the same number here, hence the doubled cell.
+ */
+&gphy_fw {
+	phy_id = <0x02 0x03 0x04 0x05>;
+	resets = <&rcu_reset0 29 29>,
+		 <&rcu_reset0 28 28>,
+		 <&rcu_reset0 26 26>,
+		 <&rcu_reset0 25 25>;
+	reset-names = "phy2", "phy3", "phy4", "phy5";
+};
+
+/*
+ * DECT reset, active high. No DECT driver exists in this tree, so the
+ * line is hogged and driven asserted at boot to hold the Dialog DECT
+ * companion chip quiesced instead of leaving it half-initialised and
+ * chattering on the shared SSI bus.
+ */
+&gpio0 {
+	dect-reset-hog {
+		gpio-hog;
+		gpios = <10 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "dect-reset";
+	};
+};
+
+&pcie_phy0 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+&pcie_phy1 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+&pcie_phy2 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+/*
+ * Inbound byte swapping is enabled on the two radio ports and disabled
+ * on RC2. This SoC is big endian and the DWC core is not, so inbound
+ * DMA is byte-swapped on the way through -- except for the VRX318,
+ * whose driver already presents its shared memory in the endianness the
+ * host expects, and swapping again would undo it. The vendor tree
+ * arrives at the same split: grx_common.dtsi sets inbound-swap on all
+ * three, and vrx318.dtsi, included only by boards carrying that chip,
+ * clears it on RC2.
+ *
+ * Outbound is never swapped, on any port.
+ */
+&pcie0 {
+	status = "okay";
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+};
+
+&pcie1 {
+	status = "okay";
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+
+	/*
+	 * The 2.4 GHz radio is an AR93xx whose EEPROM is blank, so it
+	 * enumerates as 168c:abcd (AR9300_DEVID_INVALID). ath9k_of_init()
+	 * only looks for calibration data in a file when the device has an
+	 * OF node carrying qca,no-eeprom, so without this node the driver
+	 * keeps AH_USE_EEPROM and the radio cannot come up at all -- there
+	 * is nothing on the part to fall back to.
+	 *
+	 * The outer node is the root port at devfn 0 on bus 0, the inner
+	 * one the endpoint at devfn 0 on bus 1; matching is by devfn, so
+	 * the compatible is documentation.
+	 */
+	pcie@0 {
+		reg = <0 0 0 0 0>;
+		#size-cells = <2>;
+		#address-cells = <3>;
+		device_type = "pci";
+		ranges;
+
+		wifi@0,0 {
+			compatible = "pci168c,abcd";
+			reg = <0 0 0 0 0>;
+			/* load from ath9k-eeprom-pci-0001:01:00.0.bin */
+			qca,no-eeprom;
+		};
+	};
+};
+
+/* VRX318 DSL companion -- see the inbound-swap note above. */
+&pcie2 {
+	status = "okay";
+	intel,inbound-swap = <0>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 16 GPIO_ACTIVE_LOW>;
+};
+
+&usb1_phy {
+	status = "okay";
+	vbus-supply = <&usb_vbus>;
+};
+
+&usb1 {
+	status = "okay";
 };
