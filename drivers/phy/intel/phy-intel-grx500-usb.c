@@ -200,15 +200,12 @@ static int intel_usbphy_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(priv->base),
 				     "failed to map the PHY registers\n");
 
-	priv->chiptop = syscon_regmap_lookup_by_phandle(np, "intel,syscon");
+	priv->chiptop = syscon_regmap_lookup_by_phandle_args(np, "intel,syscon",
+							     1,
+							     &priv->cfg_offset);
 	if (IS_ERR(priv->chiptop))
 		return dev_err_probe(dev, PTR_ERR(priv->chiptop),
 				     "failed to get the CHIPTOP syscon\n");
-
-	ret = device_property_read_u32(dev, "intel,syscon-offset",
-				       &priv->cfg_offset);
-	if (ret)
-		return dev_err_probe(dev, ret, "missing intel,syscon-offset\n");
 
 	priv->clk = devm_clk_get(dev, NULL);
 	if (IS_ERR(priv->clk))
