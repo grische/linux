@@ -332,6 +332,18 @@
 };
 
 /*
+ * RC0 and RC1 carry the two QCA9984 radios; RC2 carries a VRX518 with no
+ * in-tree driver. Inbound byte swapping stays on: the SoC is big-endian and
+ * the DesignWare core is not.
+ */
+&pcie2 {
+	status = "okay";
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 16 GPIO_ACTIVE_LOW>;
+};
+
+/*
  * Both USB host controllers. The vendor's HW226 chain carries no status
  * override on either of them, where the FRITZ!Box 7560's grx350_common.dtsi disables
  * usb0. How many jacks that reaches, and which controller sits behind each
