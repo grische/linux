@@ -75,16 +75,9 @@
 #define XRX500_GPHY_SILICON_ID_5 0x05
 #define XRX500_GPHY_SILICON_ID_F 0x0F
 
-/*
- * Per-GPHY base-address-register pair. AVM 4.9 xrx500_phy_fw.c:35-44.
- *
- * The .rd field (RCU mask bit) is preserved verbatim from the AVM
- * source for documentation/auditing purposes; it is not consumed by
- * the v6.18 port because reset_control_assert/deassert now drive the
- * reset-controller framework rather than a direct RCU register write.
- */
+/* Per-GPHY base-address-register pair. AVM 4.9 xrx500_phy_fw.c:35-44. */
 struct ltq_xrx500_gphy_reset {
-	u32 rd;		/* RCU mask bit (documentary, unused on v6.18) */
+	u32 rd;		/* RCU mask bit, written to RCU_RST_REQ */
 	u32 addr;	/* LBADR byte offset within the GSW-L sub-aperture */
 };
 
