@@ -253,58 +253,11 @@
 	};
 };
 
-&pcie_phy0 {
-	status = "okay";
-	intel,ssc-enable = <1>;
-};
-
-&pcie_phy1 {
-	status = "okay";
-	intel,ssc-enable = <1>;
-};
-
-&pcie_phy2 {
-	status = "okay";
-	intel,ssc-enable = <1>;
-};
-
 /*
- * Inbound byte swapping is enabled on the two radio ports and disabled
- * on RC2. This SoC is big endian and the DWC core is not, so inbound
- * DMA is byte-swapped on the way through -- except for the VRX318,
- * whose driver already presents its shared memory in the endianness the
- * host expects, and swapping again would undo it. The vendor tree
- * arrives at the same split: grx_common.dtsi sets inbound-swap on all
- * three, and vrx318.dtsi, included only by boards carrying that chip,
- * clears it on RC2.
- *
- * Outbound is never swapped, on any port.
+ * The 2.4 GHz radio, behind RC1. qca,no-eeprom is required: there is no
+ * calibration EEPROM on the card and the driver must take it from userspace.
  */
-&pcie0 {
-	status = "okay";
-	intel,inbound-swap = <1>;
-	intel,outbound-swap = <0>;
-	reset-gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
-};
-
 &pcie1 {
-	status = "okay";
-	intel,inbound-swap = <1>;
-	intel,outbound-swap = <0>;
-	reset-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
-
-	/*
-	 * The 2.4 GHz radio is an AR93xx whose EEPROM is blank, so it
-	 * enumerates as 168c:abcd (AR9300_DEVID_INVALID). ath9k_of_init()
-	 * only looks for calibration data in a file when the device has an
-	 * OF node carrying qca,no-eeprom, so without this node the driver
-	 * keeps AH_USE_EEPROM and the radio cannot come up at all -- there
-	 * is nothing on the part to fall back to.
-	 *
-	 * The outer node is the root port at devfn 0 on bus 0, the inner
-	 * one the endpoint at devfn 0 on bus 1; matching is by devfn, so
-	 * the compatible is documentation.
-	 */
 	pcie@0 {
 		reg = <0 0 0 0 0>;
 		#size-cells = <2>;
@@ -321,7 +274,10 @@
 	};
 };
 
-/* VRX318 DSL companion -- see the inbound-swap note above. */
+/*
+ * VRX318 DSL companion, behind RC2. Inbound byte swapping is off: the
+ * endpoint's driver already presents host-endian shared memory.
+ */
 &pcie2 {
 	status = "okay";
 	intel,inbound-swap = <0>;
