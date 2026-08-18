@@ -91,7 +91,7 @@ static unsigned long g_cpu_port_alloc;
 static struct tasklet_struct cbm_tasklet[CPU_DQM_PORT_NUM];
 
 #define CBM_RX_SPPID_MIN	2
-#define CBM_RX_SPPID_MAX	5
+#define CBM_RX_SPPID_MAX	15
 #define CBM_RX_SPPID_DEFAULT	5	/* dp5 / eth0 / LAN1 */
 
 static struct net_device *g_cbm_rx_netdev[CBM_RX_SPPID_MAX + 1];
