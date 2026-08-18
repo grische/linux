@@ -543,8 +543,7 @@
 		clocks = <&cgu GCLK_USB1>;
 		resets = <&rcu_reset1 5 5>;
 		reset-names = "phy";
-		intel,syscon = <&chiptop>;
-		intel,syscon-offset = <0x34>;
+		intel,syscon = <&chiptop 0x34>;
 		status = "disabled";
 	};
 
