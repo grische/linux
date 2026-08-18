@@ -32,8 +32,17 @@ struct dma_tx_desc;
  *
  * Note: the orientation is INVERSE the "natural" silicon counting order (eth0
  * -> dp_port_id 2 .. eth3 -> dp_port_id 5 would be natural).
+ *
+ * Boards with a WAN port add one more netdev on dp_port_id 15 (GSWIP-R,
+ * PMAC-R). The PMAC<->CPU link is internal and unbacked, so it never gets a
+ * netdev of its own on any board.
+ *
+ * How many ports a board actually has is a device-tree fact, read from the
+ * child count of the ethernet node - see priv->num_ports. The constant below
+ * is only the array bound: four LAN plus one WAN is every port this silicon
+ * exposes to a netdev.
  */
-#define INTEL_XRX500_NUM_PORTS  4
+#define INTEL_XRX500_MAX_PORTS  5
 
 /**
  * struct intel_xrx500_port_stats - per-port traffic counters.
@@ -145,7 +154,14 @@ struct intel_xrx500_port {
  *
  * @dev:     convenience back-pointer for dev_err / dev_info.
  *
- * @ports: per-port state pointers; NULL slots are unallocated.
+ * @ports:   per-port state pointers, indexed by the DT "reg" of the port
+ *           child node; NULL slots are unallocated.
+ *
+ * @num_ports: how many port child nodes this board's ethernet node has, read
+ *           from DT at probe. Four on a LAN-only board, five where a WAN port
+ *           is described. Probe requires exactly this many netdevs to come
+ *           up - a partial bring-up is a DT/driver disagreement, not a
+ *           degraded mode.
  *
  * @gswl_dev: cached ethsw_api_dev_t pointer for GSW-L (devid=0), recovered
  * via gsw_get_swcore_ops(0) + container_of at probe time. Carries gswl_base /
@@ -159,7 +175,8 @@ struct intel_xrx500_port {
 struct intel_xrx500_priv {
 	struct platform_device		*pdev;
 	struct device			*dev;
-	struct intel_xrx500_port	*ports[INTEL_XRX500_NUM_PORTS];
+	struct intel_xrx500_port	*ports[INTEL_XRX500_MAX_PORTS];
+	u32				num_ports;
 	void				*gswl_dev;
 };
 

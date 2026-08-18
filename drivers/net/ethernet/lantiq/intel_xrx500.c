@@ -592,7 +592,7 @@ static int intel_xrx500_open_step4_tx(struct intel_xrx500_port *port)
 		return -EINVAL;
 	}
 
-	if (port->port_idx >= INTEL_XRX500_NUM_PORTS) {
+	if (port->port_idx >= INTEL_XRX500_MAX_PORTS) {
 		pr_err("intel-xrx500: %s ndo_open step 4 (tx-init): port_idx %u out of table range\n",
 		       netdev_name(port->netdev), port->port_idx);
 		return -EINVAL;
@@ -1198,18 +1198,19 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 		return ret;
 	}
 
-	/* Bounds-check dp_port_id. */
-	if (dp_port_id < 2 || dp_port_id > 5) {
-		dev_err(priv->dev,
-			"intel-xrx500: port@%u intel,dp-port-id=%u out of range [2..5]\n",
-			port_idx, dp_port_id);
-		return -EINVAL;
-	}
-
+	/*
+	 * Validate dp_port_id by resolving it, rather than against a literal
+	 * range. The CQM's tables know which datapath ports this silicon has
+	 * egress resources for - LAN ports 2..5 and the WAN port 15 - so a DT
+	 * typo is rejected by the same lookup that produces the numbers, and
+	 * the two can never disagree about which ports are admissible.
+	 *
+	 * Done before anything is allocated, so a rejection costs no cleanup.
+	 */
 	ret = cbm_dp_deq_port_get(dp_port_id, &deq_port);
 	if (ret) {
 		dev_err(priv->dev,
-			"intel-xrx500: port@%u intel,dp-port-id=%u has no CBM egress resources\n",
+			"intel-xrx500: port@%u intel,dp-port-id=%u is not a datapath Ethernet port\n",
 			port_idx, dp_port_id);
 		return ret;
 	}
@@ -1405,6 +1406,20 @@ static int intel_xrx500_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, priv);
 
+	/*
+	 * How many netdevs this board has is a DT fact, not a build-time
+	 * constant: four on a LAN-only board, five where the ethernet node
+	 * also describes the WAN port. Read it before instantiating anything,
+	 * so the completeness check at the end has something to check against.
+	 */
+	priv->num_ports = of_get_available_child_count(dev->of_node);
+	if (!priv->num_ports || priv->num_ports > INTEL_XRX500_MAX_PORTS) {
+		dev_err(dev,
+			"intel-xrx500: ethernet node has %u port child nodes, want 1..%u\n",
+			priv->num_ports, INTEL_XRX500_MAX_PORTS);
+		return -EINVAL;
+	}
+
 	/* Iterate child port@N nodes and instantiate per-port netdevs. */
 	for_each_available_child_of_node(dev->of_node, port_node) {
 		u32 port_idx;
@@ -1417,9 +1432,14 @@ static int intel_xrx500_probe(struct platform_device *pdev)
 			goto err_rollback;
 		}
 
-		if (port_idx >= INTEL_XRX500_NUM_PORTS) {
+		/*
+		 * reg must densely number 0..num_ports-1: the slot array is
+		 * indexed by it, and a hole would let the count check below
+		 * pass while a slot stayed empty.
+		 */
+		if (port_idx >= priv->num_ports) {
 			dev_err(dev, "intel-xrx500: port@%u out of range [0..%u]\n",
-				port_idx, INTEL_XRX500_NUM_PORTS - 1);
+				port_idx, priv->num_ports - 1);
 			of_node_put(port_node);
 			ret = -EINVAL;
 			goto err_rollback;
@@ -1440,16 +1460,16 @@ static int intel_xrx500_probe(struct platform_device *pdev)
 		registered++;
 	}
 
-	if (registered != INTEL_XRX500_NUM_PORTS) {
+	if (registered != priv->num_ports) {
 		dev_err(dev,
-			"intel-xrx500: expected %d port child nodes, found %d\n",
-			INTEL_XRX500_NUM_PORTS, registered);
+			"intel-xrx500: expected %u port child nodes, found %d\n",
+			priv->num_ports, registered);
 		ret = -EINVAL;
 		goto err_rollback;
 	}
 
-	pr_info("intel-xrx500: %d LAN netdevs registered (eth0..eth%d); PMAC<->CPU link up (internal, no netdev)\n",
-		INTEL_XRX500_NUM_PORTS, INTEL_XRX500_NUM_PORTS - 1);
+	pr_info("intel-xrx500: %u netdevs registered (eth0..eth%u); PMAC<->CPU link up (internal, no netdev)\n",
+		priv->num_ports, priv->num_ports - 1);
 
 	return 0;
 
@@ -1459,7 +1479,7 @@ err_rollback:
 	 * Each slot may be either NULL (never set up) or fully wired -
 	 * intel_xrx500_port_destroy handles both cases.
 	 */
-	for (i = INTEL_XRX500_NUM_PORTS - 1; i >= 0; i--)
+	for (i = INTEL_XRX500_MAX_PORTS - 1; i >= 0; i--)
 		intel_xrx500_port_destroy(priv, i);
 
 	return ret;
@@ -1473,7 +1493,7 @@ static void intel_xrx500_remove(struct platform_device *pdev)
 	if (!priv)
 		return;
 
-	for (i = INTEL_XRX500_NUM_PORTS - 1; i >= 0; i--)
+	for (i = INTEL_XRX500_MAX_PORTS - 1; i >= 0; i--)
 		intel_xrx500_port_destroy(priv, i);
 }
 
