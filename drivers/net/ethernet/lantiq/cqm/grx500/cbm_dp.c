@@ -37,30 +37,21 @@
  *
  * @port_id: CBM port (caller-supplied; 0..15 fits the 0xF0 mask).
  *
- * dp_port_id 2..5 -> { tmu_egress_port (EPN), tmu_queue (QID) }. The EPN is
- * dp_port_id + 5 and the QID is dp_port_id + 15, per AVM's epg_lookup_table
- * and the xrx500_cbm_config[] DQ7..DQ10 rows; the EPN equals the CBM dequeue
- * port, because AVM's conf_dqm_dma_port passes the same number to
- * tmu_create_flat_egress_path and init_cbm_dqm_dma_port. SBID_START=16 (AVM
- * cbm.h:207) -> base_sbid = tmu_queue - 16.
+ * dp_port_id -> { tmu_egress_port (EPN), tmu_queue (QID) } now comes from
+ * cbm_dp_egress_res_get() (cbm_ports.c), which reads the ported vendor
+ * tables. SBID_START=16 (AVM cbm.h:207) -> base_sbid = tmu_queue - 16.
  *
- *   dp 2 -> EPN  7, QID 17, SBID 1   (eth3 / LAN4)
- *   dp 3 -> EPN  8, QID 18, SBID 2   (eth2 / LAN3)
- *   dp 4 -> EPN  9, QID 19, SBID 3   (eth1 / LAN2)
- *   dp 5 -> EPN 10, QID 20, SBID 4   (eth0 / LAN1)
+ *   dp  2 -> EPN  7, QID 17, SBID  1   (eth3 / LAN4)
+ *   dp  3 -> EPN  8, QID 18, SBID  2   (eth2 / LAN3)
+ *   dp  4 -> EPN  9, QID 19, SBID  3   (eth1 / LAN2)
+ *   dp  5 -> EPN 10, QID 20, SBID  4   (eth0 / LAN1)
+ *   dp 15 -> EPN 19, QID 28, SBID 12   (wan, GRX550 boards only)
  *
- * The code below has been on the +5/+15 form since; only this comment lagged.
+ * The LAN rows read like dp+5 / dp+15 and used to be computed that way. They
+ * are not a formula: dp 15 resolves to 19 and 28, where the arithmetic would
+ * have said 20 and 30 — and 20 is the checksum dequeue port, not an unused
+ * number. See the block comment on cbm_dp_egress_res_get().
  */
-
-static u32 cbm_dp_tmu_egress_port(int port_id)
-{
-	return (u32)port_id + 5u;
-}
-
-static u32 cbm_dp_tmu_queue(int port_id)
-{
-	return (u32)port_id + 15u;
-}
 
 static void cbm_qidt_set(int port_id, struct cbm_dp_en_data *cbm_data,
 			 u8 qid_val)
@@ -167,18 +158,24 @@ int cbm_dp_enable(struct module *owner, u32 port_id,
 	}
 
 	if (port_id >= 2 && port_id <= 5) {
-		u32 tmu_port  = cbm_dp_tmu_egress_port((int)port_id);
-		u32 tmu_queue = cbm_dp_tmu_queue((int)port_id);
-		u32 base_sbid = tmu_queue - SBID_START;
+		struct cbm_dp_egress_res res;
+		u32 base_sbid;
+
+		if (cbm_dp_egress_res_get(port_id, &res)) {
+			pr_err("cbm: cbm_dp_enable: no egress resources for dp port %u\n",
+			       port_id);
+			return -EINVAL;
+		}
+		base_sbid = res.tmu_queue - SBID_START;
 
 		if (!g_cbm_egress_preconfig[port_id]) {
-			init_cbm_dqm_dma_port((int)tmu_port);
-			tmu_create_flat_egress_path(1, (u16)tmu_port,
+			init_cbm_dqm_dma_port((int)res.deq_port);
+			tmu_create_flat_egress_path(1, (u16)res.deq_port,
 						    (u16)base_sbid,
-						    (u16)tmu_queue, 1);
+						    (u16)res.tmu_queue, 1);
 		}
 
-		cbm_qidt_set((int)port_id, cbm_data, (u8)tmu_queue);
+		cbm_qidt_set((int)port_id, cbm_data, (u8)res.tmu_queue);
 		return 0;
 	}
 
@@ -215,6 +212,7 @@ int cbm_dp_port_alloc(struct module *owner, struct net_device *dev,
 		      u32 dev_port, s32 port_id,
 		      struct cbm_dp_alloc_data *data, u32 flags)
 {
+	struct cbm_dp_egress_res res;
 	u32 dma_chan;
 
 	(void)owner;
@@ -234,24 +232,39 @@ int cbm_dp_port_alloc(struct module *owner, struct net_device *dev,
 		return -EINVAL;
 	}
 
+	if (cbm_dp_egress_res_get((u32)port_id, &res)) {
+		pr_err("cbm: cbm_dp_port_alloc: no egress resources for port_id=%d\n",
+		       port_id);
+		return -EINVAL;
+	}
+
 	/*
-	 * DMA2TX channel N, because CBM dequeue port N+5 is served by DMA2TX
-	 * channel (deq - 5) == N and DMA_CHANNEL_N == N. So
+	 *   dp  5 (eth0/LAN1) -> deq 10 -> DMA2TX ch 5  -> PMAC p5 -> GPHY5
+	 *   dp  4 (eth1/LAN2) -> deq  9 -> DMA2TX ch 4  -> PMAC p4 -> GPHY4
+	 *   dp  3 (eth2/LAN3) -> deq  8 -> DMA2TX ch 3  -> PMAC p3 -> GPHY3
+	 *   dp  2 (eth3/LAN4) -> deq  7 -> DMA2TX ch 2  -> PMAC p2 -> GPHY2
+	 *   dp 15 (wan)       -> deq 19 -> DMA1TX ch 15 -> PMAC-R p15
 	 *
-	 *   dp 5 (eth0/LAN1) -> deq 10 -> DMA2TX_CBM_P10_CLASS5 -> PMAC p5 -> GPHY5
-	 *   dp 4 (eth1/LAN2) -> deq  9 -> DMA2TX_CBM_P9_CLASS4  -> PMAC p4 -> GPHY4
-	 *   dp 3 (eth2/LAN3) -> deq  8 -> DMA2TX_CBM_P8_CLASS3  -> PMAC p3 -> GPHY3
-	 *   dp 2 (eth3/LAN4) -> deq  7 -> DMA2TX_CBM_P7_CLASS2  -> PMAC p2 -> GPHY2
-	 *
-	 * matching AVM epg_lookup_table (dp5 -> CBM_P10,
-	 * cqm/grx500/cbm.c:568) and DT DQ7..DQ10. This replaces a switch that
-	 * resolved only dp 5 and dp 4 and sent dp 2 / dp 3 to a DMA_CHANNEL_0
-	 * placeholder.
+	 * WAN is on a DIFFERENT CONTROLLER, so the identity does not survive:
+	 * the controller has to be resolved, not assumed. cbm_config.c
+	 * numbers its controllers 1 = DMA1TX / 2 = DMA2TX, which is not the
+	 * cid ordering of enum dma_controller, hence the map here.
 	 */
-	dma_chan = _DMA_C(DMA2TX, DMA2TX_PORT, (u32)port_id);
+	switch (res.dma_ctrl) {
+	case 1:
+		dma_chan = _DMA_C(DMA1TX, DMA1TX_PORT, res.dma_chan);
+		break;
+	case 2:
+		dma_chan = _DMA_C(DMA2TX, DMA2TX_PORT, res.dma_chan);
+		break;
+	default:
+		pr_err("cbm: cbm_dp_port_alloc: port_id=%d unknown dma_ctrl %u\n",
+		       port_id, res.dma_ctrl);
+		return -EINVAL;
+	}
 
 	data->dp_port = (u32)port_id;
-	data->deq_port = (u32)port_id + 5;
+	data->deq_port = res.deq_port;
 
 	data->deq_port_num = 1;
 	data->num_dma_chan = 1;

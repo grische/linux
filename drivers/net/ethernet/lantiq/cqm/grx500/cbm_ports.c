@@ -320,6 +320,103 @@ static u32 get_matching_EP(
 	return 0;
 }
 
+/*
+ * DQM-DMA rows of AVM's xrx500_cbm_config[] (cqm/grx500/cbm_config.c),
+ * Ethernet subset: CBM dequeue port -> TMU queue + the DMA controller and
+ * channel that drains it. num_desc is 2 on every row and lives in hdma.c as
+ * CBM_DQM_DESC_NUM; tmu_queue_nos is 1 on every row here.
+ *
+ * dma_ctrl keeps AVM's own encoding (1 = DMA1TX, 2 = DMA2TX), not the cid
+ * values of enum dma_controller — this table is a transcription of the vendor
+ * rows and translating it in place would make it un-diffable against them.
+ *
+ * The dp-15 row is the one that matters: dequeue 19 is drained by DMA1TX,
+ * a different controller from every LAN port, not merely a different channel.
+ */
+static const struct {
+	u32 deq_port;
+	u32 tmu_queue;
+	u32 dma_ctrl;
+	u32 dma_chan;
+} cbm_dqm_dma_eth_rows[] = {
+	{  6, 16, 2,  1 },
+	{  7, 17, 2,  2 },
+	{  8, 18, 2,  3 },
+	{  9, 19, 2,  4 },
+	{ 10, 20, 2,  5 },
+	{ 11, 21, 2,  6 },
+	{ 12, 22, 2,  9 },
+	{ 13, 23, 2, 10 },
+	{ 14, 24, 2, 11 },
+	{ 15, 25, 2, 12 },
+	{ 16, 26, 2, 13 },
+	{ 17, 27, 2, 14 },
+	{ 19, 28, 1, 15 },
+};
+
+/*
+ * cbm_dp_egress_res_get - resolve a datapath port's egress resources.
+ *
+ * Return: 0 with @res filled, or -EINVAL if @dp_port_id is not an Ethernet
+ * datapath port on this silicon.
+ */
+int cbm_dp_egress_res_get(u32 dp_port_id, struct cbm_dp_egress_res *res)
+{
+	u32 deq = CBM_PORT_INVALID;
+	int i;
+
+	if (!res)
+		return -EINVAL;
+
+	/*
+	 * Both blocks carry the same pmac values, so taking the first keeps
+	 * the primary.
+	 */
+	for (i = 0; i < ARRAY_SIZE(epg_lookup_table); i++) {
+		if (epg_lookup_table[i].pmac != dp_port_id)
+			continue;
+		if (epg_lookup_table[i].port_type != DP_F_FAST_ETH_LAN &&
+		    epg_lookup_table[i].port_type != DP_F_FAST_ETH_WAN)
+			continue;
+		deq = epg_lookup_table[i].epg;
+		break;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(cbm_dqm_dma_eth_rows); i++) {
+		if (cbm_dqm_dma_eth_rows[i].deq_port != deq)
+			continue;
+		res->deq_port  = deq;
+		res->tmu_queue = cbm_dqm_dma_eth_rows[i].tmu_queue;
+		res->dma_ctrl  = cbm_dqm_dma_eth_rows[i].dma_ctrl;
+		res->dma_chan  = cbm_dqm_dma_eth_rows[i].dma_chan;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+/*
+ * cbm_dp_deq_port_get — @deq_port only, for callers that have no reason to
+ * see the rest and would otherwise need a duplicate struct definition
+ * (intel_xrx500.c declares its CQM entry points locally rather than including
+ * cbm.h).
+ */
+int cbm_dp_deq_port_get(u32 dp_port_id, u32 *deq_port)
+{
+	struct cbm_dp_egress_res res;
+	int ret;
+
+	if (!deq_port)
+		return -EINVAL;
+
+	ret = cbm_dp_egress_res_get(dp_port_id, &res);
+	if (ret)
+		return ret;
+
+	*deq_port = res.deq_port;
+	return 0;
+}
+
 /* AVM cbm.c:625-644 verbatim. */
 static u32 assign_port_from_DT(
 	u32 flags,
