@@ -44,6 +44,14 @@ struct dma_tx_desc;
  */
 #define INTEL_XRX500_MAX_PORTS  5
 
+/*
+ * The WAN port's datapath id. Not a choice: DP_F_FAST_ETH_WAN drives the
+ * vendor allocator over a single-entry range whose start and end are both
+ * PMAC_ETH_WAN_ID, so the WAN class can only ever land on dp port 15. It sits
+ * on GSWIP-R / PMAC-R, which is why it is nowhere near the LAN block.
+ */
+#define INTEL_XRX500_DP_PORT_WAN  15
+
 /**
  * struct intel_xrx500_port_stats - per-port traffic counters.
  *

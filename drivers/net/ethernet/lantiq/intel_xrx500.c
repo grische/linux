@@ -58,6 +58,9 @@
 #ifndef DP_F_FAST_ETH_LAN
 #define DP_F_FAST_ETH_LAN		0x00000002
 #endif
+#ifndef DP_F_FAST_ETH_WAN
+#define DP_F_FAST_ETH_WAN		0x00000004
+#endif
 
 /*
  * Field order/sizes MUST match datapath_api.c's local copy bit-for-bit or
@@ -875,15 +878,25 @@ static netdev_tx_t intel_xrx500_ndo_start_xmit(struct sk_buff *skb,
 
 	if (hdr_len) {
 		/*
-		 * LAN-port PMAC tx header (AVM DP_F_FAST_ETH_LAN template):
-		 * port_map_en=1, sppid=PMAC_CPU_ID(0), class_en=1,
-		 * port_map2 = 1 << dp_port_id. Only used on a header-channel.
+		 * PMAC tx header, matching AVM's init_dma_pmac_template for this
+		 * port's class: port_map_en=1, sppid=PMAC_CPU_ID(0), class_en=1,
+		 * port_map/port_map2 = the dp port's bit. Only used on a
+		 * header-channel.
+		 *
+		 * redirect is the ONLY field that differs between the LAN and WAN
+		 * templates (datapath/datapath_misc.c init_dma_pmac_template).
+		 * This hand-built header, not that template, is what the wire
+		 * actually sees - get_dma_pmac_templ() has no caller in this tree
+		 * because dp_xmit is not ported - so the bit has to be set here
+		 * too, or the WAN port would egress with a LAN-shaped header.
 		 */
 		pmac = (struct pmac_tx_hdr *)((u8 *)buf + XRX500_CBM_TX_DATA_OFFSET);
 		memset(pmac, 0, sizeof(*pmac));
 		pmac->port_map_en = 1;
 		pmac->sppid = 0;          /* PMAC_CPU_ID */
 		pmac->class_en = 1;
+		pmac->redirect =
+			!!(port->dp_alloc_flags & DP_F_FAST_ETH_WAN);
 		if (port->dp_port_id <= 7)
 			pmac->port_map2 = (u8)(1u << port->dp_port_id);
 		else
@@ -1188,6 +1201,7 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 	struct phylink *phylink;
 	u32 dp_port_id;
 	u32 deq_port;
+	bool is_wan;
 	int ret;
 
 	ret = of_property_read_u32(port_node, "intel,dp-port-id", &dp_port_id);
@@ -1213,6 +1227,22 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 			"intel-xrx500: port@%u intel,dp-port-id=%u is not a datapath Ethernet port\n",
 			port_idx, dp_port_id);
 		return ret;
+	}
+
+	/*
+	 * DP_F_FAST_ETH_WAN pins the datapath port id: AVM's allocator walks
+	 * PMAC_ETH_WAN_ID as both the start and the end of its search, so the
+	 * WAN class can only ever land on dp port 15. A DT that marks some
+	 * other port as WAN is describing something the silicon cannot do, and
+	 * the two properties would then disagree silently about which PMAC
+	 * template the port gets.
+	 */
+	is_wan = of_property_read_bool(port_node, "lantiq,wan");
+	if (is_wan && dp_port_id != INTEL_XRX500_DP_PORT_WAN) {
+		dev_err(priv->dev,
+			"intel-xrx500: port@%u has lantiq,wan but intel,dp-port-id=%u (WAN is always %u)\n",
+			port_idx, dp_port_id, INTEL_XRX500_DP_PORT_WAN);
+		return -EINVAL;
 	}
 
 	netdev = alloc_etherdev_mq(sizeof(*port), 1);
@@ -1241,7 +1271,7 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 	port->cbm_deq_port    = deq_port;
 	port->tmu_egress_port = deq_port;
 	port->parent          = priv;
-	port->dp_alloc_flags  = DP_F_FAST_ETH_LAN;
+	port->dp_alloc_flags  = is_wan ? DP_F_FAST_ETH_WAN : DP_F_FAST_ETH_LAN;
 	port->dp_subif_id     = -1;
 	port->state_open      = false;
 	port->state_subif_registered = false;
