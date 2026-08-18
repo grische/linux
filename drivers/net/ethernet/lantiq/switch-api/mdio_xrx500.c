@@ -589,12 +589,10 @@ static int ltq_gswip_mdio_probe(struct platform_device *pdev)
 	 * GSW_HW_Init sequence. It runs from a work function because it must
 	 * not run from the MDIO bus callbacks it re-initialises.
 	 */
-	if (priv->is_gswl) {
-		INIT_DELAYED_WORK(&priv->gsw_reinit_work,
-				  ltq_gswip_gsw_reinit_work);
+	INIT_DELAYED_WORK(&priv->gsw_reinit_work, ltq_gswip_gsw_reinit_work);
+	if (priv->is_gswl)
 		schedule_delayed_work(&priv->gsw_reinit_work,
 				      msecs_to_jiffies(LTQ_GSWIP_GSW_REINIT_DELAY_MS));
-	}
 	return 0;
 }
 
