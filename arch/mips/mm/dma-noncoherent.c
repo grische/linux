@@ -7,6 +7,7 @@
 #include <linux/dma-direct.h>
 #include <linux/dma-map-ops.h>
 #include <linux/highmem.h>
+#include <linux/sizes.h>
 
 #include <asm/cache.h>
 #include <asm/cpu-type.h>
@@ -49,8 +50,38 @@ void arch_dma_prep_coherent(struct page *page, size_t size)
 	dma_cache_wback_inv((unsigned long)page_address(page), size);
 }
 
+/*
+ * Upper bound on the physical addresses an uncached alias may be taken of.
+ * Above it the uncached window maps registers rather than DRAM, so a coherent
+ * allocation placed there would be handed a register address.
+ */
+#define INTEL_MIPS_UNCAC_DRAM_LIMIT	(PHYS_OFFSET + SZ_256M)
+
 void *arch_dma_set_uncached(void *addr, size_t size)
 {
+	unsigned long pa = __pa(addr);
+
+	if (IS_ENABLED(CONFIG_INTEL_MIPS) &&
+	    pa + size > INTEL_MIPS_UNCAC_DRAM_LIMIT) {
+		/*
+		 * Say so. dma_direct_alloc() discards this errno and hands
+		 * the caller a plain NULL, so a refusal reads as ordinary
+		 * memory pressure -- on a board with hundreds of MiB free,
+		 * and only once the free lists have drifted above the bound,
+		 * which is why it does not reproduce on a freshly booted
+		 * machine.
+		 *
+		 * The rate-limited line identifies every refusal; the
+		 * one-shot backtrace identifies the caller, which nothing in
+		 * this frame can.
+		 */
+		pr_err_ratelimited("uncached alias refused: pa 0x%lx size %zu, KSEG1 limit 0x%lx\n",
+				   pa, size, INTEL_MIPS_UNCAC_DRAM_LIMIT);
+		WARN_ONCE(1, "coherent DMA allocation above the KSEG1 DRAM window\n");
+
+		return ERR_PTR(-ENOMEM);
+	}
+
 	/*
 	 * __pa() yields an address measured from physical zero on the legacy
 	 * memory map, which is also where the uncached window at UNCAC_BASE
@@ -59,9 +90,9 @@ void *arch_dma_set_uncached(void *addr, size_t size)
 	 * of DRAM, so the anchor has to be taken back out.
 	 */
 	if (IS_ENABLED(CONFIG_EVA))
-		return (void *)(__pa(addr) - PHYS_OFFSET + UNCAC_BASE);
+		return (void *)(pa - PHYS_OFFSET + UNCAC_BASE);
 
-	return (void *)(__pa(addr) + UNCAC_BASE);
+	return (void *)(pa + UNCAC_BASE);
 }
 
 static inline void dma_sync_virt_for_device(void *addr, size_t size,
