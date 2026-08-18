@@ -28,7 +28,7 @@
 void intel_set_clk_val(struct regmap *map, u32 reg, u8 shift,
 		       u8 width, u32 set_val)
 {
-	u32 mask = GENMASK(width + shift, shift);
+	u32 mask = GENMASK(width + shift - 1, shift);
 
 	regmap_update_bits(map, reg, mask, set_val << shift);
 }
