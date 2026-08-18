@@ -7,6 +7,8 @@
  * per-board data is in the board .dts.
  */
 
+#include <dt-bindings/gpio/gpio.h>
+
 #include "xrx500.dtsi"
 
 /*
@@ -181,4 +183,39 @@
 	memory-region = <&cbm_std_pool>, <&cbm_jbo_pool>;
 	memory-region-names = "cbm-std-pool", "cbm-jbo-pool";
 	status = "okay";
+};
+
+/*
+ * All three serdes PHYs and the two root complexes that carry radios. PERST#
+ * is active low on every port, spread-spectrum clocking is on, and inbound
+ * byte swapping is on because the SoC is big-endian and the DesignWare core
+ * is not.
+ */
+&pcie_phy0 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+&pcie_phy1 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+&pcie_phy2 {
+	status = "okay";
+	intel,ssc-enable = <1>;
+};
+
+&pcie0 {
+	status = "okay";
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 9 GPIO_ACTIVE_LOW>;
+};
+
+&pcie1 {
+	status = "okay";
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
 };
