@@ -536,6 +536,31 @@
 	 * word; intel,syscon's argument is that controller's AXI
 	 * configuration offset.
 	 */
+	usb0_phy: phy@1a400000 {
+		compatible = "intel,grx500-usb-phy";
+		reg = <0x1a400000 0x10000>;
+		#phy-cells = <0>;
+		clocks = <&cgu GCLK_USB0>;
+		resets = <&rcu_reset1 4 4>;
+		reset-names = "phy";
+		intel,syscon = <&chiptop 0x18>;
+		status = "disabled";
+	};
+
+	usb0: usb@1a300000 {
+		compatible = "snps,dwc3";
+		reg = <0x1a300000 0x10000>;
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 54 IRQ_TYPE_LEVEL_HIGH>;
+
+		dr_mode = "host";
+		snps,dis_rxdet_inp3_quirk;
+		phys = <&usb0_phy>;
+		phy-names = "usb3-phy";
+		status = "disabled";
+	};
+
 	usb1_phy: phy@1a600000 {
 		compatible = "intel,grx500-usb-phy";
 		reg = <0x1a600000 0x10000>;
