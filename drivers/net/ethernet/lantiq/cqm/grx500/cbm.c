@@ -721,17 +721,24 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	cbm_enable_controllers();
 
 	{
-		int deq;
+		u32 dp_ports[CBM_MAX_DP_PORTS];
+		int n = cbm_dt_dp_ports(dp_ports, ARRAY_SIZE(dp_ports));
+		int i;
 
-		for (deq = 7; deq <= 10; deq++) {
-			int hret = hdma_port_enable(deq);
+		for (i = 0; i < n; i++) {
+			struct cbm_dp_egress_res res;
+			int hret;
 
+			if (cbm_dp_egress_res_get(dp_ports[i], &res))
+				continue;
+
+			hret = hdma_port_enable((int)res.deq_port);
 			if (hret)
-				dev_warn(dev, "cbm: probe-time hdma_port_enable(%d) = %d (ndo_open will retry)\n",
-					 deq, hret);
+				dev_warn(dev, "cbm: probe-time hdma_port_enable(%u) = %d (ndo_open will retry)\n",
+					 res.deq_port, hret);
 			else
-				pr_info("cbm: DMA2TX ch%d opened at probe-end for deq %d (AVM order)\n",
-					deq - 5, deq);
+				pr_info("cbm: DMA%uTX ch%u opened at probe-end for deq %u (AVM order)\n",
+					res.dma_ctrl, res.dma_chan, res.deq_port);
 		}
 	}
 

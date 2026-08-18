@@ -2000,6 +2000,23 @@ static const struct port7_chan_desc port10_channels[] = {
 };
 
 /*
+ * The WAN port (dp 15) egresses via CBM dequeue port 19 on a DIFFERENT
+ * CONTROLLER, not merely a different channel: AVM cbm_config.c's row for
+ * tmu_port 19 carries dma_ctrl = 1 (DMA1TX @ 0x1a100000, on the GSWIP-R side
+ * of the SoC) where every LAN row carries 2 (DMA2TX @ 0x1c100000). The
+ * channel number is 15, and the vendor names the pair in its own header:
+ * DMA1TX_GSWIP_R_WAN_CBMP19_CLASS15 (dma/lantiq_dmax.h).
+ *
+ * The two controllers are not interchangeable - DMA1TX runs desc-in-sram=1,
+ * polling-cnt=108 and lab-cnt=2, none of which DMA2TX uses - but that is a DT
+ * matter and both nodes are already described; nothing here needs to know.
+ */
+static const struct port7_chan_desc port19_channels[] = {
+	{ .cid = DMA1TX, .pid = DMA1TX_PORT, .nid = DMA_CHANNEL_15,
+	  .label = "DMA1TX_GSWIP_R_WAN_CBMP19_CLASS15", .cbm_deq = 19 },
+};
+
+/*
  * hdma_port_chan_tbl — the per-CBM-dequeue-port channel table, or NULL for a
  * dequeue port this driver does not serve. Shared by hdma_port_enable and
  * hdma_port_disable so the two can never disagree about which channels belong
@@ -2022,6 +2039,9 @@ static const struct port7_chan_desc *hdma_port_chan_tbl(int port_id, size_t *n)
 	case 10:
 		*n = ARRAY_SIZE(port10_channels);
 		return port10_channels;
+	case 19:
+		*n = ARRAY_SIZE(port19_channels);
+		return port19_channels;
 	default:
 		return NULL;
 	}
@@ -2052,7 +2072,7 @@ static const struct port7_chan_desc *hdma_port_chan_tbl(int port_id, size_t *n)
  * leaves the port pointing at descriptors nothing will refill.
  */
 #define HDMA_CBM_DEQ_FIRST 7
-#define HDMA_CBM_DEQ_LAST  10
+#define HDMA_CBM_DEQ_LAST  19
 
 static u32 g_hdma_deq_armed;
 
