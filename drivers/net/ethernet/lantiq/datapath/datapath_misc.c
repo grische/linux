@@ -60,6 +60,7 @@ struct dp_subif_data {
  *
  *   DP_F_DEREGISTER   = BIT(0) = 0x01 — subif_platform_set dispatch flag.
  *   DP_F_FAST_ETH_LAN = BIT(1) = 0x02 — init_dma_pmac_template LAN branch.
+ *   DP_F_FAST_ETH_WAN = BIT(2) = 0x04 — init_dma_pmac_template WAN branch.
  *   DP_F_LOOPBACK     = BIT(6) = 0x40 — update_port_vap tunnel-loop branch.
  *
  * #ifndef guards let any later subtask import the AVM enum first and have
@@ -70,6 +71,9 @@ struct dp_subif_data {
 #endif
 #ifndef DP_F_FAST_ETH_LAN
 #define DP_F_FAST_ETH_LAN 0x00000002
+#endif
+#ifndef DP_F_FAST_ETH_WAN
+#define DP_F_FAST_ETH_WAN 0x00000004
 #endif
 #ifndef DP_F_LOOPBACK
 #define DP_F_LOOPBACK 0x00000040
@@ -110,13 +114,7 @@ static void init_dma_desc_mask(void)
 	dma_tx_desc_mask1.field.ep = 0xF;
 }
 
-/*
- * Only the DP_F_FAST_ETH_LAN branch (AVM:79-90) and the final 'else
- * DP_F_DIRECT' branch (AVM:197-222) are kept; DP_F_FAST_ETH_WAN,
- * DP_F_DIRECTLINK, DP_F_FAST_DSL, DP_F_FAST_WLAN are line-excised. The memset
- * block + the 0xFFFFFFFF mask init loop at function entry are preserved
- * verbatim from AVM:67-77.
- */
+/* init_dma_pmac_template - AVM:60-223 with the branch surgery applied. */
 static void init_dma_pmac_template(int portid, u32 flags)
 {
 	int i;
@@ -141,6 +139,23 @@ static void init_dma_pmac_template(int portid, u32 flags)
 			dp_info->pmac_template[i].port_map_en = 1;
 			dp_info->pmac_template[i].sppid = PMAC_CPU_ID;
 			dp_info->pmac_template[i].redirect = 0;
+			dp_info->pmac_template[i].class_en = 1;
+			SET_PMAC_PORTMAP(&dp_info->pmac_template[i], portid);
+		}
+		/* for checksum for pmac_template[1] */
+		dp_info->pmac_template[TEMPL_CHECKSUM].tcp_chksum = 1;
+	} else if (flags & DP_F_FAST_ETH_WAN) { /* always with pmac */
+		/*
+		 * AVM:91-102. Identical to the LAN branch above but for
+		 * redirect = 1 — that single bit is the whole downstream
+		 * difference between the two Ethernet classes, and it is what
+		 * makes the WAN port's counters land in the GSW-R redirect RMON
+		 * block (datapath_mib.c reads WAN stats from there).
+		 */
+		for (i = 0; i < MAX_TEMPLATE; i++) {
+			dp_info->pmac_template[i].port_map_en = 1;
+			dp_info->pmac_template[i].sppid = PMAC_CPU_ID;
+			dp_info->pmac_template[i].redirect = 1;
 			dp_info->pmac_template[i].class_en = 1;
 			SET_PMAC_PORTMAP(&dp_info->pmac_template[i], portid);
 		}
