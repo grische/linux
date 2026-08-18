@@ -47,8 +47,13 @@
 #define PCIE_LCPLL_LOCK_SLEEP_US	100
 #define PCIE_LCPLL_LOCK_TIMEOUT_US	(100 * USEC_PER_MSEC)
 
-/* CHIPTOP interface mux */
-#define PCIE_IFMUX_CFG			0x120
+/*
+ * This instance's reference-clock gate bit in the chip-top interface mux
+ * word, reached through intel,syscon at the byte offset that property's
+ * argument gives (0x120). Unlike the USB PHY's per-controller word the
+ * offset is the same for all three instances, and which instance is meant
+ * is a bit position inside it, which is what intel,phy-id supplies.
+ */
 #define PCIE_RCLK(id)			BIT((id) + 22)
 
 #define PCIE_PHY_ID_MAX			2
@@ -67,6 +72,7 @@ struct intel_pciephy {
 	void __iomem *phy_base;
 	struct regmap *cgu;
 	struct regmap *chiptop;
+	unsigned int ifmux_off;
 	struct phy *phy;
 	struct reset_control *rst;
 	u32 id;
@@ -94,7 +100,7 @@ static void intel_pciephy_dbg_dump(struct intel_pciephy *priv)
 		dev_dbg(dev, "LCPLL COEF[%d]: 0x%08x\n", i, val);
 	}
 
-	regmap_read(priv->chiptop, PCIE_IFMUX_CFG, &val);
+	regmap_read(priv->chiptop, priv->ifmux_off, &val);
 	dev_dbg(dev, "PCIE PHY IFMUX[22-24]: 0x%08x\n", val);
 }
 
@@ -212,7 +218,7 @@ static void intel_pciephy_reset(struct intel_pciephy *priv)
 static void intel_pciephy_ref_clk(struct intel_pciephy *priv, bool on)
 {
 	/* 0 is enable, 1 is disable */
-	regmap_update_bits(priv->chiptop, PCIE_IFMUX_CFG, PCIE_RCLK(priv->id),
+	regmap_update_bits(priv->chiptop, priv->ifmux_off, PCIE_RCLK(priv->id),
 			   on ? 0 : PCIE_RCLK(priv->id));
 }
 
@@ -282,7 +288,9 @@ static int intel_pciephy_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(priv->cgu),
 				     "failed to get the CGU syscon\n");
 
-	priv->chiptop = syscon_regmap_lookup_by_phandle(np, "intel,syscon");
+	priv->chiptop = syscon_regmap_lookup_by_phandle_args(np, "intel,syscon",
+							     1,
+							     &priv->ifmux_off);
 	if (IS_ERR(priv->chiptop))
 		return dev_err_probe(dev, PTR_ERR(priv->chiptop),
 				     "failed to get the CHIPTOP syscon\n");
