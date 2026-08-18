@@ -147,10 +147,11 @@
 	 * comes out of, and easy350_anywan has no use for them.
 	 *
 	 * PRECONDITION for every board including this file: its memory node
-	 * must cover 0x23800000..0x25200000. True of the FRITZ!Box 7560 (128 MiB) and
-	 * the FRITZ!Box 7590 (224 MiB). A board with less RAM than that would have to
-	 * override these, and widening a board's memory node cannot move them
-	 * -- only extend past them.
+	 * must reach 0x25200000, where the jumbo pool ends. The smallest node
+	 * on this platform is the FRITZ!Box 7560's 128 MiB, ending at 0x28000000, so
+	 * every board clears the pools by at least 46 MiB. A board with less
+	 * RAM than that would have to override them, and widening a board's
+	 * memory node cannot move them -- only extend past them.
 	 *
 	 * `no-map` keeps the regions out of the buddy allocator entirely so
 	 * that cbm_buf.c's carve allocator owns the only access path. The
