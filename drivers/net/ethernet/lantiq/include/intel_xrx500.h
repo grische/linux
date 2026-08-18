@@ -119,9 +119,9 @@ struct intel_xrx500_port_stats {
  * @parent:           back-pointer to the owning
  *                    struct intel_xrx500_priv (for dev_err routing).
  *
- * Initialized to DP_F_FAST_ETH_LAN at probe time (the four FRITZ!Box 7560 LAN ports
- * are all fast-Ethernet LAN class). The same value (OR'd with
- * DP_F_DEREGISTER) is passed on the ndo_stop teardown path so the
+ * Set at probe from the port's DT class: DP_F_FAST_ETH_LAN, or
+ * DP_F_FAST_ETH_WAN where the node carries lantiq,wan. The same value (OR'd
+ * with DP_F_DEREGISTER) is passed on the ndo_stop teardown path so the
  * alloc/dealloc pair use bit-for-bit identical base flags.
  *
  * @dp_subif_id: the @subif handle returned by dp_register_subif on success

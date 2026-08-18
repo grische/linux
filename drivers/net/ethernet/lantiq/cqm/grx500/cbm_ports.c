@@ -321,10 +321,10 @@ static u32 get_matching_EP(
 }
 
 /*
- * DQM-DMA rows of AVM's xrx500_cbm_config[] (cqm/grx500/cbm_config.c),
- * Ethernet subset: CBM dequeue port -> TMU queue + the DMA controller and
- * channel that drains it. num_desc is 2 on every row and lives in hdma.c as
- * CBM_DQM_DESC_NUM; tmu_queue_nos is 1 on every row here.
+ * DQM-DMA rows of AVM's xrx500_cbm_config[] (cqm/grx500/cbm_config.c): CBM
+ * dequeue port -> TMU queue + the DMA controller and channel that drains it.
+ * num_desc is 2 on every row and lives in hdma.c as CBM_DQM_DESC_NUM;
+ * tmu_queue_nos is 1 on every row here.
  *
  * dma_ctrl keeps AVM's own encoding (1 = DMA1TX, 2 = DMA2TX), not the cid
  * values of enum dma_controller — this table is a transcription of the vendor
@@ -332,6 +332,21 @@ static u32 get_matching_EP(
  *
  * The dp-15 row is the one that matters: dequeue 19 is drained by DMA1TX,
  * a different controller from every LAN port, not merely a different channel.
+ *
+ * Only the rows this driver can serve end to end are carried, because this
+ * table IS the admissibility test - it is what decides which intel,dp-port-id
+ * a board may declare, and which ports the CBM probe programs DQM and TMU
+ * state for. The vendor's remaining DQM-DMA rows are deliberately absent:
+ *
+ * deq 6 and 11 (dp 1 and 6) are real GSWIP-L ports, but no board here wires
+ * them and hdma_port_chan_tbl() has no channel for either, so admitting them
+ * would hand out a netdev that fails at ifup and program egress state at
+ * probe for a port that does not exist on the board. - deq 12..17 are the
+ * high-priority twins of the six LAN ports (AVM's intel,highprio-lan). They
+ * carry the same pmac values as the primaries, which take precedence in the
+ * lookup below, so these rows could never be selected even if they were here.
+ * - deq 18 and 20..22 are the DSL, checksum and directpath ports, which are
+ * not Ethernet and have no netdev.
  */
 static const struct {
 	u32 deq_port;
@@ -339,18 +354,10 @@ static const struct {
 	u32 dma_ctrl;
 	u32 dma_chan;
 } cbm_dqm_dma_eth_rows[] = {
-	{  6, 16, 2,  1 },
 	{  7, 17, 2,  2 },
 	{  8, 18, 2,  3 },
 	{  9, 19, 2,  4 },
 	{ 10, 20, 2,  5 },
-	{ 11, 21, 2,  6 },
-	{ 12, 22, 2,  9 },
-	{ 13, 23, 2, 10 },
-	{ 14, 24, 2, 11 },
-	{ 15, 25, 2, 12 },
-	{ 16, 26, 2, 13 },
-	{ 17, 27, 2, 14 },
 	{ 19, 28, 1, 15 },
 };
 
