@@ -150,7 +150,8 @@ static void init_dma_pmac_template(int portid, u32 flags)
 		 * redirect = 1 — that single bit is the whole downstream
 		 * difference between the two Ethernet classes, and it is what
 		 * makes the WAN port's counters land in the GSW-R redirect RMON
-		 * block (datapath_mib.c reads WAN stats from there).
+		 * block, which is where the vendor's datapath_mib.c reads WAN
+		 * stats from.
 		 */
 		for (i = 0; i < MAX_TEMPLATE; i++) {
 			dp_info->pmac_template[i].port_map_en = 1;

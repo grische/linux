@@ -596,7 +596,7 @@ static int intel_xrx500_open_step4_tx(struct intel_xrx500_port *port)
 	}
 
 	if (port->port_idx >= INTEL_XRX500_MAX_PORTS) {
-		pr_err("intel-xrx500: %s ndo_open step 4 (tx-init): port_idx %u out of table range\n",
+		pr_err("intel-xrx500: %s ndo_open step 4 (tx-init): port_idx %u out of range\n",
 		       netdev_name(port->netdev), port->port_idx);
 		return -EINVAL;
 	}
@@ -1232,16 +1232,23 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 	/*
 	 * DP_F_FAST_ETH_WAN pins the datapath port id: AVM's allocator walks
 	 * PMAC_ETH_WAN_ID as both the start and the end of its search, so the
-	 * WAN class can only ever land on dp port 15. A DT that marks some
-	 * other port as WAN is describing something the silicon cannot do, and
-	 * the two properties would then disagree silently about which PMAC
-	 * template the port gets.
+	 * WAN class can only ever land on dp port 15, and dp port 15 can only
+	 * ever be WAN.
+	 *
+	 * Hence the equivalence, checked in both directions. lantiq,wan on any
+	 * other port describes something the silicon cannot do. dp port 15
+	 * WITHOUT lantiq,wan is the quieter half of the same mistake: the port
+	 * would come up, take the LAN PMAC template, and egress with
+	 * redirect = 0 - which is exactly the silent class/template
+	 * disagreement this check exists to catch.
 	 */
 	is_wan = of_property_read_bool(port_node, "lantiq,wan");
-	if (is_wan && dp_port_id != INTEL_XRX500_DP_PORT_WAN) {
+	if (is_wan != (dp_port_id == INTEL_XRX500_DP_PORT_WAN)) {
 		dev_err(priv->dev,
-			"intel-xrx500: port@%u has lantiq,wan but intel,dp-port-id=%u (WAN is always %u)\n",
-			port_idx, dp_port_id, INTEL_XRX500_DP_PORT_WAN);
+			"intel-xrx500: port@%u intel,dp-port-id=%u %s lantiq,wan (dp %u is the WAN port, and only it)\n",
+			port_idx, dp_port_id,
+			is_wan ? "must not have" : "requires",
+			INTEL_XRX500_DP_PORT_WAN);
 		return -EINVAL;
 	}
 

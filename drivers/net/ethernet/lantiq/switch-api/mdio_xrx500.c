@@ -180,6 +180,12 @@ static int ltq_gswip_mdio_dbg_rd(struct ltq_gswip_mdio_priv *priv,
 #define LTQ_GPHY11G_PHY_MASK	0xfffffff8
 #define LTQ_CTL1000_MULTIPORT	BIT(10)
 
+/*
+ * phylib's fixup list is global and keyed on PHY uid, so the fixup below is
+ * registered once for all buses rather than once per bus. See the probe site.
+ */
+static bool ltq_gswip_mdio_fixup_registered;
+
 static int ltq_gswip_gphy_mpd_fixup(struct phy_device *phydev)
 {
 	int ret;
@@ -549,10 +555,15 @@ static int ltq_gswip_mdio_probe(struct platform_device *pdev)
 		 __raw_readl(priv->base + LTQ_GSWIP_MDIO_MDC_CFG_0_OFF),
 		 priv->n_phys, mdc_cfg_1);
 
-	ret = phy_register_fixup_for_uid(LTQ_GPHY11G_PHY_ID,
-					 LTQ_GPHY11G_PHY_MASK,
-					 ltq_gswip_gphy_mpd_fixup);
-	if (ret)
+	if (ltq_gswip_mdio_fixup_registered)
+		ret = 0;
+	else
+		ret = phy_register_fixup_for_uid(LTQ_GPHY11G_PHY_ID,
+						 LTQ_GPHY11G_PHY_MASK,
+						 ltq_gswip_gphy_mpd_fixup);
+	if (!ret)
+		ltq_gswip_mdio_fixup_registered = true;
+	else
 		dev_warn(&pdev->dev,
 			 "MPD fixup registration failed: %d\n", ret);
 
