@@ -70,6 +70,7 @@
 	gswip_mdio: gswip-mdio@1c003c10 {
 		compatible = "lantiq,gswip-mdio";
 		reg = <0x1c003c10 0x20>;
+		lantiq,gswip-instance = <0>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 		status = "okay";
