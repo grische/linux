@@ -208,6 +208,17 @@ int turn_on_DMA_p2p(void);
 
 void cbm_rx_set_netdev(u32 sppid, struct net_device *dev);
 
+/*
+ * Defined in cqm/grx500/cbm_ports.c, next to the epg_lookup_table it reads.
+ *
+ * Scalar rather than the struct the CQM side uses, so this TU needs no
+ * duplicate struct definition to keep in sync — same intra-composite extern
+ * discipline as the declarations above (no cqm/grx500/cbm.h include here).
+ *
+ * Returns 0 with *@deq_port filled, or -EINVAL for a non-Ethernet dp port.
+ */
+int cbm_dp_deq_port_get(u32 dp_port_id, u32 *deq_port);
+
 #define XRX500_CBM_TX_DATA_OFFSET (128u + NET_IP_ALIGN + NET_SKB_PAD)
 
 /* Forward declarations. */
@@ -1176,6 +1187,7 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 	struct net_device *netdev;
 	struct phylink *phylink;
 	u32 dp_port_id;
+	u32 deq_port;
 	int ret;
 
 	ret = of_property_read_u32(port_node, "intel,dp-port-id", &dp_port_id);
@@ -1194,6 +1206,14 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 		return -EINVAL;
 	}
 
+	ret = cbm_dp_deq_port_get(dp_port_id, &deq_port);
+	if (ret) {
+		dev_err(priv->dev,
+			"intel-xrx500: port@%u intel,dp-port-id=%u has no CBM egress resources\n",
+			port_idx, dp_port_id);
+		return ret;
+	}
+
 	netdev = alloc_etherdev_mq(sizeof(*port), 1);
 	if (!netdev)
 		return -ENOMEM;
@@ -1210,11 +1230,15 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 	 *      4             9                              19     (eth1 = LAN2)
 	 *      3             8                              18     (eth2 = LAN3)
 	 *      2             7                              17     (eth3 = LAN4)
+	 *     15            19                              28     (wan)
 	 *
-	 * Closed-form: cbm_deq_port = tmu_egress_port = dp_port_id + 5.
+	 * The LAN rows used to be computed as dp_port_id + 5. They are not a
+	 * formula — dp 15 resolves to 19, where +5 would say 20, and 20 is the
+	 * checksum dequeue port. See cbm_dp_egress_res_get() in
+	 * cqm/grx500/cbm_ports.c.
 	 */
-	port->cbm_deq_port    = dp_port_id + 5u;
-	port->tmu_egress_port = dp_port_id + 5u;
+	port->cbm_deq_port    = deq_port;
+	port->tmu_egress_port = deq_port;
 	port->parent          = priv;
 	port->dp_alloc_flags  = DP_F_FAST_ETH_LAN;
 	port->dp_subif_id     = -1;

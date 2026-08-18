@@ -316,6 +316,34 @@ struct cbm_egp_map {
 	u32 port_type;
 };
 
+/**
+ * struct cbm_dp_egress_res - egress resources of one Ethernet datapath port.
+ *
+ * @deq_port: CBM DQM dequeue port.
+ *
+ * @tmu_queue: TMU queue feeding @deq_port. The scheduler block id is
+ *             @tmu_queue - SBID_START.
+ *
+ * @dma_ctrl:  DMA controller draining @deq_port, in AVM cbm_config.c's
+ *             encoding: 1 = DMA1TX, 2 = DMA2TX. NOT an enum dma_controller
+ *             cid — callers translate.
+ *
+ * @dma_chan:  channel within @dma_ctrl.
+ *
+ * Filled by cbm_dp_egress_res_get() from the ported vendor tables. The four
+ * fields always come from one pair of vendor rows, so they cannot drift
+ * apart the way four independent closed forms could.
+ */
+struct cbm_dp_egress_res {
+	u32 deq_port;
+	u32 tmu_queue;
+	u32 dma_ctrl;
+	u32 dma_chan;
+};
+
+int cbm_dp_egress_res_get(u32 dp_port_id, struct cbm_dp_egress_res *res);
+int cbm_dp_deq_port_get(u32 dp_port_id, u32 *deq_port);
+
 /*
  * cbm_dq_info_t — REDUCED port of AVM include/net/lantiq_cbm_api.h:486-492.
  * Member names identical to AVM.

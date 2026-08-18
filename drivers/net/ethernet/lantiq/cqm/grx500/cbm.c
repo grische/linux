@@ -631,13 +631,31 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 
 	cbm_rx_engine_init();
 
+	/*
+	 * AVM's configure_ports() walks all 17 compiled-in rows at probe
+	 * (cbm_config.c), so every DMA egress port is preconfigured before
+	 * the controllers come up; dp 2..4 were falling through to the
+	 * ndo_open path. The per-port numbers come from
+	 * cbm_dp_egress_res_get() (the ported epg_lookup_table + cbm_config.c
+	 * rows) rather than the dp+5 / dp+15 arithmetic they used to be
+	 * computed with — that arithmetic is a LAN coincidence and does not
+	 * extend.
+	 */
 	{
 		int dp;
 
 		for (dp = 2; dp <= 5; dp++) {
-			u16 deq = (u16)(dp + 5);
-			u16 qid = (u16)(dp + 15);
-			u16 sbid = (u16)(qid - SBID_START);
+			struct cbm_dp_egress_res res;
+			u16 deq, qid, sbid;
+
+			if (cbm_dp_egress_res_get((u32)dp, &res)) {
+				pr_err("cbm: dp%d has no egress resources; skipping preconfig\n",
+				       dp);
+				continue;
+			}
+			deq  = (u16)res.deq_port;
+			qid  = (u16)res.tmu_queue;
+			sbid = (u16)(res.tmu_queue - SBID_START);
 
 			init_cbm_dqm_dma_port((int)deq);
 			tmu_create_flat_egress_path(1, deq, sbid, qid, 1);
