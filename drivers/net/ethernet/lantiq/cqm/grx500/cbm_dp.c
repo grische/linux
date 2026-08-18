@@ -143,6 +143,8 @@ int cbm_dp_enable(struct module *owner, u32 port_id,
 		  struct cbm_dp_en_data *cbm_data,
 		  u32 flags, u32 alloc_flags)
 {
+	struct cbm_dp_egress_res res;
+
 	(void)owner;
 	(void)alloc_flags;
 
@@ -157,16 +159,8 @@ int cbm_dp_enable(struct module *owner, u32 port_id,
 		return 0;
 	}
 
-	if (port_id >= 2 && port_id <= 5) {
-		struct cbm_dp_egress_res res;
-		u32 base_sbid;
-
-		if (cbm_dp_egress_res_get(port_id, &res)) {
-			pr_err("cbm: cbm_dp_enable: no egress resources for dp port %u\n",
-			       port_id);
-			return -EINVAL;
-		}
-		base_sbid = res.tmu_queue - SBID_START;
+	if (cbm_dp_egress_res_get(port_id, &res) == 0) {
+		u32 base_sbid = res.tmu_queue - SBID_START;
 
 		if (!g_cbm_egress_preconfig[port_id]) {
 			init_cbm_dqm_dma_port((int)res.deq_port);
@@ -205,8 +199,8 @@ EXPORT_SYMBOL_GPL(cbm_dp_enable);
  *
  * @flags:    caller-supplied DP_F_* mask (unused at minimum port).
  *
- * Returns 0 on success, -EINVAL if @data is NULL or @port_id is outside
- * {2,3,4,5}.
+ * Returns 0 on success, -EINVAL if @data is NULL or @port_id has no CBM
+ * egress resources.
  */
 int cbm_dp_port_alloc(struct module *owner, struct net_device *dev,
 		      u32 dev_port, s32 port_id,
@@ -226,14 +220,8 @@ int cbm_dp_port_alloc(struct module *owner, struct net_device *dev,
 		return -EINVAL;
 	}
 
-	if (port_id < 2 || port_id > 5) {
-		pr_err("cbm: cbm_dp_port_alloc: unsupported port_id=%d (minimum port serves 2..5 only)\n",
-		       port_id);
-		return -EINVAL;
-	}
-
-	if (cbm_dp_egress_res_get((u32)port_id, &res)) {
-		pr_err("cbm: cbm_dp_port_alloc: no egress resources for port_id=%d\n",
+	if (port_id < 0 || cbm_dp_egress_res_get((u32)port_id, &res)) {
+		pr_err("cbm: cbm_dp_port_alloc: unsupported port_id=%d (no CBM egress resources)\n",
 		       port_id);
 		return -EINVAL;
 	}

@@ -361,6 +361,50 @@ int cbm_hw_init(struct platform_device *pdev)
 
 bool g_cbm_egress_preconfig[CBM_MAX_DP_PORTS];
 
+/*
+ * cbm_dt_dp_ports - collect the datapath port ids this board's ethernet node
+ * declares, ascending, into @out (capacity @max).
+ *
+ * If no ethernet node is present, no netdev will exist either; fall back to
+ * the four LAN ports so a DT without an ethernet node behaves exactly as it
+ * did before this became DT-driven.
+ */
+static int cbm_dt_dp_ports(u32 *out, int max)
+{
+	static const u32 lan_only[] = { 2, 3, 4, 5 };
+	struct device_node *eth, *port;
+	int n = 0, i, j;
+
+	eth = of_find_compatible_node(NULL, NULL, "intel,xrx500-net");
+	if (eth) {
+		for_each_available_child_of_node(eth, port) {
+			u32 dp;
+
+			if (n >= max)
+				continue;
+			if (of_property_read_u32(port, "intel,dp-port-id", &dp))
+				continue;
+			/* insertion sort; the lists are 4-5 entries long */
+			for (i = 0; i < n && out[i] < dp; i++)
+				;
+			if (i < n && out[i] == dp)
+				continue;	/* duplicate DT entry */
+			for (j = n; j > i; j--)
+				out[j] = out[j - 1];
+			out[i] = dp;
+			n++;
+		}
+		of_node_put(eth);
+	}
+
+	if (n)
+		return n;
+
+	for (i = 0; i < (int)ARRAY_SIZE(lan_only) && i < max; i++)
+		out[i] = lan_only[i];
+	return i;
+}
+
 extern int hdma_port_enable(int port_id);
 extern int hdma_ig192_toe_dma3_reset(void); /* TOE/DMA3 reset parity */
 
@@ -640,16 +684,25 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	 * rows) rather than the dp+5 / dp+15 arithmetic they used to be
 	 * computed with — that arithmetic is a LAN coincidence and does not
 	 * extend.
+	 *
+	 * Which ports to walk is a board fact, taken from the ethernet node's
+	 * own port children rather than a literal 2..5: a board with a WAN port
+	 * needs dp 15 preconfigured on the same before-enable side of this
+	 * boundary as its LAN ports, and a board without one must not have
+	 * egress state written for a port it does not have.
 	 */
 	{
-		int dp;
+		u32 dp_ports[CBM_MAX_DP_PORTS];
+		int n = cbm_dt_dp_ports(dp_ports, ARRAY_SIZE(dp_ports));
+		int i;
 
-		for (dp = 2; dp <= 5; dp++) {
+		for (i = 0; i < n; i++) {
 			struct cbm_dp_egress_res res;
+			u32 dp = dp_ports[i];
 			u16 deq, qid, sbid;
 
-			if (cbm_dp_egress_res_get((u32)dp, &res)) {
-				pr_err("cbm: dp%d has no egress resources; skipping preconfig\n",
+			if (cbm_dp_egress_res_get(dp, &res)) {
+				pr_err("cbm: dp%u has no egress resources; skipping preconfig\n",
 				       dp);
 				continue;
 			}
@@ -660,7 +713,7 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 			init_cbm_dqm_dma_port((int)deq);
 			tmu_create_flat_egress_path(1, deq, sbid, qid, 1);
 			g_cbm_egress_preconfig[dp] = true;
-			pr_info("cbm: dp%d egress preconfigured at probe (deq%u/q%u/sbid%u) before controller enable\n",
+			pr_info("cbm: dp%u egress preconfigured at probe (deq%u/q%u/sbid%u) before controller enable\n",
 				dp, deq, qid, sbid);
 		}
 	}
