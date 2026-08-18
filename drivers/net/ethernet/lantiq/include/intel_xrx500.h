@@ -97,14 +97,19 @@ struct intel_xrx500_port_stats {
  * @phylink:          phylink instance returned by phylink_create.
  *                    NULL between alloc_etherdev_mq and phylink_create.
  *
- * @port_idx:         per-port index 0..3 - matches the DT child node
+ * @port_idx:         per-port index 0..4 - matches the DT child node
  *                    reg = <N> property. Used as the array index back
  *                    into priv->ports[] from phylink callbacks.
  *
- * Identical to the GSWIP silicon port-number for these four LAN ports -
+ * Identical to the GSWIP silicon port-number for the four LAN ports -
  * directly indexes into MAC_CTRL_0[port] et seq.
  *
- * Used when wiring the TMU port-enable sequence.
+ * @cbm_deq_port: the CBM dequeue-port number for this port: eth0=10, eth1=9,
+ * eth2=8, eth3=7, WAN=19. Resolved from the ported vendor tables by
+ * cbm_dp_deq_port_get(), not computed.
+ *
+ * @tmu_egress_port: the TMU egress-port number for this port. Used when
+ * wiring the TMU port-enable sequence.
  *
  * @phy_node:         the DT node carrying the phy-handle (= one of
  *                    &gphy_lan1..&gphy_lan4); used by
