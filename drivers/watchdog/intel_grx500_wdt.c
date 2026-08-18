@@ -26,6 +26,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/notifier.h>
 #include <linux/percpu.h>
 #include <linux/platform_device.h>
 #include <linux/processor.h>
@@ -93,7 +94,7 @@
 /* CP0-count interval the rate measurement runs over, as a Hz divisor. */
 #define GRX500_WDT_CAL_HZ		100
 
-/* Warn if the measured rate is more than this far from the DT clock. */
+/* Warn if the measured rate is more than this far from the clk rate. */
 #define GRX500_WDT_CAL_TOLERANCE_PPM	50000
 
 /*
@@ -117,6 +118,8 @@
 struct grx500_wdt {
 	struct watchdog_device wdd;
 	struct regmap *rcu;
+	struct clk *clk;
+	struct notifier_block clk_nb;
 	unsigned long rate;
 	unsigned int window_ms;
 	int irq;
@@ -217,7 +220,7 @@ static unsigned int grx500_wdt_get_timeleft(struct watchdog_device *wdd)
 {
 	struct grx500_wdt *wdt = watchdog_get_drvdata(wdd);
 
-	return read_gic_vl_wd_count0() / wdt->rate;
+	return read_gic_vl_wd_count0() / READ_ONCE(wdt->rate);
 }
 
 /*
@@ -225,7 +228,7 @@ static unsigned int grx500_wdt_get_timeleft(struct watchdog_device *wdd)
  * from the counter itself rather than from a clock property. A zero delta
  * fails probe — a watchdog whose rate is unknown cannot honour a timeout.
  */
-static int grx500_wdt_measure_rate(unsigned long dt_rate, unsigned long *out)
+static int grx500_wdt_measure_rate(unsigned long clk_rate, unsigned long *out)
 {
 	u32 c0_begin, c0_end, c0_now, wd_begin, wd_end;
 	u32 c0_window, c0_ticks, wd_ticks;
@@ -281,7 +284,7 @@ static int grx500_wdt_measure_rate(unsigned long dt_rate, unsigned long *out)
 	 * after the assignment.
 	 */
 	rate = div_u64((u64)wd_ticks * mips_hpt_frequency, c0_ticks);
-	if (rate < dt_rate / 4 || rate > (u64)dt_rate * 4)
+	if (rate < clk_rate / 4 || rate > (u64)clk_rate * 4)
 		return -ERANGE;
 
 	*out = rate;
@@ -304,7 +307,7 @@ static irqreturn_t grx500_wdt_irq(int irq, void *dev_id)
 	WRITE_ONCE(wdt->irq_masked, true);
 
 	pr_emerg("countdown expired, SoC reset follows in ~%u ms\n",
-		 wdt->window_ms);
+		 READ_ONCE(wdt->window_ms));
 
 	if (regs)
 		show_regs(regs);
@@ -411,13 +414,89 @@ static const struct watchdog_ops grx500_wdt_ops = {
 	.get_timeleft	= grx500_wdt_get_timeleft,
 };
 
+/*
+ * Everything the driver derives from the counter's tick rate, in one place,
+ * because the rate can move at runtime and so all of it has to be computed
+ * twice: once at probe and again from the rate-change notifier below.
+ */
+static void grx500_wdt_apply_rate(struct grx500_wdt *wdt, unsigned long rate)
+{
+	struct watchdog_device *wdd = &wdt->wdd;
+	unsigned int window_ms;
+
+	window_ms = div_u64((u64)GRX500_WDT_COUNT_MAX * 1000, rate);
+
+	WRITE_ONCE(wdt->rate, rate);
+	WRITE_ONCE(wdt->window_ms, window_ms);
+	wdd->max_hw_heartbeat_ms = window_ms * GRX500_WDT_WINDOW_MARGIN_PCT / 100;
+}
+
+/*
+ * Reported, not settable. The core's nominal meaning for this field is
+ * "seconds before the timeout"; here it is the gap the hardware puts
+ * between the warning and the reset, because both countdowns are the same
+ * fixed length. It has to stay below wdd->timeout, both to satisfy
+ * watchdog_pretimeout_invalid() and because watchdog_set_timeout() zeroes
+ * it otherwise.
+ *
+ * So the two halves cannot be merged in either order.
+ */
+static void grx500_wdt_apply_pretimeout(struct grx500_wdt *wdt)
+{
+	struct watchdog_device *wdd = &wdt->wdd;
+
+	wdd->pretimeout = min(READ_ONCE(wdt->window_ms) / 1000,
+			      wdd->timeout - 1);
+}
+
+/*
+ * The countdown is clocked by the CPU clock, so every seconds-to-ticks
+ * conversion needs the measured rate rather than a fixed divisor. The
+ * conversion is done in 64-bit arithmetic and clamped: at this clock a 32-bit
+ * counter wraps well inside the timeouts userspace is allowed to ask for.
+ */
+static int grx500_wdt_clk_notify(struct notifier_block *nb,
+				 unsigned long action, void *data)
+{
+	struct grx500_wdt *wdt = container_of(nb, struct grx500_wdt, clk_nb);
+	struct clk_notifier_data *cnd = data;
+	struct watchdog_device *wdd = &wdt->wdd;
+
+	/* A zero rate would take the window straight to a division by zero. */
+	if (action != POST_RATE_CHANGE || !cnd->new_rate)
+		return NOTIFY_OK;
+
+	grx500_wdt_apply_rate(wdt, cnd->new_rate);
+	grx500_wdt_apply_pretimeout(wdt);
+
+	dev_info(wdd->parent,
+		 "counter clock %lu -> %lu Hz, window %u ms, max_hw_heartbeat_ms=%u\n",
+		 cnd->old_rate, cnd->new_rate, wdt->window_ms,
+		 wdd->max_hw_heartbeat_ms);
+
+	if (wdd->max_hw_heartbeat_ms < GRX500_WDT_MIN_WINDOW_MS)
+		dev_warn(wdd->parent,
+			 "counter rate %lu Hz leaves a %u ms window\n",
+			 cnd->new_rate, wdd->max_hw_heartbeat_ms);
+
+	/*
+	 * Reload in the new tick domain -- but only if the countdown is armed.
+	 * The core clears WDOG_HW_RUNNING before it calls .stop, so arming
+	 * unconditionally here would restart a watchdog that userspace had
+	 * stopped.
+	 */
+	if (watchdog_hw_running(wdd))
+		grx500_wdt_arm();
+
+	return NOTIFY_OK;
+}
+
 static int grx500_wdt_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct watchdog_device *wdd;
 	struct grx500_wdt *wdt;
-	unsigned long dt_rate;
-	struct clk *clk;
+	unsigned long clk_rate, rate;
 	u32 config0, rst_en, stat;
 	s64 delta_ppm;
 	int ret;
@@ -438,13 +517,18 @@ static int grx500_wdt_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(wdt->rcu),
 				     "failed to get the RCU syscon\n");
 
-	clk = devm_clk_get(dev, NULL);
-	if (IS_ERR(clk))
-		return dev_err_probe(dev, PTR_ERR(clk),
+	/*
+	 * Retained, not dropped after the rate read: the driver stays
+	 * subscribed to this clock for as long as it is registered, because
+	 * the rate can move underneath it (grx500_wdt_clk_notify()).
+	 */
+	wdt->clk = devm_clk_get(dev, NULL);
+	if (IS_ERR(wdt->clk))
+		return dev_err_probe(dev, PTR_ERR(wdt->clk),
 				     "failed to get the counter clock\n");
 
-	dt_rate = clk_get_rate(clk);
-	if (!dt_rate)
+	clk_rate = clk_get_rate(wdt->clk);
+	if (!clk_rate)
 		return dev_err_probe(dev, -EINVAL, "counter clock has no rate\n");
 
 	/*
@@ -455,24 +539,24 @@ static int grx500_wdt_probe(struct platform_device *pdev)
 	 * unknowable and get_timeleft would lie. Refusing to register is the
 	 * visible failure; the alternative is the silent one.
 	 */
-	ret = grx500_wdt_measure_rate(dt_rate, &wdt->rate);
+	ret = grx500_wdt_measure_rate(clk_rate, &rate);
 	if (ret == -ENODEV)
 		return dev_err_probe(dev, ret,
 				     "GIC_Vx_WD_COUNT0 did not move: countdown stopped, or the register does not read back\n");
 
 	if (ret) {
-		wdt->rate = dt_rate;
+		rate = clk_rate;
 		dev_warn(dev, "rate measurement unusable (%d)\n", ret);
-		pr_info("tick rate unmeasured, DT %lu Hz (delta n/a)\n",
-			dt_rate);
+		pr_info("tick rate unmeasured, clk %lu Hz (delta n/a)\n",
+			clk_rate);
 	} else {
-		delta_ppm = div_s64(((s64)wdt->rate - (s64)dt_rate) * 1000000,
-				    dt_rate);
-		pr_info("tick rate measured %lu Hz, DT %lu Hz (delta %ld ppm)\n",
-			wdt->rate, dt_rate, (long)delta_ppm);
+		delta_ppm = div_s64(((s64)rate - (s64)clk_rate) * 1000000,
+				    clk_rate);
+		pr_info("tick rate measured %lu Hz, clk %lu Hz (delta %ld ppm)\n",
+			rate, clk_rate, (long)delta_ppm);
 
 		if (abs(delta_ppm) > GRX500_WDT_CAL_TOLERANCE_PPM)
-			dev_warn(dev, "measured rate disagrees with the DT clock\n");
+			dev_warn(dev, "measured rate disagrees with clk_get_rate()\n");
 	}
 
 	wdd->info = &grx500_wdt_info;
@@ -485,31 +569,22 @@ static int grx500_wdt_probe(struct platform_device *pdev)
 	 * the second expiry, so the userspace-visible timeout is half of what
 	 * the counter runs.
 	 */
-	wdt->window_ms = div_u64((u64)GRX500_WDT_COUNT_MAX * 1000, wdt->rate);
-	wdd->max_hw_heartbeat_ms = wdt->window_ms *
-				   GRX500_WDT_WINDOW_MARGIN_PCT / 100;
+	grx500_wdt_apply_rate(wdt, rate);
 	if (wdd->max_hw_heartbeat_ms < GRX500_WDT_MIN_WINDOW_MS)
 		return dev_err_probe(dev, -ERANGE,
 				     "counter rate %lu Hz leaves a %u ms window\n",
-				     wdt->rate, wdd->max_hw_heartbeat_ms);
-
-	pr_info("max_hw_heartbeat_ms=%u initial0=0x%08x\n",
-		wdd->max_hw_heartbeat_ms, GRX500_WDT_COUNT_MAX);
+				     rate, wdd->max_hw_heartbeat_ms);
 
 	wdd->timeout = GRX500_WDT_DEFAULT_TIMEOUT;
 	ret = watchdog_init_timeout(wdd, timeout, dev);
 	if (ret)
 		dev_warn(dev, "using the default %u s timeout\n", wdd->timeout);
 
-	/*
-	 * Reported, not settable. The core's nominal meaning for this field
-	 * is "seconds before the timeout"; here it is the gap the hardware
-	 * puts between the warning and the reset, because both countdowns
-	 * are the same fixed length. It has to stay below wdd->timeout, both
-	 * to satisfy watchdog_pretimeout_invalid() and because
-	 * watchdog_set_timeout() zeroes it otherwise.
-	 */
-	wdd->pretimeout = min(wdt->window_ms / 1000, wdd->timeout - 1);
+	grx500_wdt_apply_pretimeout(wdt);
+
+	pr_info("max_hw_heartbeat_ms=%u pretimeout=%u initial0=0x%08x\n",
+		wdd->max_hw_heartbeat_ms, wdd->pretimeout,
+		GRX500_WDT_COUNT_MAX);
 
 	watchdog_set_nowayout(wdd, nowayout);
 	watchdog_set_drvdata(wdd, wdt);
@@ -585,6 +660,20 @@ static int grx500_wdt_probe(struct platform_device *pdev)
 		/* Armed with nobody left to feed it. */
 		grx500_wdt_disarm();
 		return dev_err_probe(dev, ret, "failed to register\n");
+	}
+
+	/*
+	 * Subscribed after the watchdog device is registered, so that devm
+	 * unwinds the two in the right order: the callback touches wdd, and
+	 * nothing may reach it once the core has torn the device down.
+	 * Nothing can move the clock in between.
+	 */
+	wdt->clk_nb.notifier_call = grx500_wdt_clk_notify;
+	ret = devm_clk_notifier_register(dev, wdt->clk, &wdt->clk_nb);
+	if (ret) {
+		grx500_wdt_disarm();
+		return dev_err_probe(dev, ret,
+				     "failed to register the clock notifier\n");
 	}
 
 	return 0;
