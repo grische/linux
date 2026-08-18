@@ -359,7 +359,7 @@ int cbm_hw_init(struct platform_device *pdev)
 	return 0;
 }
 
-bool g_cbm_egress_preconfig[6];
+bool g_cbm_egress_preconfig[CBM_MAX_DP_PORTS];
 
 extern int hdma_port_enable(int port_id);
 extern int hdma_ig192_toe_dma3_reset(void); /* TOE/DMA3 reset parity */

@@ -279,6 +279,16 @@ extern struct cbm_buff g_cbm_buff;
 #define SBID_START 16
 #define CBM_NOTFOUND 2
 #define CBM_PORT_MAX 64
+/*
+ * Datapath port-id space on GSWIP-3.0: 0..15. The bound is silicon, not
+ * convention — the TX descriptor's DW1 "ep" field is 4 bits wide
+ * (datapath_api_gswip30.h), so 15 is the largest representable dp port and
+ * any array indexed by dp_port_id needs exactly this many slots. Mirrors
+ * MAX_DP_PORTS in datapath/datapath.h; duplicated rather than included
+ * because the CQM headers deliberately do not pull in the datapath
+ * internals.
+ */
+#define CBM_MAX_DP_PORTS 16
 #ifndef CBM_SUCCESS
 #define CBM_SUCCESS 0
 #endif
@@ -393,7 +403,7 @@ int init_cbm_dqm_cpu_port(int idx);
 void cbm_rx_engine_init(void);
 void cbm_rx_set_netdev(u32 sppid, struct net_device *dev);
 int turn_on_DMA_p2p(void);
-extern bool g_cbm_egress_preconfig[6];
+extern bool g_cbm_egress_preconfig[CBM_MAX_DP_PORTS];
 int setup_eqm_dma_desc(int pid, int desc_count, u32 flags, u32 buf_offset);
 u8 get_lookup_qid_via_index(u32 lookup_idx);
 int cbm_counter_mode_set(int idx, int mode);
