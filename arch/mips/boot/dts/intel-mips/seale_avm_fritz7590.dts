@@ -182,3 +182,39 @@
 		 <&rcu_reset0 25 25>;
 	reset-names = "phy2", "phy3", "phy4", "phy5";
 };
+
+/*
+ * The second MDIO bus, on the GSW-R instance, carrying this board's WAN PHY.
+ *
+ * The aperture is the GSW-L arithmetic in seale_avm.dtsi applied to the GSW-R
+ * base: gswr_base + (MDCTRL DWORD 0x004 + GSW30_TOP_OFFSET 0xF00) * 4 =
+ * 0x1a000000 + 0x3c10. Same 0x20 span covering MDCTRL/MDREAD/MDWRITE and the
+ * two MDCCFG registers, same intentional overlap with gswr@1a000000's 0x4000
+ * reg claim, same devm_ioremap-without-request_mem_region shape that makes
+ * the overlap harmless.
+ *
+ * If the arithmetic is wrong the symptom is specific: reads on this bus
+ * return 0xFFFF and the WAN PHY never enumerates, while the LAN bus is
+ * unaffected.
+ *
+ * Everything else the driver needs is read from the child below.
+ *
+ * The PHY is at MDIO address 1. The "MDIO address == dp-port-id" rule
+ * documented on the GSW-L bus is a GSW-L coincidence and stops here: this
+ * PHY's port is dp-port-id 15, and writing ethernet-phy@15 would name an
+ * address that does not exist.
+ */
+/ {
+	gswr_mdio: gswip-mdio@1a003c10 {
+		compatible = "lantiq,gswip-mdio";
+		reg = <0x1a003c10 0x20>;
+		lantiq,gswip-instance = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		gphy_wan: ethernet-phy@1 {
+			reg = <0x01>;
+		};
+	};
+};

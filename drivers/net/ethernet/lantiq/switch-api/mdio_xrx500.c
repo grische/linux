@@ -95,29 +95,31 @@
 #define LTQ_GSWIP_MDIO_PHYAD_MASK  GENMASK(GSWT_MDCTRL_PHYAD_SIZE - 1, 0)
 #define LTQ_GSWIP_MDIO_REGAD_MASK  GENMASK(GSWT_MDCTRL_REGAD_SIZE - 1, 0)
 
-/*
- * The MDIO control word convention is calibrated at probe: PHYID1 is read
- * with each candidate encoding and the one that answers is kept. MBUSY lives
- * in the control register on this instance.
- */
-static bool ltq_gswip_mdio_ctrl_mbusy; /* false = AVM-exact (MBUSY=0) */
-
-static inline u32 ltq_gswip_mdio_ctrl_word(u32 op, int addr, int reg)
-{
-	return (ltq_gswip_mdio_ctrl_mbusy ? LTQ_GSWIP_MDIO_CTRL_MBUSY : 0)
-	     | op
-	     | (((u32)addr & LTQ_GSWIP_MDIO_PHYAD_MASK) << GSWT_MDCTRL_PHYAD_SHIFT)
-	     | (((u32)reg  & LTQ_GSWIP_MDIO_REGAD_MASK) << GSWT_MDCTRL_REGAD_SHIFT);
-}
-
 #define LTQ_GSWIP_MDIO_POLL_INTERVAL_US  1
 #define LTQ_GSWIP_MDIO_POLL_TIMEOUT_US   10000
 
+/* Most PHY child nodes any one of these buses carries (GSW-L has four). */
+#define LTQ_GSWIP_MDIO_MAX_PHYS  8
+
 /**
  * struct ltq_gswip_mdio_priv - per-bus state.
+ *
  * @base:  ioremap'd sub-aperture covering MDIO_CTRL / MDIO_READ /
- *         MDIO_WRITE (DT reg = <0x1c000020 0x20>).
+ *         MDIO_WRITE (DT reg = <0x1c003c10 0x20> on GSW-L).
+ *
  * @dev:   probing device, retained for dev_err / dev_info.
+ *
+ * @bus:   the mii_bus this state hangs off, for mdio_lock serialization.
+ *
+ * @pen_mask: MDC_CFG_0 value enabling the hardware polling unit for exactly
+ *         the PHY addresses this bus's DT children declare.
+ *
+ * @is_gswl: true when this bus belongs to GSWIP-L (switch instance 0).
+ *
+ * @phy_addr: PHY addresses read from the DT children, used to calibrate
+ *         before the bus is registered (mdiobus_get_phy is not available yet).
+ *
+ * @n_phys: how many entries of @phy_addr are valid.
  *
  * Allocated inline at the tail of devm_mdiobus_alloc_size's mii_bus
  * via bus->priv — devm-managed, freed automatically on probe failure
@@ -128,7 +130,26 @@ struct ltq_gswip_mdio_priv {
 	struct device *dev;
 	struct mii_bus *bus;	/* for mdio_lock serialization */
 	struct delayed_work gsw_reinit_work;
+	bool ctrl_mbusy;
+	u32 pen_mask;
+	bool is_gswl;
+	u8 phy_addr[LTQ_GSWIP_MDIO_MAX_PHYS];
+	int n_phys;
 };
+
+/*
+ * The MDIO control word convention is calibrated at probe: PHYID1 is read
+ * with each candidate encoding and the one that answers is kept. MBUSY lives
+ * in the control register on this instance.
+ */
+static inline u32 ltq_gswip_mdio_ctrl_word(const struct ltq_gswip_mdio_priv *priv,
+					   u32 op, int addr, int reg)
+{
+	return (priv->ctrl_mbusy ? LTQ_GSWIP_MDIO_CTRL_MBUSY : 0)
+	     | op
+	     | (((u32)addr & LTQ_GSWIP_MDIO_PHYAD_MASK) << GSWT_MDCTRL_PHYAD_SHIFT)
+	     | (((u32)reg  & LTQ_GSWIP_MDIO_REGAD_MASK) << GSWT_MDCTRL_REGAD_SHIFT);
+}
 
 int gsw_hw_reinit_gswl(void);
 
@@ -142,7 +163,7 @@ static int ltq_gswip_mdio_dbg_rd(struct ltq_gswip_mdio_priv *priv,
 
 	if (ltq_gswip_mdio_poll_mbusy(priv))
 		return -1;
-	cmd = ltq_gswip_mdio_ctrl_word(LTQ_GSWIP_MDIO_OP_READ, addr, reg);
+	cmd = ltq_gswip_mdio_ctrl_word(priv, LTQ_GSWIP_MDIO_OP_READ, addr, reg);
 	__raw_writel(cmd, priv->base + LTQ_GSWIP_MDIO_CTRL_OFF);
 	if (ltq_gswip_mdio_poll_mbusy(priv))
 		return -1;
@@ -181,22 +202,71 @@ static int ltq_gswip_gphy_mpd_fixup(struct phy_device *phydev)
 
 static void ltq_gswip_mdio_calibrate_ctrl(struct ltq_gswip_mdio_priv *priv)
 {
-	int id;
+	int last_id = -1;
+	int i;
 
-	ltq_gswip_mdio_ctrl_mbusy = false;
-	id = ltq_gswip_mdio_dbg_rd(priv, 5, 2 /* PHYID1 */);
-	if ((id & 0xFFFF) == 0xD565) {
-		dev_info(priv->dev,
-			 "mdio: CTRL calibration: MBUSY=0 (AVM-exact) verified, PHYID1=0x%04x\n",
-			 id & 0xFFFF);
+	if (!priv->n_phys) {
+		dev_warn(priv->dev,
+			 "mdio: CTRL calibration skipped: no PHY child nodes; keeping MBUSY=0 (AVM-exact)\n");
+		priv->ctrl_mbusy = false;
 		return;
 	}
 
-	ltq_gswip_mdio_ctrl_mbusy = true;
-	id = ltq_gswip_mdio_dbg_rd(priv, 5, 2);
+	priv->ctrl_mbusy = false;
+	for (i = 0; i < priv->n_phys; i++) {
+		last_id = ltq_gswip_mdio_dbg_rd(priv, priv->phy_addr[i],
+						2 /* PHYID1 */);
+		if ((last_id & 0xFFFF) == 0xD565) {
+			dev_info(priv->dev,
+				 "mdio: CTRL calibration: MBUSY=0 (AVM-exact) verified at phy %u, PHYID1=0x%04x\n",
+				 priv->phy_addr[i], last_id & 0xFFFF);
+			return;
+		}
+	}
+
+	priv->ctrl_mbusy = true;
+	last_id = ltq_gswip_mdio_dbg_rd(priv, priv->phy_addr[0], 2);
 	dev_warn(priv->dev,
-		 "mdio: CTRL calibration: MBUSY=0 FAILED, fallback MBUSY=1 active (PHYID1=0x%04x, want 0xd565)\n",
-		 id & 0xFFFF);
+		 "mdio: CTRL calibration: MBUSY=0 FAILED on all %d phy(s), fallback MBUSY=1 active (phy %u PHYID1=0x%04x, want 0xd565)\n",
+		 priv->n_phys, priv->phy_addr[0], last_id & 0xFFFF);
+}
+
+/*
+ * Read this bus's PHY child nodes: their addresses (for calibration, which
+ * runs before the bus is registered and so cannot use mdiobus_get_phy) and
+ * the MDC_CFG_0 polling-unit enable mask.
+ *
+ * So a bus whose PEN mask does not name its own PHY gets no link->MAC
+ * coupling at all. The mask used to be the literal 0x003C (PEN_2..PEN_5, the
+ * four GSW-L GPHY addresses) on every bus.
+ */
+static void ltq_gswip_mdio_scan_dt_phys(struct ltq_gswip_mdio_priv *priv,
+					struct device_node *np)
+{
+	struct device_node *child;
+
+	for_each_available_child_of_node(np, child) {
+		u32 addr;
+
+		if (of_property_read_u32(child, "reg", &addr))
+			continue;
+		if (priv->n_phys >= LTQ_GSWIP_MDIO_MAX_PHYS)
+			continue;
+		priv->phy_addr[priv->n_phys++] = (u8)addr;
+
+		/*
+		 * PEN_ALL is bits 6:1, so the polling unit can only cover PHY
+		 * addresses 1..6. A PHY outside that still works over software
+		 * MDIO; it just gets no hardware link polling, which is worth
+		 * saying out loud rather than silently dropping the bit.
+		 */
+		if (addr >= 1 && addr <= 6)
+			priv->pen_mask |= BIT(addr);
+		else
+			dev_warn(priv->dev,
+				 "mdio: phy address %u is outside the PEN_ALL range 1..6; no HW link polling for it\n",
+				 addr);
+	}
 }
 
 /*
@@ -230,8 +300,8 @@ static void ltq_gswip_gsw_reinit_work(struct work_struct *w)
 	c1 = __raw_readl(priv->base + LTQ_GSWIP_MDIO_MDC_CFG_1_OFF);
 	__raw_writel(c1 | LTQ_GSWIP_MDIO_MDC_CFG_1_RES,
 		     priv->base + LTQ_GSWIP_MDIO_MDC_CFG_1_OFF);
-	/* Re-enable the HW polling unit for the four GE GPHY ports. */
-	__raw_writel(0x003Cu, priv->base + LTQ_GSWIP_MDIO_MDC_CFG_0_OFF);
+	/* Re-enable the HW polling unit for this bus's own PHY addresses. */
+	__raw_writel(priv->pen_mask, priv->base + LTQ_GSWIP_MDIO_MDC_CFG_0_OFF);
 	if (priv->bus)
 		mutex_unlock(&priv->bus->mdio_lock);
 	dev_info(priv->dev,
@@ -289,7 +359,7 @@ static int ltq_gswip_mdio_read(struct mii_bus *bus, int addr, int reg)
 		return -ETIMEDOUT;
 	}
 
-	cmd = ltq_gswip_mdio_ctrl_word(LTQ_GSWIP_MDIO_OP_READ, addr, reg);
+	cmd = ltq_gswip_mdio_ctrl_word(priv, LTQ_GSWIP_MDIO_OP_READ, addr, reg);
 	__raw_writel(cmd, priv->base + LTQ_GSWIP_MDIO_CTRL_OFF);
 
 	/* Wait for the read transaction to complete (MBUSY -> 0). */
@@ -339,7 +409,7 @@ static int ltq_gswip_mdio_write(struct mii_bus *bus, int addr, int reg,
 	 */
 	__raw_writel((u32)val, priv->base + LTQ_GSWIP_MDIO_WRITE_OFF);
 
-	cmd = ltq_gswip_mdio_ctrl_word(LTQ_GSWIP_MDIO_OP_WRITE, addr, reg);
+	cmd = ltq_gswip_mdio_ctrl_word(priv, LTQ_GSWIP_MDIO_OP_WRITE, addr, reg);
 	__raw_writel(cmd, priv->base + LTQ_GSWIP_MDIO_CTRL_OFF);
 
 	/* Wait for the write transaction to retire. */
@@ -409,6 +479,25 @@ static int ltq_gswip_mdio_probe(struct platform_device *pdev)
 	priv->dev = &pdev->dev;
 	priv->bus = bus;	/* LINKDBG mdio_lock serialization */
 
+	/*
+	 * Which switch instance this bus belongs to, using the same property
+	 * the gswip nodes carry. Absent means instance 0, so a DT that
+	 * predates the second bus behaves exactly as it did.
+	 */
+	{
+		u32 instance = 0;
+
+		of_property_read_u32(pdev->dev.of_node, "lantiq,gswip-instance",
+				     &instance);
+		priv->is_gswl = (instance == 0);
+	}
+
+	/*
+	 * PHY addresses and the polling-unit mask come from this bus's own DT
+	 * children. Done before the register writes below, which need the mask.
+	 */
+	ltq_gswip_mdio_scan_dt_phys(priv, pdev->dev.of_node);
+
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "no MDIO sub-aperture resource in DT\n");
@@ -452,11 +541,13 @@ static int ltq_gswip_mdio_probe(struct platform_device *pdev)
 	 * init (gsw_flow_core.c legacy init and GSW_HW_Init). The PHY address
 	 * register is left at its reset default.
 	 */
-	__raw_writel(0x003Cu, priv->base + LTQ_GSWIP_MDIO_MDC_CFG_0_OFF);
+	__raw_writel(priv->pen_mask, priv->base + LTQ_GSWIP_MDIO_MDC_CFG_0_OFF);
 
-	dev_info(&pdev->dev, "MDC_CFG_0=0x%08x MDC_CFG_1=0x%08x\n",
+	dev_info(&pdev->dev,
+		 "gswip%c MDC_CFG_0=0x%08x (PEN for %d phy(s)) MDC_CFG_1=0x%08x\n",
+		 priv->is_gswl ? 'l' : 'r',
 		 __raw_readl(priv->base + LTQ_GSWIP_MDIO_MDC_CFG_0_OFF),
-		 mdc_cfg_1);
+		 priv->n_phys, mdc_cfg_1);
 
 	ret = phy_register_fixup_for_uid(LTQ_GPHY11G_PHY_ID,
 					 LTQ_GPHY11G_PHY_MASK,
@@ -487,9 +578,12 @@ static int ltq_gswip_mdio_probe(struct platform_device *pdev)
 	 * GSW_HW_Init sequence. It runs from a work function because it must
 	 * not run from the MDIO bus callbacks it re-initialises.
 	 */
-	INIT_DELAYED_WORK(&priv->gsw_reinit_work, ltq_gswip_gsw_reinit_work);
-	schedule_delayed_work(&priv->gsw_reinit_work,
-			      msecs_to_jiffies(LTQ_GSWIP_GSW_REINIT_DELAY_MS));
+	if (priv->is_gswl) {
+		INIT_DELAYED_WORK(&priv->gsw_reinit_work,
+				  ltq_gswip_gsw_reinit_work);
+		schedule_delayed_work(&priv->gsw_reinit_work,
+				      msecs_to_jiffies(LTQ_GSWIP_GSW_REINIT_DELAY_MS));
+	}
 	return 0;
 }
 
