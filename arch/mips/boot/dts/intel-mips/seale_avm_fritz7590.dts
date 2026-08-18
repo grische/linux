@@ -7,6 +7,8 @@
  */
 /dts-v1/;
 
+#include <dt-bindings/gpio/gpio.h>
+
 #include "seale_avm.dtsi"
 
 / {
@@ -126,6 +128,36 @@
 			reg = <0x3dfb0000 0x1000>;
 			no-map;
 		};
+	};
+
+	/*
+	 * Port power, for both USB host controllers at once. The FRITZ!Box 7560 has
+	 * one port and one enable line; this board has two ports and still
+	 * one enable line. AVM declares a single gpio_avm_usb_power_enable
+	 * on gpio1 2, active high, with no per-controller variant (AVM 4.9
+	 * arch/mips/boot/dts/lantiq/avm/grx550_common.dtsi). That is gpio
+	 * bank 1 line 2, i.e. pad 34, and nothing else on this board claims
+	 * it.
+	 *
+	 * Both PHYs take it as their vbus-supply, which is legal and
+	 * refcounted: the PHY driver asks with regulator_get_optional(), and
+	 * only an exclusive get would turn a second consumer away. Whichever
+	 * PHY powers on first raises the line and it drops again when the
+	 * last one powers off.
+	 *
+	 * The vendor mechanism, and the reason for not reproducing it, are
+	 * the FRITZ!Box 7560's: see the comment on that board's usb_vbus.
+	 *
+	 * No pinmux, for the same reason as there: the pad comes up as a
+	 * GPIO, which is what the regulator needs.
+	 */
+	usb_vbus: regulator-usb-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb_vbus";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&gpio1 2 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
 	};
 };
 
@@ -297,4 +329,28 @@
 		lantiq,wan;
 		phy-handle = <&gphy_wan>;
 	};
+};
+
+/*
+ * Both USB host controllers. The vendor's HW226 chain carries no status
+ * override on either of them, where the FRITZ!Box 7560's grx350_common.dtsi disables
+ * usb0. How many jacks that reaches, and which controller sits behind each
+ * one, is a board-layout fact the vendor sources do not state.
+ */
+&usb0_phy {
+	status = "okay";
+	vbus-supply = <&usb_vbus>;
+};
+
+&usb0 {
+	status = "okay";
+};
+
+&usb1_phy {
+	status = "okay";
+	vbus-supply = <&usb_vbus>;
+};
+
+&usb1 {
+	status = "okay";
 };
