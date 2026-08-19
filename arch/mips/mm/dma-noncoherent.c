@@ -54,6 +54,13 @@ void arch_dma_prep_coherent(struct page *page, size_t size)
  * Upper bound on the physical addresses an uncached alias may be taken of.
  * Above it the uncached window maps registers rather than DRAM, so a coherent
  * allocation placed there would be handed a register address.
+ *
+ * Coherent allocations are confined to this window before they are made --
+ * ZONE_DMA describes it and ARCH_DMA_SET_UNCACHED_ZONE_DMA_ONLY makes
+ * dma-direct allocate from there -- so an address arriving here that is
+ * above the line means something got past that, which is a bug rather than
+ * a condition. The check stays, and stays loud, because the alternative to
+ * catching it here is not catching it at all.
  */
 #define INTEL_MIPS_UNCAC_DRAM_LIMIT	(PHYS_OFFSET + SZ_256M)
 
