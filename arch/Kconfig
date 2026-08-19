@@ -357,6 +357,15 @@ config ARCH_HAS_DMA_SET_UNCACHED
 	bool
 
 #
+# Select if arch_dma_set_uncached can only alias part of memory, and the
+# architecture has sized ZONE_DMA to describe that part. dma-direct then
+# takes coherent allocations from ZONE_DMA, because anywhere else has no
+# uncached alias to hand back.
+#
+config ARCH_DMA_SET_UNCACHED_ZONE_DMA_ONLY
+	bool
+
+#
 # Select if the architectures provides the arch_dma_clear_uncached symbol
 # to undo an in-place page table remap for uncached access.
 #
