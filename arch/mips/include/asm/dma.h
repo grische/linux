@@ -14,6 +14,7 @@
 #define _ASM_DMA_H
 
 #include <asm/io.h>			/* need byte IO */
+#include <linux/sizes.h>
 #include <linux/spinlock.h>		/* And spinlocks */
 #include <linux/delay.h>
 
@@ -87,6 +88,16 @@
 #if defined(CONFIG_SGI_IP22) || defined(CONFIG_SGI_IP28)
 /* don't care; ISA bus master won't work, ISA slave DMA supports 32bit addr */
 #define MAX_DMA_ADDRESS		PAGE_OFFSET
+#elif defined(CONFIG_INTEL_MIPS)
+/*
+ * Nothing to do with ISA here. On the Intel MIPS (xRX500) family ZONE_DMA is
+ * made to describe the uncached window instead: the first 256 MiB of DRAM is
+ * the only part that has an uncached alias, so it is the only part a coherent
+ * allocation can come from. See arch/mips/mm/dma-noncoherent.c for the window
+ * itself. Sizing the zone to it lets the ordinary zone machinery place those
+ * allocations, rather than each driver discovering the bound the hard way.
+ */
+#define MAX_DMA_ADDRESS		(PAGE_OFFSET + SZ_256M)
 #else
 #define MAX_DMA_ADDRESS		(PAGE_OFFSET + 0x01000000)
 #endif
