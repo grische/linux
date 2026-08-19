@@ -239,6 +239,18 @@ void *dma_direct_alloc(struct device *dev, size_t size,
 			pr_warn_once("coherent DMA allocations not supported on this platform.\n");
 			return NULL;
 		}
+
+		/*
+		 * Where only part of memory can be aliased uncached, that part
+		 * is ZONE_DMA and the allocation has to come out of it: pages
+		 * from anywhere else have no alias to return. Ask for the zone
+		 * now rather than allocate first and discover it in
+		 * arch_dma_set_uncached(), which can only fail the allocation
+		 * by then.
+		 */
+		if (IS_ENABLED(CONFIG_ARCH_DMA_SET_UNCACHED_ZONE_DMA_ONLY) &&
+		    set_uncached)
+			gfp |= GFP_DMA;
 	}
 
 	/*
