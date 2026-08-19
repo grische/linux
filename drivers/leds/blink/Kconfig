@@ -14,7 +14,7 @@ config LEDS_BCM63138
 
 config LEDS_LGM
        tristate "LED support for LGM SoC series"
-       depends on X86 || COMPILE_TEST
+       depends on X86 || MIPS || COMPILE_TEST
        depends on GPIOLIB && LEDS_CLASS && MFD_SYSCON && OF
        help
          This option enables support for LEDs connected to GPIO lines on
