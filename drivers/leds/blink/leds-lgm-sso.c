@@ -52,7 +52,10 @@
 #define MAX_FREQ_RANK			10
 #define DEF_GPTC_CLK_RATE		200000000
 #define SSO_DEF_BRIGHTNESS		LED_HALF
-#define DATA_CLK_EDGE			0 /* 0-rising, 1-falling */
+
+/* SSO_CON0.RZFL: the shift clock edge the data line is driven on */
+#define DATA_CLK_EDGE_RISING		0
+#define DATA_CLK_EDGE_FALLING		1
 
 static const u32 freq_div_tbl[] = {4000, 2000, 1000, 800};
 static const int freq_tbl[] = {2, 4, 8, 10, 50000, 100000, 200000, 250000};
@@ -129,10 +132,21 @@ struct sso_gpio {
 	u32 alloc_bitmap;
 };
 
+/*
+ * Per-compatible hardware differences. The shift clock edge is one: it is a
+ * property of the board's external shift register rather than something the
+ * SoC can be asked about, and no two SoC families this block appears on have
+ * been observed agreeing on it.
+ */
+struct sso_led_variant {
+	unsigned int data_clk_edge;
+};
+
 struct sso_led_priv {
 	struct regmap *mmap;
 	struct device *dev;
 	struct platform_device *pdev;
+	const struct sso_led_variant *variant;
 	struct clk_bulk_data clocks[2];
 	u32 fpid_clkrate;
 	u32 gptc_clkrate;
@@ -754,7 +768,7 @@ static int sso_probe_gpios(struct sso_led_priv *priv)
 				     &priv->gpio.freq))
 		priv->gpio.freq = 0;
 
-	priv->gpio.edge = DATA_CLK_EDGE;
+	priv->gpio.edge = priv->variant->data_clk_edge;
 	priv->gpio.shift_clk_freq = -1;
 
 	ret = sso_gpio_hw_init(priv);
@@ -783,6 +797,7 @@ static int intel_sso_led_probe(struct platform_device *pdev)
 
 	priv->pdev = pdev;
 	priv->dev = dev;
+	priv->variant = device_get_match_data(dev);
 
 	/* gate clock */
 	priv->clocks[0].id = "sso";
@@ -847,8 +862,17 @@ static void intel_sso_led_remove(struct platform_device *pdev)
 	}
 }
 
+static const struct sso_led_variant grx500_ssoled = {
+	.data_clk_edge = DATA_CLK_EDGE_FALLING,
+};
+
+static const struct sso_led_variant lgm_ssoled = {
+	.data_clk_edge = DATA_CLK_EDGE_RISING,
+};
+
 static const struct of_device_id of_sso_led_match[] = {
-	{ .compatible = "intel,lgm-ssoled" },
+	{ .compatible = "intel,grx500-ssoled", .data = &grx500_ssoled },
+	{ .compatible = "intel,lgm-ssoled", .data = &lgm_ssoled },
 	{}
 };
 
