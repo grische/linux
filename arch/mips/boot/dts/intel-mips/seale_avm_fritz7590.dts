@@ -52,13 +52,23 @@
 	 *
 	 * Two bounds that did NOT move and still apply at 512 MiB:
 	 *
-	 * The uncached KSEG1 alias of DRAM ends at PHYS_OFFSET + 0x12310000 =
-	 * 0x32310000 (~291 MiB), measured. Cached RAM is fine across the
-	 * whole node -- under EVA's SegCtl, KSEG0 maps 0x80000000 to
-	 * 0x20000000 and covers all 512 MiB -- but general
-	 * dma_alloc_coherent() consumers must stay below 0x32310000. hdma is
-	 * already re-bound to that aperture; a new uncached consumer is what
-	 * would break here first, not the node width. The CBM pools at
+	 * The uncached alias of DRAM covers the first 256 MiB only, and stops
+	 * at PHYS_OFFSET + SZ_256M = 0x30000000. The SegCtl maps kernel VA
+	 * 0xA0000000-0xBFFFFFFF uncached onto physical 0x20000000-0x3FFFFFFF,
+	 * and only the lower half of that is DRAM; the upper half is the
+	 * SoC's register space. Cached RAM is fine across the whole node --
+	 * KSEG0 maps 0x80000000 to 0x20000000 and covers all 512 MiB -- but
+	 * anything taking an uncached alias must stay below 0x30000000. hdma,
+	 * which aliases addresses by hand, carries the same bound itself; for
+	 * every other consumer it is the width of this memory node that has
+	 * to keep allocations inside the window, since an ordinary GFP_KERNEL
+	 * page can otherwise come from anywhere in it.
+	 *
+	 * An earlier revision of this comment put the line at PHYS_OFFSET +
+	 * 0x12310000. That address is the CPC -- the first *populated* block
+	 * in the register space rather than the start of it -- and bounding
+	 * at it admitted 35 MiB whose alias faults on the unpopulated holes
+	 * and lands in live registers elsewhere. The CBM pools at
 	 * 0x23800000..0x25200000 that seale_avm.dtsi reserves cannot move,
 	 * only be extended past.
 	 */
