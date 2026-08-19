@@ -22,6 +22,7 @@
 #include <linux/ptrace.h>
 #include <linux/mman.h>
 #include <linux/mm.h>
+#include <linux/dma-direct.h>
 #include <linux/memblock.h>
 #include <linux/highmem.h>
 #include <linux/swap.h>
@@ -406,6 +407,15 @@ void __init paging_init(void)
 
 #ifdef CONFIG_ZONE_DMA
 	max_zone_pfns[ZONE_DMA] = MAX_DMA_PFN;
+	/*
+	 * Tell dma-direct where the zone it is about to be asked for actually
+	 * ends. Its default assumes the first 16 MiB of physical memory, which
+	 * is right only where MAX_DMA_ADDRESS is the ISA bound and PHYS_OFFSET
+	 * is zero. Deriving it from the same constant that sizes the zone keeps
+	 * the two from drifting apart, and is a no-op wherever that pair
+	 * already holds.
+	 */
+	zone_dma_limit = PFN_PHYS(MAX_DMA_PFN) - 1;
 #endif
 #ifdef CONFIG_ZONE_DMA32
 	max_zone_pfns[ZONE_DMA32] = MAX_DMA32_PFN;
