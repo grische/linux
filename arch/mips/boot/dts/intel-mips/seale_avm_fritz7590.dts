@@ -284,14 +284,10 @@
  * scheduler block 12, DMA1TX channel 15. Note the controller: every LAN port
  * egresses via DMA2TX, this one does not.
  *
- * ⚠ ORDERING: this port cannot come up until the fifth GPHY is added to
- * &gphy_fw below. Without its firmware the WAN PHY does not answer MDIO, no
- * phy_device is created for gphy_wan, and phylink_of_phy_connect returns
- * -ENODEV -- which is NOT deferred and NOT confined to this port. Probe
- * requires every declared port to come up, so the failure rolls back the four
- * working LAN netdevs with it and the board ends up with no ethernet at all.
- * Adding the fifth GPHY is three appended entries; see the comment on
- * &gphy_fw.
+ * This port depends on the fifth GPHY's firmware entry, which &gphy_fw above
+ * carries along with the other four. Probe requires every declared port to
+ * come up, so that one failure would roll the four working LAN netdevs back
+ * with it and leave the board with no ethernet at all.
  */
 &intel_xrx500_net {
 	port@4 {
