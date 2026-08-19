@@ -163,10 +163,8 @@ static void __init grx500_clk_init(struct device_node *np)
 		return;
 
 	ctx = intel_clk_init(np, map, CLK_NR_CLKS);
-	if (IS_ERR(ctx)) {
-		regmap_exit(map);
+	if (IS_ERR(ctx))
 		return;
-	}
 
 	intel_clk_register_osc(ctx, grx500_osc_clks,
 			       ARRAY_SIZE(grx500_osc_clks));
