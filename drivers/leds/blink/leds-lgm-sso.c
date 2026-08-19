@@ -815,10 +815,8 @@ static int intel_sso_led_probe(struct platform_device *pdev)
 	}
 
 	ret = sso_probe_gpios(priv);
-	if (ret) {
-		regmap_exit(priv->mmap);
+	if (ret)
 		return ret;
-	}
 
 	INIT_LIST_HEAD(&priv->led_list);
 
@@ -828,10 +826,9 @@ static int intel_sso_led_probe(struct platform_device *pdev)
 	priv->gptc_clkrate = DEF_GPTC_CLK_RATE;
 
 	ret = sso_led_dt_parse(priv);
-	if (ret) {
-		regmap_exit(priv->mmap);
+	if (ret)
 		return ret;
-	}
+
 	dev_info(priv->dev, "sso LED init success!\n");
 
 	return 0;
@@ -848,8 +845,6 @@ static void intel_sso_led_remove(struct platform_device *pdev)
 		list_del(&led->list);
 		sso_led_shutdown(led);
 	}
-
-	regmap_exit(priv->mmap);
 }
 
 static const struct of_device_id of_sso_led_match[] = {
