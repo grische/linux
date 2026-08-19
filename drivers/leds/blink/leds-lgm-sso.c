@@ -349,7 +349,7 @@ static int sso_create_led(struct sso_led_priv *priv, struct sso_led *led,
 			  struct fwnode_handle *child)
 {
 	struct sso_led_desc *desc = &led->desc;
-	struct led_init_data init_data;
+	struct led_init_data init_data = {};
 	int err;
 
 	init_data.fwnode = child;
