@@ -29,19 +29,14 @@
 	};
 
 	/*
-	 * 128 MiB DDR at PHYS_OFFSET 0x20000000. Match the 5.10 reference
-	 * DTS for this board. The chip has 256 MiB physical but AVM's 4Kec
-	 * bootcore (kernel2 at load 0x8DFFFFFC) lives in the upper region;
-	 * conservative Phase 1 exposes only the bottom 128 MiB to the
-	 * InterAptiv kernel.
-	 *
-	 * This covers the CBM pools that seale_avm.dtsi reserves at
-	 * 0x23800000..0x25200000, which is a precondition of including that
-	 * file rather than something this node may be shrunk below.
+	 * 256 MiB DDR at PHYS_OFFSET, the full part. It ends at the top of
+	 * the uncached window (PHYS_OFFSET + SZ_256M): above that address the
+	 * KSEG1 alias of a page is a register address, so no coherent
+	 * allocation may land there.
 	 */
 	memory@20000000 {
 		device_type = "memory";
-		reg = <0x20000000 0x08000000>;
+		reg = <0x20000000 0x10000000>;
 	};
 
 	aliases {
@@ -72,6 +67,20 @@
 			record-size = <0x4000>;
 			console-size = <0x80000>;
 			mem-type = <1>;
+		};
+
+		/*
+		 * Owned by the second CPU's boot loader; no-map so this
+		 * kernel never maps another CPU's memory.
+		 */
+		cpunet@2dfc0000 {
+			reg = <0x2dfc0000 0x40000>;
+			no-map;
+		};
+
+		bootcore@2e000000 {
+			reg = <0x2e000000 0x2000000>;
+			no-map;
 		};
 	};
 
