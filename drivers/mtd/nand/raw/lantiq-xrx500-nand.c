@@ -115,6 +115,36 @@ static inline struct xrx500_nand_host *nand_to_xrx500(struct nand_chip *chip)
 	return container_of(chip, struct xrx500_nand_host, chip);
 }
 
+/*
+ * Budget for the per-byte bus handshake below. Unrelated to the NAND
+ * operation timeouts, which the WAITRDY instruction carries per operation.
+ */
+#define XRX500_LATCH_TIMEOUT_US	1000
+
+/*
+ * Two different questions are asked of EBU_WAIT, and their answers are not
+ * interchangeable. WR_C (write/read complete) says the EBU has finished the
+ * bus cycle for the byte just strobed; RDBY (R/B#) says the chip has finished
+ * the operation it was given. A byte strobe has to wait for the former, a
+ * program or an erase for the latter, so each gets its own helper and neither
+ * can conclude on the other's flag.
+ *
+ * This one is the byte handshake: after every byte the EBU asserts WR_C when
+ * it has finished latching, so poll briefly to keep the next strobe from
+ * racing the EBU state machine.
+ */
+static int xrx500_nand_wait_latch(struct nand_chip *chip)
+{
+	struct xrx500_nand_host *host = nand_to_xrx500(chip);
+	u32 status;
+
+	return readl_poll_timeout(host->ebu + EBU_WAIT, status,
+				  (status & EBU_WAIT_RDBY) ||
+				  (status & EBU_WAIT_WR_C),
+				  20, XRX500_LATCH_TIMEOUT_US);
+}
+
+/* And this one is the chip-ready wait, for the WAITRDY instruction. */
 static int xrx500_nand_waitrdy(struct nand_chip *chip, u32 timeout_us)
 {
 	struct xrx500_nand_host *host = nand_to_xrx500(chip);
@@ -126,45 +156,68 @@ static int xrx500_nand_waitrdy(struct nand_chip *chip, u32 timeout_us)
 				  20, timeout_us);
 }
 
-static void xrx500_nand_writeb(struct nand_chip *chip, u32 offset, u8 value)
+static int xrx500_nand_writeb(struct nand_chip *chip, u32 offset, u8 value)
 {
 	struct xrx500_nand_host *host = nand_to_xrx500(chip);
 
 	writeb(value, host->chipaddr + offset);
-	/*
-	 * After every byte the EBU asserts WR_C (write/read complete) when it
-	 * has finished latching. Poll briefly so the next strobe doesn't race
-	 * the EBU state machine.
-	 */
-	xrx500_nand_waitrdy(chip, 1000);
+
+	return xrx500_nand_wait_latch(chip);
 }
 
-static u8 xrx500_nand_readb(struct nand_chip *chip)
+static int xrx500_nand_readb(struct nand_chip *chip, u8 *value)
 {
 	struct xrx500_nand_host *host = nand_to_xrx500(chip);
-	u8 val;
 
-	val = readb(host->chipaddr + NAND_CS_OFFS);
-	xrx500_nand_waitrdy(chip, 1000);
-	return val;
+	*value = readb(host->chipaddr + NAND_CS_OFFS);
+
+	return xrx500_nand_wait_latch(chip);
 }
 
-static void xrx500_nand_read_buf(struct nand_chip *chip, u8 *buf,
+static int xrx500_nand_write_addrs(struct nand_chip *chip, const u8 *addrs,
+				   unsigned int naddrs)
+{
+	unsigned int i;
+	int ret;
+
+	for (i = 0; i < naddrs; i++) {
+		ret = xrx500_nand_writeb(chip, NAND_ALE_OFFS | NAND_CS_OFFS,
+					 addrs[i]);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static int xrx500_nand_read_buf(struct nand_chip *chip, u8 *buf,
+				unsigned int len)
+{
+	unsigned int i;
+	int ret;
+
+	for (i = 0; i < len; i++) {
+		ret = xrx500_nand_readb(chip, &buf[i]);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static int xrx500_nand_write_buf(struct nand_chip *chip, const u8 *buf,
 				 unsigned int len)
 {
 	unsigned int i;
+	int ret;
 
-	for (i = 0; i < len; i++)
-		buf[i] = xrx500_nand_readb(chip);
-}
+	for (i = 0; i < len; i++) {
+		ret = xrx500_nand_writeb(chip, NAND_CS_OFFS, buf[i]);
+		if (ret)
+			return ret;
+	}
 
-static void xrx500_nand_write_buf(struct nand_chip *chip, const u8 *buf,
-				  unsigned int len)
-{
-	unsigned int i;
-
-	for (i = 0; i < len; i++)
-		xrx500_nand_writeb(chip, NAND_CS_OFFS, buf[i]);
+	return 0;
 }
 
 static int xrx500_nand_attach_chip(struct nand_chip *chip)
@@ -190,7 +243,7 @@ static int xrx500_nand_exec_op(struct nand_chip *chip,
 			       bool check_only)
 {
 	const struct nand_op_instr *instr;
-	unsigned int op_id, i;
+	unsigned int op_id;
 	u32 timeout_us;
 	int ret = 0;
 
@@ -202,26 +255,26 @@ static int xrx500_nand_exec_op(struct nand_chip *chip,
 
 		switch (instr->type) {
 		case NAND_OP_CMD_INSTR:
-			xrx500_nand_writeb(chip,
-					   NAND_CLE_OFFS | NAND_CS_OFFS,
-					   instr->ctx.cmd.opcode);
+			ret = xrx500_nand_writeb(chip,
+						 NAND_CLE_OFFS | NAND_CS_OFFS,
+						 instr->ctx.cmd.opcode);
 			break;
 
 		case NAND_OP_ADDR_INSTR:
-			for (i = 0; i < instr->ctx.addr.naddrs; i++)
-				xrx500_nand_writeb(chip,
-						   NAND_ALE_OFFS | NAND_CS_OFFS,
-						   instr->ctx.addr.addrs[i]);
+			ret = xrx500_nand_write_addrs(chip,
+						      instr->ctx.addr.addrs,
+						      instr->ctx.addr.naddrs);
 			break;
 
 		case NAND_OP_DATA_IN_INSTR:
-			xrx500_nand_read_buf(chip, instr->ctx.data.buf.in,
-					     instr->ctx.data.len);
+			ret = xrx500_nand_read_buf(chip, instr->ctx.data.buf.in,
+						   instr->ctx.data.len);
 			break;
 
 		case NAND_OP_DATA_OUT_INSTR:
-			xrx500_nand_write_buf(chip, instr->ctx.data.buf.out,
-					      instr->ctx.data.len);
+			ret = xrx500_nand_write_buf(chip,
+						    instr->ctx.data.buf.out,
+						    instr->ctx.data.len);
 			break;
 
 		case NAND_OP_WAITRDY_INSTR:
