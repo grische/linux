@@ -13,6 +13,7 @@
  */
 
 #include <linux/bitops.h>
+#include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/io.h>
@@ -144,16 +145,18 @@ static int xrx500_nand_wait_latch(struct nand_chip *chip)
 				  20, XRX500_LATCH_TIMEOUT_US);
 }
 
-/* And this one is the chip-ready wait, for the WAITRDY instruction. */
+/*
+ * And this one is the chip-ready wait, for the WAITRDY instruction. R/B# is
+ * the only flag that answers it: WR_C belongs to the byte handshake above,
+ * and accepting it here means returning while the die is still busy.
+ */
 static int xrx500_nand_waitrdy(struct nand_chip *chip, u32 timeout_us)
 {
 	struct xrx500_nand_host *host = nand_to_xrx500(chip);
 	u32 status;
 
 	return readl_poll_timeout(host->ebu + EBU_WAIT, status,
-				  (status & EBU_WAIT_RDBY) ||
-				  (status & EBU_WAIT_WR_C),
-				  20, timeout_us);
+				  status & EBU_WAIT_RDBY, 20, timeout_us);
 }
 
 static int xrx500_nand_writeb(struct nand_chip *chip, u32 offset, u8 value)
@@ -295,6 +298,17 @@ static int xrx500_nand_exec_op(struct nand_chip *chip,
 
 		if (ret)
 			return ret;
+
+		/*
+		 * Observe the instruction's own delay before moving on. This
+		 * is what makes R/B# meaningful for the wait that follows a
+		 * program or an erase: the core hangs tWB on the PAGEPROG /
+		 * ERASE2 command instruction and the WAITRDY behind it, so
+		 * skipping the delay samples R/B# before the die has had time
+		 * to pull it low.
+		 */
+		if (instr->delay_ns)
+			ndelay(instr->delay_ns);
 	}
 
 	return 0;
