@@ -243,6 +243,29 @@ static void sso_led_freq_set(struct sso_led_priv *priv, u32 pin, int freq_idx)
 	regmap_update_bits(priv->mmap, reg, GENMASK(high, low), val);
 }
 
+/*
+ * SSO_CPU bit N selects what drives pin N: 0 parks the pin low, 1 hands it to
+ * DUTY_CYCLE(N). Both states this driver could reach therefore light an
+ * active-low LED -- bit 0 parks the pin low, and bit 1 with a raw duty of 0
+ * has the engine hold it low -- so an active-low LED could never be darkened
+ * at all. Dark is bit 1 with duty 0xFF.
+ *
+ * Invert the duty for an active-low pin, as the vendor driver this one
+ * descends from does, and derive the enable bit from the value actually
+ * written rather than from the requested brightness. Intermediate brightness
+ * depends on that pairing: bit 0 parks the pin and defeats the engine, so a
+ * dimmed active-low LED has to keep bit 1 and vary the duty. The bit is then
+ * written raw, because the inversion has already been applied here and
+ * gpiod_set_value() would apply it a second time.
+ */
+static u8 sso_led_duty(struct sso_led *led, enum led_brightness brightness)
+{
+	if (led->gpiod && gpiod_is_active_low(led->gpiod))
+		return LED_FULL - brightness;
+
+	return brightness;
+}
+
 static void sso_led_brightness_set(struct led_classdev *led_cdev,
 				   enum led_brightness brightness)
 {
@@ -250,13 +273,15 @@ static void sso_led_brightness_set(struct led_classdev *led_cdev,
 	struct sso_led_desc *desc;
 	struct sso_led *led;
 	int val;
+	u8 duty;
 
 	led = cdev_to_sso_led_data(led_cdev);
 	priv = led->priv;
 	desc = &led->desc;
 
 	desc->brightness = brightness;
-	regmap_write(priv->mmap, DUTY_CYCLE(desc->pin), brightness);
+	duty = sso_led_duty(led, brightness);
+	regmap_write(priv->mmap, DUTY_CYCLE(desc->pin), duty);
 
 	if (brightness == LED_OFF)
 		val = 0;
@@ -274,7 +299,7 @@ static void sso_led_brightness_set(struct led_classdev *led_cdev,
 	}
 
 	if (!desc->hw_trig)
-		gpiod_set_value(led->gpiod, val);
+		gpiod_set_raw_value(led->gpiod, duty != LED_OFF);
 }
 
 static enum led_brightness sso_led_brightness_get(struct led_classdev *led_cdev)
@@ -339,6 +364,7 @@ sso_led_blink_set(struct led_classdev *led_cdev, unsigned long *delay_on,
 static void sso_led_hw_cfg(struct sso_led_priv *priv, struct sso_led *led)
 {
 	struct sso_led_desc *desc = &led->desc;
+	u8 duty;
 
 	/* set freq */
 	if (desc->hw_blink) {
@@ -352,11 +378,17 @@ static void sso_led_hw_cfg(struct sso_led_priv *priv, struct sso_led *led)
 				   1 << desc->pin);
 
 	/* set brightness */
-	regmap_write(priv->mmap, DUTY_CYCLE(desc->pin), desc->brightness);
+	duty = sso_led_duty(led, desc->brightness);
+	regmap_write(priv->mmap, DUTY_CYCLE(desc->pin), duty);
 
-	/* enable output */
-	if (!desc->hw_trig && desc->brightness)
-		gpiod_set_value(led->gpiod, 1);
+	/*
+	 * Enable output. Unconditionally, not only for a non-zero brightness:
+	 * an active-low LED that starts out off needs the enable bit set, so
+	 * that the engine holds its pin high rather than the pin being parked
+	 * low and the lamp coming up lit.
+	 */
+	if (!desc->hw_trig)
+		gpiod_set_raw_value(led->gpiod, duty != LED_OFF);
 }
 
 static int sso_create_led(struct sso_led_priv *priv, struct sso_led *led,
