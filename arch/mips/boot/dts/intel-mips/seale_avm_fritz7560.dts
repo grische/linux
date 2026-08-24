@@ -205,15 +205,21 @@
 			read-only;
 		};
 
-		/* Primary kernel slot. Written by sysupgrade. */
+		/*
+		 * The two 8 MiB kernel slots. The boot-loader environment
+		 * selects between them with linux_fs_start (0 boots the slot at
+		 * 0x500000, 1 the one at 0xd00000). That is runtime state the
+		 * boot loader may change on its own, so the labels name the
+		 * slots by position and nothing here may claim which one is
+		 * active.
+		 */
 		partition@500000 {
-			label = "kernel";
+			label = "kernel0";
 			reg = <0x500000 0x800000>;
 		};
 
-		/* AVM secondary/recovery kernel slot. Written by sysupgrade. */
 		partition@d00000 {
-			label = "reserved-kernel";
+			label = "kernel1";
 			reg = <0xd00000 0x800000>;
 		};
 
