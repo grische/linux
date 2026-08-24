@@ -181,15 +181,19 @@
 			read-only;
 		};
 
-		/* Inactive kernel slot 0. Written by sysupgrade. */
+		/*
+		 * Two 8 MiB kernel slots, named by position: which one is
+		 * active is boot-loader run-time state (its linux_fs_start
+		 * selects between them), so no label may claim to be the
+		 * active one.
+		 */
 		partition@500000 {
-			label = "reserved-kernel";
+			label = "kernel0";
 			reg = <0x500000 0x800000>;
 		};
 
-		/* Active kernel slot 1 -- the one EVA boots on this unit. */
 		partition@d00000 {
-			label = "kernel";
+			label = "kernel1";
 			reg = <0xd00000 0x800000>;
 		};
 

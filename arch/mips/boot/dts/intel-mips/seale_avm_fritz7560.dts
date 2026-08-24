@@ -204,15 +204,18 @@
 			read-only;
 		};
 
-		/* Primary kernel slot. Written by sysupgrade. */
+		/*
+		 * The two 8 MiB kernel slots. The labels name slots, not
+		 * roles: the boot loader rewrites the selector, so no label
+		 * may claim to be the active one.
+		 */
 		partition@500000 {
-			label = "kernel";
+			label = "kernel0";
 			reg = <0x500000 0x800000>;
 		};
 
-		/* AVM secondary/recovery kernel slot. Written by sysupgrade. */
 		partition@d00000 {
-			label = "reserved-kernel";
+			label = "kernel1";
 			reg = <0xd00000 0x800000>;
 		};
 
