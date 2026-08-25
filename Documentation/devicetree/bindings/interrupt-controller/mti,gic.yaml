@@ -63,6 +63,20 @@ properties:
       - minimum: 2
         maximum: 254
 
+  mti,reserved-list:
+    description: |
+      Specifies shared interrupts that a firmware owns and that Linux must not
+      touch. Their polarity, trigger, mask and routing are configured before
+      Linux is entered, so the driver leaves them out of the reset it performs
+      over all other shared interrupts at probe, and refuses to map them into
+      the interrupt domain.
+    $ref: /schemas/types.yaml#/definitions/uint32-array
+    minItems: 1
+    uniqueItems: true
+    items:
+      minimum: 0
+      maximum: 255
+
   timer:
     type: object
     description: |

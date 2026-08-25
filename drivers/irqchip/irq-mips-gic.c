@@ -61,6 +61,15 @@ static DECLARE_BITMAP(ipi_resrv, GIC_MAX_INTRS);
 static DECLARE_BITMAP(ipi_available, GIC_MAX_INTRS);
 #endif /* CONFIG_GENERIC_IRQ_IPI */
 
+/*
+ * Shared interrupts named by mti,reserved-list: lines that some firmware
+ * still owns, already configured before Linux was entered and expected to
+ * stay that way. Both things this driver does to a shared interrupt it does
+ * not know about are wrong for these -- resetting polarity, trigger and mask
+ * at probe, and handing the line to whichever device asks for it.
+ */
+static DECLARE_BITMAP(fw_resrv, GIC_MAX_INTRS);
+
 static struct gic_all_vpes_chip_data {
 	u32	map;
 	bool	mask;
@@ -651,6 +660,9 @@ static int gic_irq_domain_map(struct irq_domain *d, unsigned int virq,
 	u32 map;
 
 	if (hwirq >= GIC_SHARED_HWIRQ_BASE) {
+		if (test_bit(GIC_HWIRQ_TO_SHARED(hwirq), fw_resrv))
+			return -EBUSY;
+
 #ifdef CONFIG_GENERIC_IRQ_IPI
 		/* verify that shared irqs don't conflict with an IPI irq */
 		if (test_bit(GIC_HWIRQ_TO_SHARED(hwirq), ipi_resrv))
@@ -888,6 +900,13 @@ static int gic_register_ipi_domain(struct device_node *node)
 
 	bitmap_copy(ipi_available, ipi_resrv, GIC_MAX_INTRS);
 
+	/*
+	 * Never hand a firmware-owned line to the IPI allocator. Running out
+	 * of IPIs is a loud, immediate failure; quietly stealing a line some
+	 * firmware is still listening on is not.
+	 */
+	bitmap_andnot(ipi_available, ipi_available, fw_resrv, GIC_MAX_INTRS);
+
 	return 0;
 }
 
@@ -899,6 +918,22 @@ static inline int gic_register_ipi_domain(struct device_node *node)
 }
 
 #endif /* !CONFIG_GENERIC_IRQ_IPI */
+
+static void __init gic_reserve_fw_intrs(struct device_node *node)
+{
+	u32 intr;
+
+	of_property_for_each_u32(node, "mti,reserved-list", intr) {
+		if (intr >= gic_shared_intrs) {
+			pr_warn("Ignoring out of range reserved interrupt %u\n",
+				intr);
+			continue;
+		}
+
+		__set_bit(intr, fw_resrv);
+		pr_info("Shared interrupt %u left to the firmware\n", intr);
+	}
+}
 
 static int gic_cpu_startup(unsigned int cpu)
 {
@@ -974,6 +1009,8 @@ static int __init gic_of_init(struct device_node *node,
 	gic_shared_intrs = FIELD_GET(GIC_CONFIG_NUMINTERRUPTS, gicconfig);
 	gic_shared_intrs = (gic_shared_intrs + 1) * 8;
 
+	gic_reserve_fw_intrs(node);
+
 	if (cpu_has_veic) {
 		/* Always use vector 1 in EIC mode */
 		gic_cpu_pin = 0;
@@ -1010,6 +1047,8 @@ static int __init gic_of_init(struct device_node *node,
 	for (cl = 0; cl < nclusters; cl++) {
 		if (cl == cpu_cluster(&current_cpu_data)) {
 			for (i = 0; i < gic_shared_intrs; i++) {
+				if (test_bit(i, fw_resrv))
+					continue;
 				change_gic_pol(i, GIC_POL_ACTIVE_HIGH);
 				change_gic_trig(i, GIC_TRIG_LEVEL);
 				write_gic_rmask(i);
@@ -1017,6 +1056,8 @@ static int __init gic_of_init(struct device_node *node,
 		} else if (mips_cps_numcores(cl) != 0) {
 			mips_cm_lock_other(cl, 0, 0, CM_GCR_Cx_OTHER_BLOCK_GLOBAL);
 			for (i = 0; i < gic_shared_intrs; i++) {
+				if (test_bit(i, fw_resrv))
+					continue;
 				change_gic_redir_pol(i, GIC_POL_ACTIVE_HIGH);
 				change_gic_redir_trig(i, GIC_TRIG_LEVEL);
 				write_gic_redir_rmask(i);
