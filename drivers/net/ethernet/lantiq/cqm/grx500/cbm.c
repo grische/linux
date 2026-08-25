@@ -900,9 +900,25 @@ int cbm_intr_mapping_init(void)
  * cbm_interrupt_init — port of AVM cqm/grx500/cbm.c:2810-2870
  *                      adapted for linux-6.18.y devm semantics.
  *
- * Affinity: AVM sets per-VPE irq_set_affinity (cpumask 0x1 / 0x2 / 0x4 / 0x8)
- * on lines 1..4. Documented here so the omission is intentional, not an
- * oversight.
+ * That is the same identity the rest of the driver is built on (HRM 3.6): DQM
+ * CPU egress port n <-> LS port n <-> CBM interrupt line 4+n, so line 4+n
+ * belongs to VPE n — and the bottom half draining LS port n then runs on the
+ * CPU whose own DQM port it returns segments through (cbm_intr.c
+ * cbm_rx_return_port).
+ *
+ * This does NOT by itself spread RX over the four CPUs, and should not be
+ * read as doing so. The build is the !CONFIG_CBM_LS_ENABLE arm, where
+ * cbm_init_load_spreader() above marks LS port 0 active and 1..3 inactive
+ * (AVM cqm_common.c:84-98, `if (!idx)`), and host RX reaches LS port 2 by the
+ * device tree's DQ2 redirect rather than through the spreader. What the
+ * pinning settles is which CPU each line lands on, which the IRQ core was
+ * otherwise free to choose.
+ *
+ * A CPU that is not online has no line pinned to it — AVM expresses the same
+ * thing by only recording g_cbm_irq[i + 1] for online CPUs (AVM cbm.c:5726-
+ * 5731) and guarding each affinity call with `if (g_cbm_irq[n])`. A failure is
+ * warned about and the line is left wherever the IRQ core put it, again as in
+ * AVM; nothing in the datapath depends on the pinning for correctness.
  *
  * Handler names: AVM uses "cbm_eqm" (line 0) and "cbm_dqm" (lines 1..4).
  *
@@ -941,6 +957,27 @@ int cbm_interrupt_init(struct platform_device *pdev, int *irqs)
 				cbm_isr_names[n], irqs[n], ret);
 			return ret;
 		}
+	}
+
+	/*
+	 * Pin LS line 4+k (table index k+1) to VPE k — see the affinity note in
+	 * the comment above. AVM does this immediately after each request_irq;
+	 * doing it in a second pass keeps the registration loop as it was.
+	 */
+	for (n = 1; n < 5; n++) {
+		unsigned int cpu = n - 1;
+
+		if (!cpu_online(cpu))
+			continue;
+		ret = irq_set_affinity(irqs[n], cpumask_of(cpu));
+		if (ret)
+			dev_warn(&pdev->dev,
+				 "cbm: irq_set_affinity %s (irq=%d) -> cpu%u failed: %d\n",
+				 cbm_isr_names[n], irqs[n], cpu, ret);
+		else
+			dev_info(&pdev->dev,
+				 "cbm: %s (irq=%d) pinned to cpu%u\n",
+				 cbm_isr_names[n], irqs[n], cpu);
 	}
 
 	return 0;
