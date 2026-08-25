@@ -19,6 +19,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/clk.h>
+#include <linux/cpumask.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/math64.h>
@@ -32,6 +33,7 @@
 #include <linux/processor.h>
 #include <linux/regmap.h>
 #include <linux/sched/debug.h>
+#include <linux/smp.h>
 #include <linux/watchdog.h>
 
 #include <asm/irq_regs.h>
@@ -123,14 +125,33 @@ struct grx500_wdt {
 	unsigned long rate;
 	unsigned int window_ms;
 	int irq;
-	bool irq_masked;
 };
 
 /*
  * The GIC watchdog interrupt is a VP-local one, so the core hands the
- * handler a per-CPU cookie. Only the boot VP ever enables it.
+ * handler a per-CPU cookie. Every VP enables it, from its own
+ * grx500_wdt_recover_irq_local().
  */
 static DEFINE_PER_CPU(struct grx500_wdt *, grx500_wdt_pcpu);
+
+/*
+ * Whether this VP's expiry interrupt is currently masked. Per-CPU because
+ * the masking is: disable_percpu_irq() in the handler takes down the
+ * interrupt on the VP that expired and on no other, so a single flag in
+ * struct grx500_wdt would let one VP's expiry suppress the unmask on the
+ * other three -- or, worse, let them unmask a VP whose WDINTR is still
+ * set and re-enter forever.
+ */
+static DEFINE_PER_CPU(bool, grx500_wdt_irq_masked);
+
+/*
+ * Scratch for the two fan-out reads below. Written only by the owning VP
+ * inside an on_each_cpu() callback and read only after that call has
+ * returned, which is the barrier: on_each_cpu(..., wait = 1) does not
+ * return until every callback has completed.
+ */
+static DEFINE_PER_CPU(u32, grx500_wdt_count_snapshot);
+static DEFINE_PER_CPU(u32, grx500_wdt_config0_snapshot);
 
 static unsigned int timeout;
 module_param(timeout, uint, 0444);
@@ -146,7 +167,7 @@ MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
  * the mode and enable bits alongside the reload, so a blind write would
  * disarm the timer it is supposed to reload.
  */
-static void grx500_wdt_arm(void)
+static void grx500_wdt_arm_local(void *unused)
 {
 	unsigned long flags;
 	u32 config0;
@@ -158,7 +179,7 @@ static void grx500_wdt_arm(void)
 }
 
 /* The same read-modify-write, clearing START (grx500_wdt.c:168-175). */
-static void grx500_wdt_disarm(void)
+static void grx500_wdt_disarm_local(void *unused)
 {
 	unsigned long flags;
 	u32 config0;
@@ -173,41 +194,57 @@ static void grx500_wdt_disarm(void)
  * Bring the expiry interrupt back after a survivable stall, once the
  * countdown has been reloaded — unmasking earlier would re-enter immediately.
  */
-static void grx500_wdt_recover_irq(struct grx500_wdt *wdt)
+static void grx500_wdt_recover_irq_local(void *data)
 {
-	if (!wdt->irq || !READ_ONCE(wdt->irq_masked))
+	struct grx500_wdt *wdt = data;
+
+	if (!wdt->irq || !this_cpu_read(grx500_wdt_irq_masked))
 		return;
 
 	if (read_gic_vl_wd_config0() & GIC_VX_WD_CONFIG0_WDINTR)
 		return;
 
-	WRITE_ONCE(wdt->irq_masked, false);
+	this_cpu_write(grx500_wdt_irq_masked, false);
 	enable_percpu_irq(wdt->irq, IRQ_TYPE_NONE);
+}
+
+/*
+ * Every register here is VP-local, so the feed has to run on each VP in turn:
+ * an unfed VP resets the board however well the others are being fed.
+ */
+static void grx500_wdt_feed_local(void *data)
+{
+	grx500_wdt_arm_local(NULL);
+	grx500_wdt_recover_irq_local(data);
+}
+
+static void grx500_wdt_feed_all(struct grx500_wdt *wdt)
+{
+	on_each_cpu(grx500_wdt_feed_local, wdt, 1);
+}
+
+static void grx500_wdt_disarm_all(void)
+{
+	on_each_cpu(grx500_wdt_disarm_local, NULL, 1);
 }
 
 static int grx500_wdt_start(struct watchdog_device *wdd)
 {
-	struct grx500_wdt *wdt = watchdog_get_drvdata(wdd);
-
-	grx500_wdt_arm();
-	grx500_wdt_recover_irq(wdt);
+	grx500_wdt_feed_all(watchdog_get_drvdata(wdd));
 
 	return 0;
 }
 
 static int grx500_wdt_ping(struct watchdog_device *wdd)
 {
-	struct grx500_wdt *wdt = watchdog_get_drvdata(wdd);
-
-	grx500_wdt_arm();
-	grx500_wdt_recover_irq(wdt);
+	grx500_wdt_feed_all(watchdog_get_drvdata(wdd));
 
 	return 0;
 }
 
 static int grx500_wdt_stop(struct watchdog_device *wdd)
 {
-	grx500_wdt_disarm();
+	grx500_wdt_disarm_all();
 
 	return 0;
 }
@@ -216,11 +253,23 @@ static int grx500_wdt_stop(struct watchdog_device *wdd)
  * What is left of the hardware window, converted back to seconds from the
  * counter's own rate.
  */
+static void grx500_wdt_read_count_local(void *unused)
+{
+	this_cpu_write(grx500_wdt_count_snapshot, read_gic_vl_wd_count0());
+}
+
 static unsigned int grx500_wdt_get_timeleft(struct watchdog_device *wdd)
 {
 	struct grx500_wdt *wdt = watchdog_get_drvdata(wdd);
+	u32 count = U32_MAX;
+	int cpu;
 
-	return read_gic_vl_wd_count0() / READ_ONCE(wdt->rate);
+	on_each_cpu(grx500_wdt_read_count_local, NULL, 1);
+
+	for_each_online_cpu(cpu)
+		count = min(count, per_cpu(grx500_wdt_count_snapshot, cpu));
+
+	return count / READ_ONCE(wdt->rate);
 }
 
 /*
@@ -304,10 +353,10 @@ static irqreturn_t grx500_wdt_irq(int irq, void *dev_id)
 	 * second countdown.
 	 */
 	disable_percpu_irq(irq);
-	WRITE_ONCE(wdt->irq_masked, true);
+	this_cpu_write(grx500_wdt_irq_masked, true);
 
-	pr_emerg("countdown expired, SoC reset follows in ~%u ms\n",
-		 READ_ONCE(wdt->window_ms));
+	pr_emerg("countdown expired on VP%u, SoC reset follows in ~%u ms\n",
+		 smp_processor_id(), READ_ONCE(wdt->window_ms));
 
 	if (regs)
 		show_regs(regs);
@@ -324,11 +373,28 @@ static irqreturn_t grx500_wdt_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static void grx500_wdt_disable_irq_local(void *data)
+{
+	struct grx500_wdt *wdt = data;
+
+	if (this_cpu_read(grx500_wdt_irq_masked))
+		return;
+
+	this_cpu_write(grx500_wdt_irq_masked, true);
+	disable_percpu_irq(wdt->irq);
+}
+
+/*
+ * disable_percpu_irq() only takes the interrupt down on the VP that runs
+ * it, so the teardown has to visit all of them before free_percpu_irq()
+ * -- otherwise three VPs are left with a live GIC local interrupt whose
+ * handler has just been freed.
+ */
 static void grx500_wdt_free_irq(void *data)
 {
 	struct grx500_wdt *wdt = data;
 
-	disable_percpu_irq(wdt->irq);
+	on_each_cpu(grx500_wdt_disable_irq_local, wdt, 1);
 	free_percpu_irq(wdt->irq, &grx500_wdt_pcpu);
 }
 
@@ -349,8 +415,10 @@ static void grx500_wdt_setup_irq(struct grx500_wdt *wdt,
 		return;
 	}
 
-	for_each_possible_cpu(cpu)
+	for_each_possible_cpu(cpu) {
 		per_cpu(grx500_wdt_pcpu, cpu) = wdt;
+		per_cpu(grx500_wdt_irq_masked, cpu) = true;
+	}
 
 	/*
 	 * request_percpu_irq(), not request_irq(): gic_irq_domain_map()
@@ -375,9 +443,14 @@ static void grx500_wdt_setup_irq(struct grx500_wdt *wdt,
 	 * WDINTR which survived the clear above -- which is what a register
 	 * that is not write-1-to-clear looks like -- leaves the interrupt
 	 * masked instead of re-entering the moment it is enabled.
+	 *
+	 * On every VP, because enable_percpu_irq() is per-VP: the vendor does
+	 * the same, calling grx500wdt_enable_percpu_irq() from the init that
+	 * smp_call_function_single() runs once per CPU (grx500_wdt.c:135-146,
+	 * :379). Without this the three secondary VPs would count down with
+	 * their expiry interrupt masked -- reset, and no pretimeout trace.
 	 */
-	WRITE_ONCE(wdt->irq_masked, true);
-	grx500_wdt_recover_irq(wdt);
+	on_each_cpu(grx500_wdt_recover_irq_local, wdt, 1);
 }
 
 /*
@@ -486,9 +559,38 @@ static int grx500_wdt_clk_notify(struct notifier_block *nb,
 	 * stopped.
 	 */
 	if (watchdog_hw_running(wdd))
-		grx500_wdt_arm();
+		grx500_wdt_feed_all(wdt);
 
 	return NOTIFY_OK;
+}
+
+/*
+ * One VP's share of the probe-time hardware setup: the WDINTR retire-and-
+ * report sequence documented at its call site, then the countdown range.
+ * Every line of it is VP-banked, so it has to run once per VP -- the
+ * vendor arrives at the same place by calling grx500wdt_init_hw() through
+ * smp_call_function_single() once per online CPU (grx500_wdt.c:361-381,
+ * :479-484).
+ *
+ * The verdict readback is stashed per-CPU rather than printed here because
+ * printing from an IPI callback with interrupts disabled is a poor idea on
+ * a serial console; probe reports all four once the fan-out has returned.
+ */
+static void grx500_wdt_init_vp_local(void *unused)
+{
+	u32 config0;
+
+	write_gic_vl_wd_config0(GRX500_WDT_CONFIG_BASE |
+				GIC_VX_WD_CONFIG0_WDINTR |
+				GIC_VX_WD_CONFIG0_WDRESET);
+
+	config0 = read_gic_vl_wd_config0();
+	this_cpu_write(grx500_wdt_config0_snapshot, config0);
+
+	if (config0 & GIC_VX_WD_CONFIG0_WDINTR)
+		write_gic_vl_wd_config0(GRX500_WDT_CONFIG_BASE);
+
+	write_gic_vl_wd_initial0(GRX500_WDT_COUNT_MAX);
 }
 
 static int grx500_wdt_probe(struct platform_device *pdev)
@@ -499,7 +601,7 @@ static int grx500_wdt_probe(struct platform_device *pdev)
 	unsigned long clk_rate, rate;
 	u32 config0, rst_en, stat;
 	s64 delta_ppm;
-	int ret;
+	int cpu, ret;
 
 	wdt = devm_kzalloc(dev, sizeof(*wdt), GFP_KERNEL);
 	if (!wdt)
@@ -620,20 +722,16 @@ static int grx500_wdt_probe(struct platform_device *pdev)
 	 * reset-cause bits are sticky across a warm reset, so they must be
 	 * reported once and then cleared or every later boot inherits them.
 	 */
-	write_gic_vl_wd_config0(GRX500_WDT_CONFIG_BASE |
-				GIC_VX_WD_CONFIG0_WDINTR |
-				GIC_VX_WD_CONFIG0_WDRESET);
+	on_each_cpu(grx500_wdt_init_vp_local, NULL, 1);
 
-	config0 = read_gic_vl_wd_config0();
-	pr_info("WD_CONFIG0=0x%08x after writing WDINTR back: %s\n", config0,
-		(config0 & GIC_VX_WD_CONFIG0_WDINTR) ?
-			"WDINTR sticky, not write-1-to-clear" :
-			"WDINTR reads 0 after writing 1 (write-1-to-clear, or not implemented)");
-
-	if (config0 & GIC_VX_WD_CONFIG0_WDINTR)
-		write_gic_vl_wd_config0(GRX500_WDT_CONFIG_BASE);
-
-	write_gic_vl_wd_initial0(GRX500_WDT_COUNT_MAX);
+	for_each_online_cpu(cpu) {
+		config0 = per_cpu(grx500_wdt_config0_snapshot, cpu);
+		pr_info("VP%d WD_CONFIG0=0x%08x after writing WDINTR back: %s\n",
+			cpu, config0,
+			(config0 & GIC_VX_WD_CONFIG0_WDINTR) ?
+				"WDINTR sticky, not write-1-to-clear" :
+				"WDINTR reads 0 after writing 1 (write-1-to-clear, or not implemented)");
+	}
 
 	grx500_wdt_setup_irq(wdt, pdev);
 
@@ -652,13 +750,13 @@ static int grx500_wdt_probe(struct platform_device *pdev)
 	 * open_deadline is KTIME_MAX and a late or absent procd can never
 	 * make it stop.
 	 */
-	grx500_wdt_arm();
+	grx500_wdt_feed_all(wdt);
 	set_bit(WDOG_HW_RUNNING, &wdd->status);
 
 	ret = devm_watchdog_register_device(dev, wdd);
 	if (ret) {
 		/* Armed with nobody left to feed it. */
-		grx500_wdt_disarm();
+		grx500_wdt_disarm_all();
 		return dev_err_probe(dev, ret, "failed to register\n");
 	}
 
@@ -671,7 +769,7 @@ static int grx500_wdt_probe(struct platform_device *pdev)
 	wdt->clk_nb.notifier_call = grx500_wdt_clk_notify;
 	ret = devm_clk_notifier_register(dev, wdt->clk, &wdt->clk_nb);
 	if (ret) {
-		grx500_wdt_disarm();
+		grx500_wdt_disarm_all();
 		return dev_err_probe(dev, ret,
 				     "failed to register the clock notifier\n");
 	}
