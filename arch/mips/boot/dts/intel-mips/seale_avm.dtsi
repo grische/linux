@@ -136,33 +136,51 @@
 	};
 
 	/*
-	 * CBM standard and jumbo buffer pools.
-	 *
-	 * Both the sizes and the addresses are facts about the SoC rather
-	 * than about any board. They abut exactly (0x23800000 + 0x1200000 =
-	 * 0x24a00000) and top out at 0x25200000.
-	 *
-	 * They are nonetheless declared here rather than in xrx500.dtsi,
-	 * because a reservation cannot be stated without the memory node it
-	 * comes out of, and easy350_anywan has no use for them.
-	 *
-	 * PRECONDITION for every board including this file: its memory node
-	 * must reach 0x25200000, where the jumbo pool ends. Both boards on
-	 * this platform now end at 0x30000000, the top of the uncached
-	 * window, so each clears the pools by 174 MiB. A board that could not
-	 * reach 0x25200000 would have to override them, and widening a
-	 * board's memory node cannot move them -- only extend past them.
-	 *
-	 * `no-map` keeps the regions out of the buddy allocator entirely so
-	 * that cbm_buf.c's carve allocator owns the only access path. The
-	 * kernel establishes no linear mapping for these pages, so cbm_buf.c
-	 * must memremap() at probe time and cannot rely on virt_to_phys()
-	 * against the resulting pointer.
+	 * CBM standard and jumbo buffer pools. The sizes are the vendor's
+	 * (9216 standard segments of 2 KiB, 1024 jumbo segments of 8 KiB).
+	 * no-map: cbm_buf.c owns the only access path and must memremap()
+	 * them. Both pools must fall inside the CBM bus master's window, and
+	 * any board including this file must have a memory node reaching
+	 * 0x25200000.
 	 */
 	reserved-memory {
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;
+
+		/*
+		 * The bottom of RAM belongs to the resident boot loader, not
+		 * to Linux. MIPS runs memblock bottom-up and
+		 * early_init_fdt_scan_reserved_mem() runs before
+		 * bootmem_init(), so without these no-map reservations the
+		 * first early allocations land on the firmware mailbox and on
+		 * the loader's own image.
+		 */
+		vmb_mailbox: vmb@20000000 {
+			reg = <0x20000000 0x1000>;
+			no-map;
+		};
+
+		avm_reboot_string: avm-reboot-string@20001000 {
+			reg = <0x20001000 0x200>;
+			no-map;
+		};
+
+		urlader: urlader@20010000 {
+			reg = <0x20010000 0x30000>;
+			no-map;
+		};
+
+		/*
+		 * Four megabytes immediately below the kernel load address;
+		 * the vendor reserves the same range for its own crash log. A
+		 * board that places ramoops inside this range must narrow
+		 * this node to match.
+		 */
+		avm_reserved: avm-reserved@20100000 {
+			reg = <0x20100000 0x400000>;
+			no-map;
+		};
 
 		cbm_std_pool: cbm-std-pool@23800000 {
 			reg = <0x23800000 0x1200000>;
