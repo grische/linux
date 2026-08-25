@@ -32,7 +32,6 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/types.h>
-#include <linux/u64_stats_sync.h>
 #include <generated/utsrelease.h>
 
 #include "include/intel_xrx500.h"
@@ -954,13 +953,13 @@ static netdev_tx_t intel_xrx500_ndo_start_xmit(struct sk_buff *skb,
 	 * would mean the recycle is not happening and the segment has to be
 	 * returned explicitly with cbm_fsqm_buf_free() after egress.)
 	 *
-	 * Stats under tx_lock — required on 32-bit MIPS where the u64-stats
-	 * fallback uses write_seqcount_begin and WARNs on concurrent writers.
+	 * Counted into the netdev core's per-CPU tstats, so this touches only
+	 * the running CPU's seqcount and cannot collide with the receive
+	 * bottom half on another CPU. Left inside tx_lock, where interrupts
+	 * are already disabled: that pins this_cpu_ptr() and keeps the update
+	 * ordered against the tx_dropped bump on the drop paths.
 	 */
-	u64_stats_update_begin(&port->stats.syncp);
-	u64_stats_inc(&port->stats.tx_packets);
-	u64_stats_add(&port->stats.tx_bytes, frame_len);
-	u64_stats_update_end(&port->stats.syncp);
+	dev_sw_netstats_tx_add(dev, 1, frame_len);
 
 	spin_unlock_irqrestore(&port->tx_lock, flags);
 
@@ -992,16 +991,19 @@ static netdev_tx_t intel_xrx500_ndo_start_xmit(struct sk_buff *skb,
  * (eth0 RX 0 against br-lan RX 5814 across a working ping). Second, it charged
  * the pre-skb_pull length, over-counting every frame by the 8 PMAC header
  * bytes; callers now pass skb->len after the pull.
+ *
+ * Writer discipline: the counters are the netdev core's per-CPU tstats, so
+ * this updates only the running CPU's own seqcount. That is what makes it
+ * safe for several load-spreader tasklets to deliver to the same netdev at
+ * once, which they can since the CBM interrupt lines were pinned one per CPU.
+ * The bare update_begin (rather than the irqsave form) is the same call every
+ * NAPI-driven driver makes from softirq — nothing in this driver writes these
+ * counters from hardirq context, so there is no same-CPU re-entry to exclude,
+ * and softirq context keeps this_cpu_ptr() stable.
  */
 void intel_xrx500_rx_account(struct net_device *dev, unsigned int len)
 {
-	struct intel_xrx500_port *port = netdev_priv(dev);
-	unsigned long flags;
-
-	flags = u64_stats_update_begin_irqsave(&port->stats.syncp);
-	u64_stats_inc(&port->stats.rx_packets);
-	u64_stats_add(&port->stats.rx_bytes, len);
-	u64_stats_update_end_irqrestore(&port->stats.syncp, flags);
+	dev_sw_netstats_rx_add(dev, len);
 }
 
 /**
@@ -1041,20 +1043,16 @@ static int intel_xrx500_ndo_change_mtu(struct net_device *dev, int new_mtu)
  * @dev:     the source netdev.
  *
  * @storage: caller-allocated stats sink.
+ *
+ * The drop counters are atomic_long_t and are read outside the aggregation,
+ * so a drop cannot force a re-read of the packet/byte pairs.
  */
 static void intel_xrx500_ndo_get_stats64(struct net_device *dev,
 					 struct rtnl_link_stats64 *storage)
 {
 	struct intel_xrx500_port *port = netdev_priv(dev);
-	unsigned int start;
 
-	do {
-		start = u64_stats_fetch_begin(&port->stats.syncp);
-		storage->rx_packets = u64_stats_read(&port->stats.rx_packets);
-		storage->rx_bytes   = u64_stats_read(&port->stats.rx_bytes);
-		storage->tx_packets = u64_stats_read(&port->stats.tx_packets);
-		storage->tx_bytes   = u64_stats_read(&port->stats.tx_bytes);
-	} while (u64_stats_fetch_retry(&port->stats.syncp, start));
+	dev_fetch_sw_netstats(storage, dev->tstats);
 
 	storage->rx_dropped = (u64)atomic_long_read(&port->stats.rx_dropped);
 	storage->tx_dropped = (u64)atomic_long_read(&port->stats.tx_dropped);
@@ -1292,7 +1290,16 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 	port->port_node = of_node_get(port_node);
 	port->phy_node  = of_parse_phandle(port_node, "phy-handle", 0);
 
-	u64_stats_init(&port->stats.syncp);
+	/*
+	 * Ask the netdev core for per-CPU packet/byte counters. It allocates
+	 * dev->tstats inside register_netdevice() and frees it again on both
+	 * the failure and the unregister path, so there is nothing for this
+	 * driver to unwind. Must be set before register_netdev() below --
+	 * same placement as am65-cpsw-nuss and r8169. Only the two
+	 * atomic_long_t drop counters remain in port->stats, and those need
+	 * no initialiser beyond alloc_etherdev_mq's zeroing.
+	 */
+	netdev->pcpu_stat_type = NETDEV_PCPU_STAT_TSTATS;
 
 	/*
 	 * The supported_interfaces bitmap MUST be populated BEFORE
