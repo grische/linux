@@ -14,7 +14,6 @@
 #include <linux/phylink.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
-#include <linux/u64_stats_sync.h>
 
 /*
  * Forward declarations.
@@ -53,39 +52,30 @@ struct dma_tx_desc;
 #define INTEL_XRX500_DP_PORT_WAN  15
 
 /**
- * struct intel_xrx500_port_stats - per-port traffic counters.
- *
- * @rx_packets: frames received and delivered to the stack.
- *
- * @rx_bytes:   bytes received (post-CRC strip).
- *
- * @tx_packets: frames successfully posted to the egress DMA.
- *
- * @tx_bytes:   bytes posted to egress.
- *
+ * struct intel_xrx500_port_stats - per-port drop counters.
  * @rx_dropped: receive-path drops (allocation failure, queue full, ...).
- *
  * @tx_dropped: transmit-path drops.
  *
- * @syncp:      seqcount-based torn-read protection for the u64_stats_t
- *              fields above.
+ * The packet and byte counters are NOT here. They live in the netdev core's
+ * per-CPU &struct pcpu_sw_netstats, requested by setting
+ * dev->pcpu_stat_type = %NETDEV_PCPU_STAT_TSTATS before register_netdev();
+ * the writers use dev_sw_netstats_rx_add() / dev_sw_netstats_tx_add() and
+ * ndo_get_stats64 sums them with dev_fetch_sw_netstats(). That is what puts
+ * exactly one writer on each seqcount -- the CPU that owns it -- which a
+ * single per-port u64_stats_sync could not do once the receive bottom half
+ * and ndo_start_xmit ran on different CPUs.
  *
- * The two drop counters use atomic_long_t because they (a) are incremented
- * from drop fastpaths that have no obligation to advance under the same
- * seqcount sequence as the packet/byte pair, and (b) atomic_long_t avoids
- * forcing the caller to acquire u64_stats_update_begin in the drop-only path.
- * On 64-bit architectures (BITS_PER_LONG == 64) the u64_stats_sync discipline
- * collapses to a no-op; on 32-bit architectures u64_stats_init must be called
- * before any update.
+ * The two drop counters stay atomic_long_t: they are bumped from drop
+ * fastpaths with no obligation to advance in step with a packet/byte pair,
+ * and an atomic needs no writer-side seqcount at all, so it is immune to the
+ * same hazard. ndo_get_stats64 reads them outside the aggregation.
+ *
+ * Zero-initialised by alloc_etherdev_mq(), which backs the per-port struct
+ * via netdev_priv() -- ATOMIC_LONG_INIT(0) is a zero bit pattern.
  */
 struct intel_xrx500_port_stats {
-	u64_stats_t		rx_packets;
-	u64_stats_t		rx_bytes;
-	u64_stats_t		tx_packets;
-	u64_stats_t		tx_bytes;
 	atomic_long_t		rx_dropped;
 	atomic_long_t		tx_dropped;
-	struct u64_stats_sync	syncp;
 };
 
 /**
