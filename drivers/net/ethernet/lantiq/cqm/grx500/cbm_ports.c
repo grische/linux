@@ -36,6 +36,28 @@ static spinlock_t cbm_port_mapping;
 static struct cbm_dqm_port_info dqm_port_info[CBM_PORT_MAX] = { { 0 } };
 
 /*
+ * cbm_dqm_port_num_desc — descriptor count recorded for DQM port @idx by
+ * conf_dqm_cpu_port below, or 0 for a port no config row covers.
+ *
+ * AVM reads dqm_port_info[idx].deq_info.num_desc straight out of the array
+ * inside init_cbm_dqm_cpu_port (AVM cbm.c:1431/1435), which sits in the same
+ * translation unit as the storage; our port splits the two across cbm_ports.c
+ * and cbm_dma.c, so the read goes through this accessor instead.
+ *
+ * The zero for an unconfigured port is load-bearing, not a don't-care: AVM
+ * gates the dptr write on it (AVM cbm.c:1439-1441) and DQ port 0 — which no
+ * config row covers, and which exists only so the buffer-free API has a port
+ * to return segments on — is deliberately left with its reset descriptor
+ * count. See the for_each_online_cpu loop in cbm_xrx500_probe.
+ */
+u32 cbm_dqm_port_num_desc(int idx)
+{
+	if (idx < 0 || idx >= CBM_PORT_MAX)
+		return 0;
+	return dqm_port_info[idx].deq_info.num_desc;
+}
+
+/*
  * AVM cbm.h:128-140 — EQM/DQM port-config discriminator. Full value set kept
  * verbatim for documentation even though only DQM_CPU_TYPE / NONE_TYPE are
  * handled by the minimal configure_ports below.

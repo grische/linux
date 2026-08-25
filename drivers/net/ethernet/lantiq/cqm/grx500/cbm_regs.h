@@ -88,6 +88,14 @@
  */
 #define CPU_DQM_PORT_NUM          4
 
+/*
+ * CPU_EQM_PORT_NUM — number of CPU EQM (enqueue) ingress ports. Verbatim from
+ * AVM cqm/grx500/cbm.h:196. Bounds cbm_dequeue()'s pid (AVM cbm_ptr_refcnt_incr,
+ * cbm.c:2989-2993) and the eqm_intr_ctrl / dqm_intr_ctrl sweeps (AVM
+ * cbm.c:2970-2984, which walks this count on BOTH sides).
+ */
+#define CPU_EQM_PORT_NUM          4
+
 /* CBM_EQM_CTRL - AVM cqm/grx500/reg/cbm_eqm.h:25. */
 #define CBM_EQM_CTRL          0x0
 #define EQM_EN_POS            0

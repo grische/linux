@@ -23,6 +23,7 @@
 #include <linux/device.h>
 #include <linux/interrupt.h>
 #include <linux/bits.h>
+#include <linux/cpumask.h>
 #include <asm/io.h>
 #include <asm/page.h>
 
@@ -671,6 +672,40 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	if (cbm_configure_dqm_cpu_ports() != CBM_SUCCESS)
 		pr_err("cbm: DQM-CPU configure_ports walk FAILED\n");
 
+	/*
+	 * AVM cbm.c:5753-5759, whose comment states the reason verbatim:
+	 *
+	 *   "Initialise the DQ port 0 as the cbm buffer free API uses DQ port 0
+	 *    for freeing, but do not initialise the TMU queue or look up table
+	 *    for this. The CPU traffic id redirected to DQ2 via device tree
+	 *    entry"
+	 *
+	 * The config table walked above covers ports 2/1/3 only, so port 0 was
+	 * never configured at all — yet it is a buffer-return port on both ends
+	 * of the datapath: the TX enqueue-failure rollback in intel_xrx500.c
+	 * writes ptr_rtn on raw_smp_processor_id()'s port, and the RX tasklet
+	 * (cbm_intr.c) now returns every consumed segment on the running CPU's
+	 * port. A ptr_rtn write into an unconfigured port does not fault and
+	 * does not log — it silently drops the segment, so the FSQM free-list
+	 * count (fsqm0 OFSC) walks down one per event until the std pool runs
+	 * dry and RX starves. That misfires even under nosmp, where every
+	 * rollback targets port 0.
+	 *
+	 * Idempotent for ports 1/2/3: they already carry the same cfg from
+	 * conf_dqm_cpu_port, and init_cbm_dqm_cpu_port re-reads num_desc from
+	 * the registry, so their dptr is rewritten with the value it already
+	 * has while port 0 (num_desc 0, no config row) keeps its reset dptr.
+	 * Placed exactly where AVM places it: after configure_ports, before the
+	 * controllers are enabled.
+	 *
+	 * Bound to the CPUs online at probe, as AVM binds it. A CPU brought up
+	 * later would get no port here and would then return segments through
+	 * an unconfigured one — but nothing in this driver follows CPU hotplug,
+	 * and the platform releases all four VPEs long before the CBM binds.
+	 */
+	for_each_online_cpu(i)
+		init_cbm_dqm_cpu_port(i);
+
 	cbm_program_ep_qidt(7, 35);
 
 	cbm_rx_engine_init();
@@ -719,6 +754,9 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	}
 
 	cbm_enable_controllers();
+
+	eqm_intr_ctrl(0);
+	dqm_intr_ctrl(0);
 
 	{
 		u32 dp_ports[CBM_MAX_DP_PORTS];
