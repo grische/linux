@@ -50,6 +50,17 @@ properties:
 
   device_type: true
 
+  vmb-fw-ipi:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      GIC shared interrupt number of the doorbell that releases this CPU from
+      the wait loop a resident firmware parked it in. Used on systems whose
+      secondary VPEs are launched through a firmware mailbox instead of by the
+      kernel itself, such as the Intel/Lantiq xRX500 (interAptiv). The value is
+      fixed by that firmware, and the same interrupts are normally listed in
+      the GIC's mti,reserved-list so that Linux leaves them configured as the
+      firmware left them.
+
 allOf:
   - $ref: /schemas/opp/opp-v1.yaml#
   - if:

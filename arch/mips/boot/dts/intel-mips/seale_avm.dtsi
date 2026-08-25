@@ -41,6 +41,40 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;
+
+		/*
+		 * The bottom of RAM belongs to the resident boot loader, not
+		 * to Linux. MIPS runs memblock bottom-up and
+		 * early_init_fdt_scan_reserved_mem() runs before
+		 * bootmem_init(), so without these no-map reservations the
+		 * first early allocations land on the firmware mailbox and on
+		 * the loader's own image.
+		 */
+		vmb_mailbox: vmb@20000000 {
+			reg = <0x20000000 0x1000>;
+			no-map;
+		};
+
+		avm_reboot_string: avm-reboot-string@20001000 {
+			reg = <0x20001000 0x200>;
+			no-map;
+		};
+
+		urlader: urlader@20010000 {
+			reg = <0x20010000 0x30000>;
+			no-map;
+		};
+
+		/*
+		 * Four megabytes immediately below the kernel load address;
+		 * the vendor reserves the same range for its own crash log. A
+		 * board that places ramoops inside this range must narrow
+		 * this node to match.
+		 */
+		avm_reserved: avm-reserved@20100000 {
+			reg = <0x20100000 0x400000>;
+			no-map;
+		};
 	};
 };
 
