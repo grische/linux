@@ -11,6 +11,8 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/printk.h>
+#include <linux/smp.h>
+#include <linux/cpumask.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/ratelimit.h>
@@ -64,11 +66,41 @@ irqreturn_t cbm_isr_7(int irq, void *dev_id);
 #define CBM_RESCHEDULE  4
 
 /*
- * CBM_CPU_DQM_RETURN_PORT - the CPU DQM buffer-return (ptr_rtn) port that
- * init_cbm_dqm_cpu_port(2) armed. do_cbm_tasklet recycles every consumed RX
- * segment to it via cbm_fsqm_buf_free().
+ * cbm_rx_return_port - the CPU DQM buffer-return (ptr_rtn) port this CPU
+ * recycles consumed RX segments through.
+ *
+ * AVM never has that problem because it frees on smp_processor_id()'s OWN
+ * port: cbm_buffer_free_grx500(smp_processor_id(), ...) at AVM cbm.c:2645 and
+ * :2695 (the two do_cbm_tasklet free sites), backed by the per-CPU port
+ * bring-up at AVM cbm.c:5753-5759. Distinct CPUs then write distinct
+ * registers and need no mutual exclusion at all.
+ *
+ * smp_processor_id() is legitimate and stable here: every caller runs in
+ * softirq (tasklet) context, where preempt_count carries SOFTIRQ_OFFSET, so
+ * the task cannot be preempted or migrated between this read and the ptr_rtn
+ * write. The one caller of cbm_fsqm_buf_free() outside softirq — the TX
+ * enqueue-failure rollback in intel_xrx500.c — is pinned for the same window
+ * by port->tx_lock taken with IRQs disabled, and passes its own
+ * raw_smp_processor_id().
  */
-#define CBM_CPU_DQM_RETURN_PORT 2
+static u32 cbm_rx_return_port(void)
+{
+	u32 cpu = smp_processor_id();
+
+	/*
+	 * Unreachable on this 4-VPE SoC (CPU_DQM_PORT_NUM == the VPE count).
+	 * Both ways out are bad if it ever becomes reachable: an out-of-range
+	 * pid is rejected by cbm_fsqm_buf_free and leaks the segment, while
+	 * port 0 is exactly the shared-port write this function exists to
+	 * avoid. Take the one that does not leak, and be loud about it.
+	 */
+	if (unlikely(cpu >= CPU_DQM_PORT_NUM)) {
+		WARN_ONCE(1, "cbm: cpu %u has no DQM return port (max %d)\n",
+			  cpu, CPU_DQM_PORT_NUM - 1);
+		return 0;
+	}
+	return cpu;
+}
 
 /*
  * AVM cbm.c:1987 — a single do_cbm_tasklet invocation stages at most this
@@ -384,9 +416,10 @@ irqreturn_t cbm_isr_0(int irq, void *dev_id)
 /*
  * cbm_isr_4 - top-level ISR for line 4.
  *
- * Only the (cbm_irncr & 0x0100) path changes; cbm_isr_5/6/7 are not touched
- * (their LS lines stay un-armed because cbm_rx_engine_init activates only LS
- * port 0).
+ * What makes that safe is that each one touches only its own port's LS and
+ * line registers, the shared IRNEN_LS read-modify-write goes through
+ * cbm_irnen_ls_rmw(), and the segment recycle in the bottom half goes to the
+ * running CPU's own DQM port.
  */
 irqreturn_t cbm_isr_4(int irq, void *dev_id)
 {
@@ -696,7 +729,7 @@ static void do_cbm_tasklet(unsigned long cpu)
 				    g_cbm_buff.std_frm_size) {
 				pr_err_ratelimited("cbm: bad RX desc len=%d off=%d segoff=%u (recycled)\n",
 						   data_len, data_offset, seg_off);
-				cbm_fsqm_buf_free(CBM_CPU_DQM_RETURN_PORT, desc2_phys);
+				cbm_fsqm_buf_free(cbm_rx_return_port(), desc2_phys);
 				desc_list = &g_cbm_dlist[cpu][++j];
 				continue;
 			}
@@ -764,7 +797,7 @@ static void do_cbm_tasklet(unsigned long cpu)
 			 * applies to the TX-EGRESS rollback case, NOT this
 			 * RX-consume path (no egress here).
 			 */
-			cbm_fsqm_buf_free(CBM_CPU_DQM_RETURN_PORT, desc2_phys);
+			cbm_fsqm_buf_free(cbm_rx_return_port(), desc2_phys);
 
 			desc_list = &g_cbm_dlist[cpu][++j];
 		}
@@ -844,10 +877,17 @@ void cbm_rx_set_netdev(u32 sppid, struct net_device *dev)
 /* cbm_rx_engine_init — one-time RX engine arm. */
 void cbm_rx_engine_init(void)
 {
+	int cpu;
+
 	tasklet_init(&cbm_tasklet[0], do_cbm_tasklet, 0);
 	tasklet_init(&cbm_tasklet[1], do_cbm_tasklet, 1);
 	tasklet_init(&cbm_tasklet[2], do_cbm_tasklet, 2);
 	tasklet_init(&cbm_tasklet[3], do_cbm_tasklet, 3);
-	set_bit(0, &g_cpu_port_alloc);
+
+	for_each_online_cpu(cpu)
+		set_bit(cpu, &g_cpu_port_alloc);
+
 	set_bit(2, &g_cpu_port_alloc);
+	pr_info("cbm: RX engine armed, LS dequeue ports 0x%lx\n",
+		g_cpu_port_alloc);
 }

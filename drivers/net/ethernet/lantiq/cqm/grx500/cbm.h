@@ -396,6 +396,12 @@ static inline int get_is_bit_set(u32 flags)
 struct cbm_pmac_port_map *is_cbm_allocated(s32 cbm, u32 flags);
 struct cbm_pmac_port_map *is_dp_allocated(s32 pmac, u32 flags);
 int cbm_configure_dqm_cpu_ports(void);
+/*
+ * Descriptor count conf_dqm_cpu_port recorded for a DQM port, 0 if no config
+ * row covers it. init_cbm_dqm_cpu_port (cbm_dma.c) reads it to decide whether
+ * to write dptr at all — AVM cbm.c:1435/1439-1441.
+ */
+u32 cbm_dqm_port_num_desc(int idx);
 s32 dp_port_resources_get(u32 *dp_port, u32 *num_tmu_ports,
 			  cbm_tmu_res_t **res_pp, u32 flags);
 void cbm_program_cpu_qidt(u8 qid_val);
@@ -426,6 +432,13 @@ int dma_port_enable(u32 idx, int dqm_flag);
 int init_cbm_eqm_dma_port(int idx, u32 flags); /* flags = std/jumbo buffer type */
 int init_cbm_eqm_ldma_port(void); /* IGP15 VRX318/LDMA arming */
 int init_cbm_eqm_cpu_port(int idx);
+/*
+ * Per-port IRN enable sweep over the CPU EQM ingress / CPU DQM egress ports —
+ * AVM cbm.c:2970-2984. Probe masks both with 0 at the tail (AVM cbm.c:5791-
+ * 5794) so the per-port sources stop feeding the CBM_INT_LINE aggregates.
+ */
+void eqm_intr_ctrl(u32 val);
+void dqm_intr_ctrl(u32 val);
 int init_cbm_dqm_dma_port(int dqp);
 int init_cbm_dqm_cpu_port(int idx);
 void cbm_rx_engine_init(void);

@@ -251,6 +251,48 @@ int init_cbm_eqm_cpu_port(int idx)
 }
 EXPORT_SYMBOL_GPL(init_cbm_eqm_cpu_port);
 
+/*
+ * eqm_intr_ctrl / dqm_intr_ctrl — write @val to the per-port IRN enable of
+ * every CPU EQM ingress / CPU DQM egress port. Verbatim port of AVM
+ * cqm/grx500/cbm.c:2970-2976 and :2978-2984 (both walk CPU_EQM_PORT_NUM; the
+ * two counts are equal on this SoC).
+ *
+ * AVM's only caller is the probe tail, where it masks both sides with
+ * eqm_intr_ctrl(0) + dqm_intr_ctrl(0) (AVM cbm.c:5791-5794) after
+ * init_cbm_eqm_cpu_port has armed each EQM port with irnen=0x3F. That is not
+ * redundant: the per-port sources feed the same CBM_INT_LINE aggregates the
+ * five cbm_isr_N handlers claim, so leaving all four EQM CPU ports armed means
+ * that as soon as TX runs on more than one CPU, ports 1..3 start raising into
+ * cbm_isr_0 — a line whose handler only ever expected port 0.
+ */
+void eqm_intr_ctrl(u32 val)
+{
+	int i;
+
+	if (!g_cbm_eqm_base) {
+		pr_err("cbm: eqm_intr_ctrl: g_cbm_eqm_base not mapped\n");
+		return;
+	}
+	for (i = 0; i < CPU_EQM_PORT_NUM; i++)
+		cbm_eqm_w32(CBM_EQM_CPU_PORT(i, irnen), val);
+	/* the whole sweep must land before probe moves on (file convention) */
+	wmb();
+}
+
+void dqm_intr_ctrl(u32 val)
+{
+	int i;
+
+	if (!g_cbm_dqm_base) {
+		pr_err("cbm: dqm_intr_ctrl: g_cbm_dqm_base not mapped\n");
+		return;
+	}
+	for (i = 0; i < CPU_EQM_PORT_NUM; i++)
+		cbm_dqm_w32(CBM_DQM_CPU_PORT(i, irnen), val);
+	/* the whole sweep must land before probe moves on (file convention) */
+	wmb();
+}
+
 /* FSQM free-segment pool empty marker + BUFREQ spin bound (AVM cbm.c). */
 #define CBM_FSQM_BUF_EMPTY        0xFFFFF800U
 #define CBM_FSQM_BUF_WAIT_CYCLES  20U  /* AVM DEFAULT_WAIT_CYCLES (cqm_common.h:19) */
@@ -311,11 +353,20 @@ EXPORT_SYMBOL_GPL(cbm_fsqm_buf_alloc);
  * free pool by writing its PHYSICAL (segment-aligned) address to the DQM
  * CPU-port ptr_rtn register (AVM cbm_buffer_free_grx500, cbm.c:1039).
  *
- * Used ONLY to roll back a segment that was popped but never successfully
- * enqueued (the hardware never took ownership, so it will not auto-recycle
- * it). On the normal TX success path the CBM hardware recycles the segment
- * automatically after the DMA2TX egress — do NOT call this there (the
- * hardware still owns the buffer until egress).
+ * Used on the TX side ONLY to roll back a segment that was popped but never
+ * successfully enqueued (the hardware never took ownership, so it will not
+ * auto-recycle it). On the normal TX success path the CBM hardware recycles
+ * the segment automatically after the DMA2TX egress — do NOT call this there
+ * (the hardware still owns the buffer until egress). The RX side calls it for
+ * every consumed segment, on every path (cbm_intr.c).
+ *
+ * @pid MUST be the calling CPU's own DQM CPU port. ptr_rtn is one register per
+ * port and the local_irq_save() below is CPU-local, so two CPUs sharing a pid
+ * race on the same register and lose returns — a silent FSQM segment leak.
+ * AVM's rule is simply "free on smp_processor_id()" (AVM cbm.c:2645/2695), and
+ * every port a CPU can name is brought up for it at probe (AVM cbm.c:5753-
+ * 5759). Callers must be pinned across the read of their CPU id and this call:
+ * softirq context, or IRQs disabled under a lock.
  */
 int cbm_fsqm_buf_free(int pid, u32 buf_phys)
 {
@@ -325,8 +376,11 @@ int cbm_fsqm_buf_free(int pid, u32 buf_phys)
 		pr_err_ratelimited("cbm: cbm_fsqm_buf_free: g_cbm_dqm_base not mapped\n");
 		return -ENODEV;
 	}
-	if (pid < 0 || pid >= 4)
+	if (pid < 0 || pid >= CPU_DQM_PORT_NUM) {
+		pr_err_ratelimited("cbm: cbm_fsqm_buf_free: illegal pid %d (0..%d); segment 0x%08x LEAKED\n",
+				   pid, CPU_DQM_PORT_NUM - 1, buf_phys);
 		return -EINVAL;
+	}
 
 	local_irq_save(irqflags);
 	cbm_dqm_w32(CBM_DQM_CPU_PORT(pid, ptr_rtn),
@@ -400,10 +454,10 @@ EXPORT_SYMBOL_GPL(init_cbm_dqm_dma_port);
 
 int init_cbm_dqm_cpu_port(int idx)
 {
-	const u32 num_desc = 2;
 	u32 ep_map = ((u32)idx << CFG_CPU_EGP_0_EPMAP_POS) &
 		     CFG_CPU_EGP_0_EPMAP_MASK;
 	u32 cfg_val = 0x10F | ep_map;
+	u32 num_desc;
 
 	if (!g_cbm_dqm_base) {
 		pr_err("cbm: init_cbm_dqm_cpu_port: g_cbm_dqm_base not mapped\n");
@@ -415,12 +469,17 @@ int init_cbm_dqm_cpu_port(int idx)
 		return -EINVAL;
 	}
 
-	/* "Number of descriptors enabled = ND+1" (AVM cbm.c:1404). */
-	cbm_dqm_w32(CBM_DQM_CPU_PORT(idx, dptr), num_desc - 1);
+	num_desc = cbm_dqm_port_num_desc(idx);
+
+	/* "Number of descriptors enabled = ND+1" (AVM cbm.c:1404), and only
+	 * for a port a config row gave descriptors to (AVM cbm.c:1439-1441).
+	 */
+	if (num_desc)
+		cbm_dqm_w32(CBM_DQM_CPU_PORT(idx, dptr), num_desc - 1);
 	cbm_dqm_w32(CBM_DQM_CPU_PORT(idx, cfg), cfg_val);
 	wmb();
-	pr_info("cbm: init_cbm_dqm_cpu_port: idx=%d CFG_CPU_EGP=0x%08x (EPMAP=%d dptr=%u)\n",
-		idx, cfg_val, idx, num_desc - 1);
+	pr_info("cbm: init_cbm_dqm_cpu_port: idx=%d CFG_CPU_EGP=0x%08x (EPMAP=%d num_desc=%u)\n",
+		idx, cfg_val, idx, num_desc);
 	return 0;
 }
 
@@ -462,8 +521,9 @@ int cbm_dequeue(int pid, u32 buf_ptr, u32 flags)
 
 	(void)flags;
 
-	if (pid < 0) {
-		pr_err("cbm: cbm_dequeue: pid=%d < 0\n", pid);
+	if (pid < 0 || pid >= CPU_EQM_PORT_NUM) {
+		pr_err("cbm: cbm_dequeue: pid=%d out of range (0..%d)\n",
+		       pid, CPU_EQM_PORT_NUM - 1);
 		return -EINVAL;
 	}
 	if (!g_cbm_eqm_base) {
