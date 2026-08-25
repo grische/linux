@@ -1,6 +1,27 @@
 # SPDX-License-Identifier: GPL-2.0-only
 if INTEL_MIPS
 
+config INTEL_MIPS_VMB_SMP
+	bool "Firmware mailbox CPU launch (VMB)"
+	depends on SMP
+	default y
+	help
+	  Bring up the secondary VPEs the way the boot loader on this SoC
+	  expects. All four are already running when Linux is entered; the
+	  resident loader parks the three it is not using and releases one on
+	  request, through a mailbox at the bottom of RAM and a doorbell
+	  interrupt. Neither the Coherence Manager nor the Cluster Power
+	  Controller is touched, which is what makes this different from
+	  MIPS_CPS and why MIPS_CPS cannot start these CPUs.
+
+	  This needs MIPS_MT_SMP to be enabled as well, and says so at boot if
+	  it is not. Without it the kernel cannot tell the two VPEs of a core
+	  apart, and the interrupt controller misroutes everything aimed at
+	  the odd one.
+
+	  Say Y unless you are booting this SoC from something other than the
+	  vendor boot chain.
+
 choice
 	prompt "Built-in device tree"
 	help
