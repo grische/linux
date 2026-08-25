@@ -91,6 +91,17 @@
 		};
 
 		/*
+		 * The rest of the region seale_avm.dtsi reserves, whose first
+		 * megabyte the crash log above has taken.
+		 */
+		/delete-node/ avm-reserved@20100000;
+
+		avm-reserved@20200000 {
+			reg = <0x20200000 0x300000>;
+			no-map;
+		};
+
+		/*
 		 * Owned by the second CPU's boot loader (the vendor ships its
 		 * own device tree for that core); no-map so this kernel never
 		 * maps another CPU's memory.

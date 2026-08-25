@@ -42,18 +42,21 @@
 			device_type = "cpu";
 			compatible = "mti,interaptiv";
 			reg = <1>;
+			vmb-fw-ipi = <20>;
 		};
 
 		cpu2: cpu@2 {
 			device_type = "cpu";
 			compatible = "mti,interaptiv";
 			reg = <2>;
+			vmb-fw-ipi = <21>;
 		};
 
 		cpu3: cpu@3 {
 			device_type = "cpu";
 			compatible = "mti,interaptiv";
 			reg = <3>;
+			vmb-fw-ipi = <85>;
 		};
 	};
 
@@ -79,6 +82,12 @@
 		 */
 		interrupt-parent = <&cpu_intc>;
 		mti,reserved-ipi-vectors = <56 8>;
+
+		/*
+		 * The doorbells the CPU-launch firmware owns. They are shared
+		 * GIC interrupts and must stay out of the kernel's IPI pool.
+		 */
+		mti,reserved-list = <20 21 85>;
 	};
 
 	cgu: cgu@16200000 {
