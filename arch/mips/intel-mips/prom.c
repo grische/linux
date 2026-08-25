@@ -17,6 +17,8 @@
 #include <asm/prom.h>
 #include <asm/smp-ops.h>
 
+#include "common.h"
+
 #define IOPORT_RESOURCE_START   0x10000000
 #define IOMEM_RESOURCE_START    0x10000000
 
@@ -157,6 +159,17 @@ void __init prom_init(void)
 	 * is running under the boot firmware's configuration is not safe
 	 * here.
 	 */
+
+	/*
+	 * The firmware mailbox first: it is the only mechanism that actually
+	 * starts a CPU on this SoC. It declines, with a reason on the console,
+	 * if no boot loader is parked in the mailbox -- which is what a board
+	 * booted by something other than the vendor chain looks like. The CPS
+	 * and VSMP fallbacks behind it are the pre-existing behaviour and
+	 * self-disable in turn.
+	 */
+	if (!register_vmb_smp_ops())
+		return;
 
 	if (!register_cps_smp_ops())
 		return;
