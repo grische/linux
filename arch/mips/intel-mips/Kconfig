@@ -22,28 +22,4 @@ config INTEL_MIPS_VMB_SMP
 	  Say Y unless you are booting this SoC from something other than the
 	  vendor boot chain.
 
-choice
-	prompt "Built-in device tree"
-	help
-	  Legacy bootloaders do not pass a DTB pointer to the kernel, so
-	  if a "wrapper" is not being used, the kernel will need to include
-	  a device tree that matches the target board.
-
-	  The builtin DTB will only be used if the firmware does not supply
-	  a valid DTB.
-
-config DTB_INTEL_MIPS_GRX500
-	bool "Intel MIPS GRX500 Board"
-	select BUILTIN_DTB
-
-config DTB_INTEL_MIPS_FRITZ7560
-	bool "AVM FRITZ!Box 7560"
-	select BUILTIN_DTB
-
-config DTB_INTEL_MIPS_FRITZ7590
-	bool "AVM FRITZ!Box 7590"
-	select BUILTIN_DTB
-
-endchoice
-
 endif
