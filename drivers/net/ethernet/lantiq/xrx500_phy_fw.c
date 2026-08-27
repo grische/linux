@@ -493,7 +493,8 @@ static int xway_phy_fw_probe(struct platform_device *pdev)
 			return ret;
 	}
 
-	mdelay(100);
+	/* Let the GPHY firmware boot. Probe context sleeps; no need to spin. */
+	msleep(100);
 
 	pr_info("xrx500-phy-fw: loaded %s size=%zu sha256-prefix=%02x%02x%02x%02x%02x%02x%02x%02x\n",
 		fw_name, fw_size,
