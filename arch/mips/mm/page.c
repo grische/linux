@@ -15,6 +15,7 @@
 #include <linux/proc_fs.h>
 
 #include <asm/bugs.h>
+#include <asm/cacheflush.h>
 #include <asm/cacheops.h>
 #include <asm/cpu-type.h>
 #include <asm/inst.h>
@@ -352,6 +353,9 @@ void build_clear_page(void)
 	for (i = 0; i < (buf - &__clear_page_start); i++)
 		pr_debug("\t.word 0x%08x\n", (&__clear_page_start)[i]);
 	pr_debug("\t.set pop\n");
+
+	local_flush_icache_range((unsigned long)&__clear_page_start,
+				 (unsigned long)&__clear_page_end);
 }
 
 static void build_copy_load(u32 **buf, int reg, int off)
@@ -598,6 +602,9 @@ void build_copy_page(void)
 	for (i = 0; i < (buf - &__copy_page_start); i++)
 		pr_debug("\t.word 0x%08x\n", (&__copy_page_start)[i]);
 	pr_debug("\t.set pop\n");
+
+	local_flush_icache_range((unsigned long)&__copy_page_start,
+				 (unsigned long)&__copy_page_end);
 }
 
 #ifdef CONFIG_SIBYTE_DMA_PAGEOPS
