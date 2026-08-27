@@ -284,8 +284,15 @@ static void dma_ctrl_global_polling_enable(struct dma_ctrl *pctrl)
 }
 
 /*
- * dma_ctrl_desc_fetch_on_demand_cfg — AVM hdma.c:494-509. DMA1TX / DMA1RX /
- * DMA2TX fall through as before.
+ * dma_ctrl_desc_fetch_on_demand_cfg - AVM hdma.c:494-509.
+ *
+ * Since AVM 08.25 moved the call out of dma_ctrl_cfg and onto the tail of
+ * dma_ctrl_init, the TOE reset-parity path (hdma_ig192_toe_dma3_reset,
+ * cid=DMA3) no longer reaches this function at all — it calls dma_ctrl_cfg
+ * directly, not dma_ctrl_init. That path's hardware effect is unchanged
+ * either way, precisely because this early return meant DMA3 never got a
+ * write. Kept because AVM has it. DMA1TX / DMA1RX / DMA2TX fall through as
+ * before.
  */
 static void dma_ctrl_desc_fetch_on_demand_cfg(struct dma_ctrl *pctrl,
 					      int enable)
@@ -375,7 +382,10 @@ static void dma_ctrl_orrc_cfg(struct dma_ctrl *pctrl)
 	}
 }
 
-/* AVM hdma.c:577-617 verbatim. */
+/*
+ * AVM hdma.c:577-617, minus the descriptor-fetch-on-demand block, which
+ * AVM 08.25 moved to the tail of dma_ctrl_init (see there).
+ */
 static int dma_ctrl_cfg(struct dma_ctrl *pctrl)
 {
 	int enable;
@@ -385,12 +395,6 @@ static int dma_ctrl_cfg(struct dma_ctrl *pctrl)
 	else
 		enable = 0;
 	dma_ctrl_chan_flow_ctl_cfg(pctrl, enable);
-
-	if ((pctrl->flags & DMA_FTOD))
-		enable = 1;
-	else
-		enable = 0;
-	dma_ctrl_desc_fetch_on_demand_cfg(pctrl, enable);
 
 	if ((pctrl->flags & DMA_DESC_IN_SRAM))
 		enable = 1;
@@ -996,7 +1000,7 @@ static int dma_cfg_init(struct dma_ctrl *pctrl)
 static int dma_ctrl_init(struct dma_ctrl *pctrl)
 {
 	u32 i, j;
-	int ret;
+	int enable, ret;
 	struct dma_port *pport = NULL;
 	struct dmax_chan *pch = NULL;
 
@@ -1053,6 +1057,20 @@ static int dma_ctrl_init(struct dma_ctrl *pctrl)
 			}
 		}
 	}
+
+	/*
+	 * Descriptor fetch-on-demand goes on LAST, after every port and
+	 * channel is configured — AVM 08.25 hdma.c:3026-3030. It used to sit
+	 * in dma_ctrl_cfg, i.e. before the loops, which leaves the controller
+	 * free to fetch descriptors out of channels that have not been
+	 * programmed yet.
+	 */
+	if ((pctrl->flags & DMA_FTOD))
+		enable = 1;
+	else
+		enable = 0;
+	dma_ctrl_desc_fetch_on_demand_cfg(pctrl, enable);
+
 	return 0;
 }
 
