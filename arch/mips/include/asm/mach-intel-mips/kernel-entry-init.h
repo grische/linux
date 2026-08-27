@@ -78,13 +78,25 @@
 	or      t0, t2
 	mtc0    t0, $5, 4
 
-	jal     mips_ihb
+	bal     platform_eva_init_\@_mips_ihb
 	mfc0    t0, $16, 5
 	li      t2, 0x40000000      /* K bit */
 	or      t0, t0, t2
 	mtc0    t0, $16, 5
 	sync
-	jal     mips_ihb
+	bal     platform_eva_init_\@_mips_ihb
+
+	b       platform_eva_init_\@_end
+	/*
+	 * mips_ihb inlined as a PC-relative trampoline. The \@ macro
+	 * invocation counter keeps the labels distinct: this macro is
+	 * expanded twice, from kernel_entry_setup and from smp_slave_setup.
+	 */
+platform_eva_init_\@_mips_ihb:
+	.set    MIPS_ISA_LEVEL_RAW
+	jr.hb   ra
+	nop
+platform_eva_init_\@_end:
 
 	.set    pop
 	.endm
