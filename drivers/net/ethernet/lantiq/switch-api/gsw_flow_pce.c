@@ -149,13 +149,21 @@ int gsw_pce_table_write(void *cdev, pctbl_prog_t *ptdata)
 	CHECK_BUSY(PCE_TBL_CTRL_BAS_OFFSET, PCE_TBL_CTRL_BAS_SHIFT,
 		   PCE_TBL_CTRL_BAS_SIZE, RETURN_FROM_FUNCTION);
 	/*
-	 * Re-seed ctrlval from PCE_TBL_CTRL post-poll. Without this read,
-	 * gsw_field_w32(ctrlval, ...) would consume an uninitialized auto
-	 * variable - which both -Wuninitialized would flag fatal and would
-	 * write stack garbage into the PCE_TBL_CTRL register on the
-	 * subsequent gsw_w32_raw(..., ctrlval).
+	 * Compose the control word from zero, so every field this sequence
+	 * does not set is written as zero rather than inherited from whatever
+	 * the previous PCE transaction left in the register.
+	 *
+	 * AVM's 07.30 drop has no explicit seed: its do/while busy-poll leaves
+	 * ctrlval holding the register value it last read, and the
+	 * gsw_field_w32 calls below merge onto that. CHECK_BUSY keeps its
+	 * read-back in a macro-local we cannot see, so this used to be an
+	 * explicit re-seeding read, on the reading that composing onto chip
+	 * state was deliberate - notably for the EXTOP bit, which AVM never
+	 * writes explicitly. The 08.25 drop refutes that reading: it inserts
+	 * ctrlval = 0 before the composition in all four accessors
+	 * (gsw_tbl_rw.c:512, :589, :674, :735). Follow it.
 	 */
-	gsw_r32_raw(cdev, PCE_TBL_CTRL_BAS_OFFSET, &ctrlval);
+	ctrlval = 0;
 
 	gsw_w32_raw(cdev, PCE_TBL_ADDR_ADDR_OFFSET, ptdata->pcindex);
 	/*TABLE ADDRESS*/
@@ -235,8 +243,8 @@ int gsw_pce_table_read(void *cdev, pctbl_prog_t *ptdata)
 
 	CHECK_BUSY(PCE_TBL_CTRL_BAS_OFFSET, PCE_TBL_CTRL_BAS_SHIFT,
 		   PCE_TBL_CTRL_BAS_SIZE, RETURN_FROM_FUNCTION);
-	/* See gsw_pce_table_write for the rationale for this re-seed. */
-	gsw_r32_raw(cdev, PCE_TBL_CTRL_BAS_OFFSET, &ctrlval);
+	/* See gsw_pce_table_write for why the control word starts at zero. */
+	ctrlval = 0;
 
 	gsw_w32_raw(cdev, PCE_TBL_ADDR_ADDR_OFFSET, ptdata->pcindex);
 	/*TABLE ADDRESS*/
@@ -326,12 +334,6 @@ int gsw_pce_table_key_read(void *cdev, pctbl_prog_t *ptdata)
 
 	CHECK_BUSY(PCE_TBL_CTRL_BAS_OFFSET, PCE_TBL_CTRL_BAS_SHIFT,
 		   PCE_TBL_CTRL_BAS_SIZE, RETURN_FROM_FUNCTION);
-	/* See gsw_pce_table_write for the rationale for this re-seed. */
-	gsw_r32_raw(cdev, PCE_TBL_CTRL_BAS_OFFSET, &ctrlval);
-
-	ctrlval = gsw_field_w32(ctrlval, PCE_TBL_CTRL_ADDR_SHIFT,
-				PCE_TBL_CTRL_ADDR_SIZE, ptdata->table);
-
 	/*KEY REG*/
 	j = gswdev->pce_tbl_info[ptdata->table].num_key;
 
@@ -339,6 +341,11 @@ int gsw_pce_table_key_read(void *cdev, pctbl_prog_t *ptdata)
 		gsw_w32_raw(cdev, gswdev->pce_tbl_reg.key[i], ptdata->key[i]);
 	}
 
+	/* See gsw_pce_table_write for why the control word starts at zero. */
+	ctrlval = 0;
+
+	ctrlval = gsw_field_w32(ctrlval, PCE_TBL_CTRL_ADDR_SHIFT,
+				PCE_TBL_CTRL_ADDR_SIZE, ptdata->table);
 	ctrlval = gsw_field_w32(ctrlval, PCE_TBL_CTRL_OPMOD_SHIFT,
 				PCE_TBL_CTRL_OPMOD_SIZE, PCE_OP_MODE_KSRD);
 	ctrlval = gsw_field_w32(ctrlval, PCE_TBL_CTRL_KEYFORM_SHIFT,
@@ -404,8 +411,8 @@ int gsw_pce_table_key_write(void *cdev, pctbl_prog_t *ptdata)
 
 	CHECK_BUSY(PCE_TBL_CTRL_BAS_OFFSET, PCE_TBL_CTRL_BAS_SHIFT,
 		   PCE_TBL_CTRL_BAS_SIZE, RETURN_FROM_FUNCTION);
-	/* See gsw_pce_table_write for the rationale for this re-seed. */
-	gsw_r32_raw(cdev, PCE_TBL_CTRL_BAS_OFFSET, &ctrlval);
+	/* See gsw_pce_table_write for why the control word starts at zero. */
+	ctrlval = 0;
 
 	/*TABLE ADDRESS*/
 	ctrlval = gsw_field_w32(ctrlval, PCE_TBL_CTRL_ADDR_SHIFT,
