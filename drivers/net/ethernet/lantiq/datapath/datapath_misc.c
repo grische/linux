@@ -486,7 +486,9 @@ static int supported_logic_dev(int inst, struct net_device *dev,
 
 /*
  * Bounds checks against DP_DMAMAX / DP_MAX_DMA_PORT / DP_MAX_DMA_CHAN are
- * preserved.
+ * preserved. The num_dma_chan guard on the DMA-channel refcount comes from
+ * AVM's 08.25 drop (gswip30/datapath_misc.c:541), not the 07.30 one this was
+ * transcribed from.
  */
 static noinline int subif_hw_set(int inst, int portid, int subif_ix,
 				 struct subif_platform_data *data, u32 flags)
@@ -528,7 +530,8 @@ static noinline int subif_hw_set(int inst, int portid, int subif_ix,
 		return DP_FAILURE;
 	}
 	dp_deq_port_tbl[inst][cqe_deq].ref_cnt++;
-	atomic_inc(&dp_dma_chan_tbl[inst][cid][pid][nid].ref_cnt);
+	if (port_info->num_dma_chan)
+		atomic_inc(&dp_dma_chan_tbl[inst][cid][pid][nid].ref_cnt);
 	DP_DEBUG(DP_DBG_FLAG_REG, "cbm[%d].ref_cnt=%d DMATXCH_Ref.cnt=%d\n",
 		 cqe_deq,
 		 dp_deq_port_tbl[inst][cqe_deq].ref_cnt,
@@ -538,7 +541,9 @@ static noinline int subif_hw_set(int inst, int portid, int subif_ix,
 
 /*
  * subif_hw_reset - AVM:512-548 verbatim with PR_ERR -> dev_err and DP_DEBUG
- * -> dev_dbg rewrite.
+ * -> dev_dbg rewrite, plus the 08.25 num_dma_chan guard on the DMA-channel
+ * refcount (gswip30/datapath_misc.c:583) that pairs with the one in
+ * subif_hw_set.
  */
 static noinline int subif_hw_reset(int inst, int portid, int subif_ix,
 				   struct subif_platform_data *data, u32 flags)
@@ -585,7 +590,8 @@ static noinline int subif_hw_reset(int inst, int portid, int subif_ix,
 	}
 	DP_DEBUG(DP_DBG_FLAG_DBG, "cid=%d pid=%d nid=%d\n", cid, pid, nid);
 	dp_deq_port_tbl[inst][cqe_deq].ref_cnt--;
-	atomic_dec(&dp_dma_chan_tbl[inst][cid][pid][nid].ref_cnt);
+	if (port_info->num_dma_chan)
+		atomic_dec(&dp_dma_chan_tbl[inst][cid][pid][nid].ref_cnt);
 	DP_DEBUG(DP_DBG_FLAG_REG, "cbm[%d].ref_cnt=%d DMATXCH_Ref_cnt=%d\n",
 		 cqe_deq,
 		 dp_deq_port_tbl[inst][cqe_deq].ref_cnt,
