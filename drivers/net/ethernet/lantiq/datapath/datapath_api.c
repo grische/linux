@@ -757,10 +757,10 @@ static int dp_deregister_subif_private(int inst, struct module *owner,
 	cqm_port = port_info->subif_info[i].cqm_deq_port;
 	bp = port_info->subif_info[i].bp;
 
-	/* (4) AVM:720-724 — reset per-subif mib / flags / device_name. */
 	memset(&port_info->subif_info[i].mib, 0,
 	       sizeof(port_info->subif_info[i].mib));
 	port_info->subif_info[i].flags = 0;
+	port_info->subif_info[i].netif = NULL;
 	port_info->num_subif--;
 
 	/* (5) AVM:725-730 — subif_platform_set unprograms CTP / BridgePort
