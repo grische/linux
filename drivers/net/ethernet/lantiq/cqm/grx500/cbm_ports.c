@@ -566,6 +566,7 @@ s32 dp_port_resources_get(
 			}
 		} else {
 			pr_err("cbm: %s error in allocating memory", __func__);
+			return -1;
 		}
 	} else if ((!local_entry) &&
 		   ((flags & DP_F_MPE_ACCEL) ||
