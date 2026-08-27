@@ -20,6 +20,7 @@
 #include <asm/ptrace.h>
 #include <linux/uaccess.h>
 
+#include "access-helper.h"
 #include "probes-common.h"
 
 /*
@@ -848,7 +849,6 @@ EXPORT_SYMBOL_GPL(__compute_return_epc_for_insn);
 
 int __compute_return_epc(struct pt_regs *regs)
 {
-	unsigned int __user *addr;
 	long epc;
 	union mips_instruction insn;
 
@@ -859,8 +859,7 @@ int __compute_return_epc(struct pt_regs *regs)
 	/*
 	 * Read the instruction
 	 */
-	addr = (unsigned int __user *) epc;
-	if (__get_user(insn.word, addr)) {
+	if (__get_inst32(&insn.word, (u32 *)epc, user_mode(regs))) {
 		force_sig(SIGSEGV);
 		return -EFAULT;
 	}
