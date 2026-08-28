@@ -53,6 +53,15 @@ properties:
     description:
       Blink frequency for SOUTs in Hz.
 
+  intel,sso-shift-clk-frequency-hz:
+    description:
+      Frequency in Hz of the clock the output word is shifted out on. The
+      controller derives it from a 25 MHz source through a fixed divider of
+      1, 2, 4 or 8, so only those four rates exist. How slow a rate a board
+      needs depends on its shift register and on the trace to it.
+    enum: [3125000, 6250000, 12500000, 25000000]
+    default: 25000000
+
   ssoled:
     type: object
     description:
