@@ -1,0 +1,158 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// Copyright (C) 2026 Grische <github@grische.xyz>
+/*
+ * AVM FRITZ!Box boards on the GRX550 die. Die-variant layer between
+ * seale_avm.dtsi and the board files: the fifth GPHY and its WAN port, the
+ * second MDIO bus, the front-panel LED controller and both USB host
+ * controllers.
+ */
+
+#include <dt-bindings/clock/intel,grx500-clk.h>
+#include <dt-bindings/gpio/gpio.h>
+
+#include "seale_avm.dtsi"
+
+/ {
+	/*
+	 * One enable line feeds both USB PHYs. Both take it as their
+	 * vbus-supply, which is legal and refcounted:
+	 * regulator_get_optional() is not an exclusive get, so a second
+	 * consumer is not turned away.
+	 */
+	usb_vbus: regulator-usb-vbus {
+		compatible = "regulator-fixed";
+		regulator-name = "usb_vbus";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&gpio1 2 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	/*
+	 * The second MDIO bus, on the GSW-R instance, carrying the WAN PHY.
+	 * The aperture is the GSW-L arithmetic in seale_avm.dtsi applied to
+	 * the GSW-R base. The vendor device tree gives its equivalent node no
+	 * reg, hanging the bus off the switch node instead, so there is no
+	 * vendor counterpart to check this address against; if the arithmetic
+	 * is wrong the symptom is specific, reads return 0xffff and the WAN
+	 * PHY never enumerates.
+	 *
+	 * lantiq,gswip-instance = <1> keeps the GSW-L switch-core re-init off
+	 * this bus. The PHY is at MDIO address 1.
+	 */
+	gswr_mdio: gswip-mdio@1a003c10 {
+		compatible = "lantiq,gswip-mdio";
+		reg = <0x1a003c10 0x20>;
+		lantiq,gswip-instance = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		gphy_wan: ethernet-phy@1 {
+			reg = <0x01>;
+		};
+	};
+
+	/*
+	 * The blink generator's slow clock source: a fixed 8 kHz input the
+	 * driver divides for its blink table.
+	 */
+	sso_fpid: clock-8000 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <8000>;
+	};
+
+	/*
+	 * The front-panel LED controller. Four constraints:
+	 *
+	 * - "syscon" must stay in the compatible or syscon_node_to_regmap()
+	 *   fails.
+	 * - The clock-names order matters: clock 0 gates register access.
+	 * - The compatible selects the falling shift-clock edge. The vendor
+	 *   driver
+	 * defaults this SoC to the falling edge and treats rising as an
+	 * opt-in
+	 * device-tree property that no board sets; mainline's lgm-sso
+	 * hardcodes
+	 * rising instead.
+	 * - ngpios narrows the controller to the populated pins.
+	 */
+	ssogpio: ssogpio@16d00000 {
+		compatible = "intel,grx500-ssoled", "syscon";
+		reg = <0x16d00000 0x2cc>;
+
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <8>;
+
+		clocks = <&cgu GCLK_SSO>, <&sso_fpid>;
+		clock-names = "sso", "fpid";
+
+		intel,sso-update-rate-hz = <250000>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ledc>;
+	};
+};
+
+/*
+ * All five GPHYs. The reset bit list is not contiguous, so every entry is
+ * spelled out; on this die bit 31 is the fifth PHY's own reset line and not a
+ * group master reset, which is how the vendor device tree names it. A PHY
+ * without firmware never answers MDIO and probe is all-or-nothing.
+ */
+&gphy_fw {
+	phy_id = <0x02 0x03 0x04 0x05 0x0F>;
+	resets = <&rcu_reset0 29 29>,
+		 <&rcu_reset0 28 28>,
+		 <&rcu_reset0 26 26>,
+		 <&rcu_reset0 25 25>,
+		 <&rcu_reset0 31 31>;
+	reset-names = "phy2", "phy3", "phy4", "phy5", "phyF";
+};
+
+/*
+ * The WAN port, on the second GSWIP instance. Port id 15 is forced by the
+ * allocator range, and lantiq,wan selects the PMAC template for it.
+ */
+&intel_xrx500_net {
+	port@4 {
+		reg = <4>;
+		intel,dp-port-id = <15>;
+		lantiq,wan;
+		phy-handle = <&gphy_wan>;
+	};
+};
+
+&usb0_phy {
+	status = "okay";
+	vbus-supply = <&usb_vbus>;
+};
+
+&usb0 {
+	status = "okay";
+};
+
+&usb1_phy {
+	status = "okay";
+	vbus-supply = <&usb_vbus>;
+};
+
+&usb1 {
+	status = "okay";
+};
+
+/*
+ * The three pads the shift register hangs off. Both spellings are required:
+ * the pinctrl driver rejects a child that has "groups" without "pins" or
+ * "pinmux", and it fails the whole pinctrl probe when it does.
+ */
+&pinctrl {
+	pinctrl_ledc: led-pins {
+		pins = <4>, <5>, <6>;
+		function = "led";
+		pinmux = <1>, <1>, <1>;
+		groups = "led";
+	};
+};
