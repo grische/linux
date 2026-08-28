@@ -801,7 +801,18 @@ static int sso_probe_gpios(struct sso_led_priv *priv)
 		priv->gpio.freq = 0;
 
 	priv->gpio.edge = priv->variant->data_clk_edge;
-	priv->gpio.shift_clk_freq = -1;
+
+	/*
+	 * How fast the output word is clocked out to the external shift
+	 * register. SSO_CON1.FCDSC divides a 25 MHz source by 1, 2, 4 or 8,
+	 * and how slow a rate a board needs is a property of that register and
+	 * of the trace between -- nothing the SoC can be asked about. Absent
+	 * the property, ask for the top of the table, which is the divider
+	 * setting the field has always been left at.
+	 */
+	if (device_property_read_u32(dev, "intel,sso-shift-clk-frequency-hz",
+				     &priv->gpio.shift_clk_freq))
+		priv->gpio.shift_clk_freq = shift_clk_freq_tbl[0];
 
 	ret = sso_gpio_hw_init(priv);
 	if (ret)
