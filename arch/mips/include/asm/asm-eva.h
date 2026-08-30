@@ -35,8 +35,8 @@
  * No 'sd' or 'ld' instructions in 32-bit but the code will
  * do the correct thing
  */
-#define kernel_sd(reg, addr)		user_sw(reg, addr)
-#define kernel_ld(reg, addr)		user_lw(reg, addr)
+#define kernel_sd(reg, addr)		kernel_sw(reg, addr)
+#define kernel_ld(reg, addr)		kernel_lw(reg, addr)
 #else
 #define kernel_sd(reg, addr)		"sd " reg", " addr "\n"
 #define kernel_ld(reg, addr)		"ld " reg", " addr "\n"
@@ -122,8 +122,8 @@
  * No 'sd' or 'ld' instructions in 32-bit but the code will
  * do the correct thing
  */
-#define kernel_sd(reg, addr)		user_sw(reg, addr)
-#define kernel_ld(reg, addr)		user_lw(reg, addr)
+#define kernel_sd(reg, addr)		kernel_sw(reg, addr)
+#define kernel_ld(reg, addr)		kernel_lw(reg, addr)
 #else
 #define kernel_sd(reg, addr)		sd reg, addr
 #define kernel_ld(reg, addr)		ld reg, addr
