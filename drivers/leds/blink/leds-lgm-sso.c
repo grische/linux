@@ -879,9 +879,8 @@ static int intel_sso_led_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&priv->led_list);
 
 	platform_set_drvdata(pdev, priv);
-	sso_init_freq(priv);
-
 	priv->gptc_clkrate = DEF_GPTC_CLK_RATE;
+	sso_init_freq(priv);
 
 	ret = sso_led_dt_parse(priv);
 	if (ret)
