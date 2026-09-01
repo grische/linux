@@ -31,13 +31,28 @@
 	};
 
 	/*
-	 * Capped at the top of the uncached window (PHYS_OFFSET + SZ_256M):
-	 * above it the KSEG1 alias of a page is a register address, so no
-	 * coherent allocation may land there.
+	 * 512 MiB DDR at PHYS_OFFSET, the full part.
+	 *
+	 * Only the first half of it has an uncached alias: above
+	 * PHYS_OFFSET + SZ_256M the KSEG1 alias of a page is a register
+	 * address rather than DRAM. That bound has not moved. What moved is
+	 * where it is enforced -- ZONE_DMA is sized to the window and
+	 * dma-direct takes every uncached coherent allocation from there --
+	 * so holding it no longer costs the board half its memory. Cached
+	 * access is good across the whole node; KSEG0 covers all of it.
+	 *
+	 * The width is coupled to the boot container, and the coupling is
+	 * exact rather than stylistic: it is safe only while the second
+	 * CPU's boot loader stays unstarted. That firmware declares 256 MiB
+	 * and programs a deny-all fabric region over everything above it --
+	 * precisely the half this node adds -- and the first access to that
+	 * half then faults or hangs. There is no boot loader blob for this
+	 * board, so the way it stays unstarted is to ship the kernel in a
+	 * single-kernel container, which is what the image recipe does.
 	 */
 	memory@20000000 {
 		device_type = "memory";
-		reg = <0x20000000 0x10000000>;
+		reg = <0x20000000 0x20000000>;
 	};
 
 	/*
@@ -66,8 +81,11 @@
 	};
 
 	/*
-	 * Every region below must stay under PHYS_OFFSET + SZ_256M; the
-	 * uncached alias above that address reaches registers, not DRAM.
+	 * Any region below that a device reaches through the uncached alias
+	 * must stay under PHYS_OFFSET + SZ_256M; above that address the
+	 * alias reaches registers, not DRAM. The seed buffer at the end is
+	 * the one that sits higher, and may, because it is no-map and this
+	 * kernel never reaches it at all.
 	 */
 	reserved-memory {
 		#address-cells = <1>;

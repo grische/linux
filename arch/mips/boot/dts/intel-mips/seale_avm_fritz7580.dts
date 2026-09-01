@@ -31,13 +31,24 @@
 	};
 
 	/*
-	 * Capped at the top of the uncached window (PHYS_OFFSET + SZ_256M):
-	 * above it the KSEG1 alias of a page is a register address, so no
-	 * coherent allocation may land there.
+	 * 512 MiB DDR at PHYS_OFFSET, the full part -- the same shape as the
+	 * FRITZ!Box 7590, whose node carries the derivation.
+	 *
+	 * Only the first half has an uncached alias: above
+	 * PHYS_OFFSET + SZ_256M the KSEG1 alias of a page is a register
+	 * address rather than DRAM. ZONE_DMA is sized to that window and
+	 * dma-direct takes every uncached coherent allocation from there, so
+	 * the bound is enforced by the allocator rather than by leaving half
+	 * the board undeclared. Cached access is good across the whole node.
+	 *
+	 * Single-kernel containers only, for the same reason as on the 7590:
+	 * this board has no boot loader blob of its own either, and the one
+	 * it would have to borrow declares 256 MiB and fences the fabric off
+	 * above that -- over exactly the half this node adds.
 	 */
 	memory@20000000 {
 		device_type = "memory";
-		reg = <0x20000000 0x10000000>;
+		reg = <0x20000000 0x20000000>;
 	};
 
 	/*
@@ -66,10 +77,12 @@
 	};
 
 	/*
-	 * Every region below must stay under PHYS_OFFSET + SZ_256M; the
-	 * uncached alias above that address reaches registers, not DRAM. The
-	 * addresses are the vendor's, stated once for the whole GRX550
-	 * family.
+	 * Any region below that a device reaches through the uncached alias
+	 * must stay under PHYS_OFFSET + SZ_256M; above that address the
+	 * alias reaches registers, not DRAM. The seed buffer at the end is
+	 * the one that sits higher, and may, because it is no-map and this
+	 * kernel never reaches it at all. The addresses are the vendor's,
+	 * stated once for the whole GRX550 family.
 	 */
 	reserved-memory {
 		#address-cells = <1>;
