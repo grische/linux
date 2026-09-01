@@ -631,7 +631,7 @@ static struct phy_driver xway_gphy[] = {
 		.phy_id		= PHY_ID_PHY11G_VR9_1_1,
 		.phy_id_mask	= 0xffffffff,
 		.name		= "Intel XWAY PHY11G (xRX v1.1 integrated)",
-		/* PHY_GBIT_FEATURES */
+		.features	= PHY_GBIT_FEATURES,
 		.config_init	= xway_gphy_config_init,
 		.handle_interrupt = xway_gphy_handle_interrupt,
 		.config_intr	= xway_gphy_config_intr,
@@ -646,7 +646,7 @@ static struct phy_driver xway_gphy[] = {
 		.phy_id		= PHY_ID_PHY22F_VR9_1_1,
 		.phy_id_mask	= 0xffffffff,
 		.name		= "Intel XWAY PHY22F (xRX v1.1 integrated)",
-		/* PHY_BASIC_FEATURES */
+		.features	= PHY_BASIC_FEATURES,
 		.config_init	= xway_gphy_config_init,
 		.handle_interrupt = xway_gphy_handle_interrupt,
 		.config_intr	= xway_gphy_config_intr,
@@ -661,7 +661,7 @@ static struct phy_driver xway_gphy[] = {
 		.phy_id		= PHY_ID_PHY11G_VR9_1_2,
 		.phy_id_mask	= 0xffffffff,
 		.name		= "Intel XWAY PHY11G (xRX v1.2 integrated)",
-		/* PHY_GBIT_FEATURES */
+		.features	= PHY_GBIT_FEATURES,
 		.config_init	= xway_gphy_config_init,
 		.handle_interrupt = xway_gphy_handle_interrupt,
 		.config_intr	= xway_gphy_config_intr,
@@ -676,7 +676,7 @@ static struct phy_driver xway_gphy[] = {
 		.phy_id		= PHY_ID_PHY22F_VR9_1_2,
 		.phy_id_mask	= 0xffffffff,
 		.name		= "Intel XWAY PHY22F (xRX v1.2 integrated)",
-		/* PHY_BASIC_FEATURES */
+		.features	= PHY_BASIC_FEATURES,
 		.config_init	= xway_gphy_config_init,
 		.handle_interrupt = xway_gphy_handle_interrupt,
 		.config_intr	= xway_gphy_config_intr,
