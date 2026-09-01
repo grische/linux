@@ -460,7 +460,7 @@
 		phys = <&pcie_phy0>;
 		phy-names = "pcie";
 
-		intel,syscon = <&chiptop>;
+		intel,syscon = <&chiptop 0x4c>;
 		intel,inbound-shift = <5>;
 		intel,outbound-shift = <4>;
 		status = "disabled";
@@ -495,7 +495,7 @@
 		phys = <&pcie_phy1>;
 		phy-names = "pcie";
 
-		intel,syscon = <&chiptop>;
+		intel,syscon = <&chiptop 0x4c>;
 		intel,inbound-shift = <9>;
 		intel,outbound-shift = <8>;
 		status = "disabled";
@@ -530,7 +530,7 @@
 		phys = <&pcie_phy2>;
 		phy-names = "pcie";
 
-		intel,syscon = <&chiptop>;
+		intel,syscon = <&chiptop 0x4c>;
 		intel,inbound-shift = <13>;
 		intel,outbound-shift = <12>;
 		status = "disabled";
