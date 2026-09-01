@@ -456,7 +456,6 @@
 				<0 0 0 4 &gic GIC_SHARED 139 IRQ_TYPE_LEVEL_HIGH>;
 
 		clocks = <&cgu GCLK_PCIE0>;
-		clock-names = "ctl";
 		phys = <&pcie_phy0>;
 		phy-names = "pcie";
 
@@ -491,7 +490,6 @@
 				<0 0 0 4 &gic GIC_SHARED 12 IRQ_TYPE_LEVEL_HIGH>;
 
 		clocks = <&cgu GCLK_PCIE1>;
-		clock-names = "ctl";
 		phys = <&pcie_phy1>;
 		phy-names = "pcie";
 
@@ -526,7 +524,6 @@
 				<0 0 0 4 &gic GIC_SHARED 158 IRQ_TYPE_LEVEL_HIGH>;
 
 		clocks = <&cgu GCLK_PCIE2>;
-		clock-names = "ctl";
 		phys = <&pcie_phy2>;
 		phy-names = "pcie";
 
