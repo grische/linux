@@ -23,6 +23,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/printk.h>
@@ -40,17 +41,17 @@
 #define XRX200_GPHY_FW_ALIGN (16 * 1024)
 
 /*
- * Per-GPHY base-address register offsets (AVM 4.9 xrx500_phy_fw.c:23-32).
- *
- * These offsets are relative to the GSW-L "top" register window which
- * starts at physical 0x1C003C00 (gswl_base + GSW30_TOP_OFFSET, where
- * GSW30_TOP_OFFSET = 0xF00 DWORDs = 0x3C00 bytes per gsw30_reg_top.h).
- *
- * Note that the GSW-L gswip@1c000000 node retains its <0x1c000000 0x4000> reg
- * claim at SoC scope (xrx500.dtsi); this sub-aperture lives inside that
- * range. The overlap is by design - dtc tolerates sibling-node reg overlaps
- * at root scope; the kernel's resource subsystem honours per-node ioremap
- * regardless. Only the actual register WRITES target this sub-aperture.
+ * The base-address registers are a sub-aperture of the GSW-L switch register
+ * window: they live in that block's "top" section, which starts
+ * GSW30_TOP_OFFSET (0xf00 DWORDs) into it per gsw30_reg_top.h. The span has
+ * to cover the LBADR/MBADR pairs at 0x228..0x26f below.
+ */
+#define XRX500_GPHY_SUBAP_OFFSET 0x3c00
+#define XRX500_GPHY_SUBAP_SIZE   0x280
+
+/*
+ * Per-GPHY base-address register offsets (AVM 4.9 xrx500_phy_fw.c:23-32),
+ * relative to the sub-aperture above.
  */
 #define GPHY2_LBADR_XRX500 0x0228
 #define GPHY2_MBADR_XRX500 0x022C
@@ -358,32 +359,37 @@ static int xway_phy_fw_probe(struct platform_device *pdev)
 	pdev->dev.dma_coherent = false;
 
 	/*
-	 * ioremap the GSW-L GPHY sub-aperture (reg = <0x1c003c00 0x280> in
-	 * seale_avm_fritz7560.dtsi). The 0x40000 GSW-L window at 0x1c000000
-	 * is exclusively reserved by the intel-xrx500-gswip platform_driver,
-	 * so devm_platform_ioremap_resource() returns -EBUSY here. Use
-	 * devm_ioremap() (no request_mem_region) since GSW-L doesn't touch
-	 * the GPHY*_LBADR/MBADR sub-aperture (0x228..0x26C) — this is the
-	 * standard kernel pattern for sharing a sub-region of another
-	 * driver's exclusive window. devm-owned so the mapping is released on
-	 * probe failure or unbind.
+	 * This node carries no reg: the registers are inside the GSW-L switch
+	 * window, so the aperture is that node's base plus the block-relative
+	 * offset. The whole window is claimed by the intel-xrx500-gswip
+	 * platform_driver, so map it with devm_ioremap() and no
+	 * request_mem_region() — GSW-L never touches the GPHY*_LBADR/MBADR
+	 * registers, and this is the standard pattern for sharing a sub-region
+	 * of another driver's exclusive window. devm-owned so the mapping is
+	 * released on probe failure or unbind.
 	 */
 	{
-		struct resource *res;
+		struct device_node *parent;
+		struct resource res;
 
-		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-		if (!res) {
+		parent = of_get_parent(pdev->dev.of_node);
+		ret = of_address_to_resource(parent, 0, &res);
+		of_node_put(parent);
+		if (ret) {
 			dev_err(&pdev->dev,
-				"xrx500-phy-fw: missing reg resource\n");
-			return -ENODEV;
+				"xrx500-phy-fw: no reg on the parent switch node: %d\n",
+				ret);
+			return ret;
 		}
-		gsw_l_phy_base = devm_ioremap(&pdev->dev, res->start,
-					      resource_size(res));
+
+		gsw_l_phy_base = devm_ioremap(&pdev->dev,
+					      res.start + XRX500_GPHY_SUBAP_OFFSET,
+					      XRX500_GPHY_SUBAP_SIZE);
 		if (!gsw_l_phy_base) {
 			dev_err(&pdev->dev,
-				"xrx500-phy-fw: devm_ioremap failed at 0x%llx size 0x%llx\n",
-				(unsigned long long)res->start,
-				(unsigned long long)resource_size(res));
+				"xrx500-phy-fw: devm_ioremap failed at %pa + 0x%x size 0x%x\n",
+				&res.start, XRX500_GPHY_SUBAP_OFFSET,
+				XRX500_GPHY_SUBAP_SIZE);
 			return -ENOMEM;
 		}
 	}

@@ -36,42 +36,38 @@
 	};
 };
 
-/* Both GSWIP-3.0 instances; on-die blocks with no board wiring. */
+/*
+ * Both GSWIP-3.0 instances; on-die blocks with no board wiring.
+ *
+ * The GPHY firmware loader and the MDIO bus are not devices of their own:
+ * their registers are sub-apertures of the switch register window this node
+ * already claims. They are therefore reg-less children, and each driver
+ * derives its window from this node's reg plus a fixed offset into the IP
+ * block. The switch driver creates the platform devices for them.
+ */
 &gswl {
 	status = "okay";
-};
 
-&gswr {
-	status = "okay";
-};
-
-/ {
 	/*
-	 * GPHY firmware loader. The 0x280 window must cover the per-GPHY
-	 * LBADR/MBADR pairs at offsets 0x228..0x26f. The firmware must be
-	 * built in: this driver probes long before any rootfs is mounted.
+	 * GPHY firmware loader, at switch base + 0x3c00. Its window must
+	 * cover the per-GPHY LBADR/MBADR pairs at 0x228..0x26f within it.
 	 */
-	gphy_fw: phy-xrx500@1c003c00 {
+	gphy_fw: gphy-fw {
 		compatible = "lantiq,phy-xrx500";
-		reg = <0x1c003c00 0x280>;
 		firmware-name = "lantiq/xrx500-phy-fw.bin";
 		status = "okay";
 	};
 
 	/*
-	 * GSWIP-3.0 MDIO bus on the GSW-L instance. The aperture is the
-	 * switch base plus (MDCTRL dword 0x004 + GSW30_TOP_OFFSET 0xf00) * 4,
-	 * a 0x20 span covering MDCTRL, MDREAD, MDWRITE and the two MDCCFG
-	 * registers. It overlaps the switch node's own reg claim on purpose,
-	 * which is why the driver maps it with devm_ioremap() rather than
-	 * requesting the region.
+	 * MDIO bus, at switch base + (MDCTRL dword 0x004 + GSW30_TOP_OFFSET
+	 * 0xf00) * 4 = 0x3c10, a 0x20 span covering MDCTRL, MDREAD, MDWRITE
+	 * and the two MDCCFG registers.
 	 *
 	 * The bus defers probing until the GPHY firmware loader has run: a
 	 * PHY without firmware never answers MDIO.
 	 */
-	gswip_mdio: gswip-mdio@1c003c10 {
+	gswip_mdio: mdio {
 		compatible = "lantiq,gswip-mdio";
-		reg = <0x1c003c10 0x20>;
 		lantiq,gswip-instance = <0>;
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -112,7 +108,13 @@
 			reg = <0x02>;
 		};
 	};
+};
 
+&gswr {
+	status = "okay";
+};
+
+/ {
 	/*
 	 * Datapath netdev parent. Each child names one front-panel port and
 	 * its datapath port id; the driver allocates one netdev per child.

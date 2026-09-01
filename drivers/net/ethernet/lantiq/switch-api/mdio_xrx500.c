@@ -3,9 +3,11 @@
  * Copyright (C) 2026 Grische <github@grische.xyz>
  *
  * MDIO bus on a GSWIP-3.0 instance. The bus is a sub-aperture of the switch
- * register window, so the region is claimed by the parent and mapped without
- * claiming it again, and the block is accessed natively on this big-endian
- * SoC.
+ * register window rather than a block of its own, so this device is a reg-less
+ * child of the switch node: the window is derived from the parent's base plus
+ * a fixed offset into the IP block, and mapped without claiming a region the
+ * switch driver already owns. The block is accessed natively on this
+ * big-endian SoC.
  */
 
 #include <linux/bits.h>
@@ -19,6 +21,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/of_mdio.h>
 #include <linux/phy.h>
 #include <linux/platform_device.h>
@@ -30,9 +33,15 @@
 #include "gsw30_reg_top.h"
 #include "../include/xrx500_phy_fw.h"
 
+/*
+ * Where the bus registers sit inside the switch register window, and how much
+ * of it they span. The byte base works out to 0x3c10 on either instance, which
+ * is why both buses need only the parent's base to find their own.
+ */
 #define LTQ_GSWIP_MDIO_SUBAP_DWORD_BASE \
 	(GSWT_MDCTRL_MBUSY_OFFSET + GSW30_TOP_OFFSET)
 #define LTQ_GSWIP_MDIO_SUBAP_BYTE_BASE    (LTQ_GSWIP_MDIO_SUBAP_DWORD_BASE * 4)
+#define LTQ_GSWIP_MDIO_SUBAP_SIZE         0x20
 
 /*
  * Byte offsets WITHIN the sub-aperture for the three registers the
@@ -123,7 +132,7 @@
  * struct ltq_gswip_mdio_priv - per-bus state.
  *
  * @base:  ioremap'd sub-aperture covering MDIO_CTRL / MDIO_READ /
- *         MDIO_WRITE (DT reg = <0x1c003c10 0x20> on GSW-L).
+ *         MDIO_WRITE, derived from the parent switch node's reg.
  *
  * @dev:   probing device, retained for dev_err / dev_info.
  *
@@ -538,8 +547,9 @@ static void ltq_gswip_mdio_log_scanned_phys(struct platform_device *pdev,
 static int ltq_gswip_mdio_probe(struct platform_device *pdev)
 {
 	struct ltq_gswip_mdio_priv *priv;
+	struct device_node *parent;
 	struct mii_bus *bus;
-	struct resource *res;
+	struct resource res;
 	u32 mdc_cfg_1;
 	int ret;
 
@@ -576,15 +586,28 @@ static int ltq_gswip_mdio_probe(struct platform_device *pdev)
 	 */
 	ltq_gswip_mdio_scan_dt_phys(priv, pdev->dev.of_node);
 
-	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res) {
-		dev_err(&pdev->dev, "no MDIO sub-aperture resource in DT\n");
-		return -ENODEV;
+	/*
+	 * This node carries no reg: the bus registers are inside the parent
+	 * switch's window, at a fixed offset that is the same on both
+	 * instances. Map without a resource claim, because the switch driver
+	 * has already claimed the whole window.
+	 */
+	parent = of_get_parent(pdev->dev.of_node);
+	ret = of_address_to_resource(parent, 0, &res);
+	of_node_put(parent);
+	if (ret) {
+		dev_err(&pdev->dev,
+			"no reg on the parent switch node: %d\n", ret);
+		return ret;
 	}
-	priv->base = devm_ioremap(&pdev->dev, res->start, resource_size(res));
+
+	priv->base = devm_ioremap(&pdev->dev,
+				  res.start + LTQ_GSWIP_MDIO_SUBAP_BYTE_BASE,
+				  LTQ_GSWIP_MDIO_SUBAP_SIZE);
 	if (!priv->base) {
 		dev_err(&pdev->dev,
-			"devm_ioremap(MDIO sub-aperture %pR) failed\n", res);
+			"devm_ioremap(MDIO sub-aperture at %pa + 0x%x) failed\n",
+			&res.start, LTQ_GSWIP_MDIO_SUBAP_BYTE_BASE);
 		return -ENOMEM;
 	}
 

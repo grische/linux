@@ -19,6 +19,7 @@
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_platform.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
@@ -156,6 +157,21 @@ static int intel_xrx500_gswip_probe(struct platform_device *pdev)
 		if (dp_ret)
 			dev_err(&pdev->dev,
 				"gsw_init: dp_init_module failed=%d\n", dp_ret);
+	}
+
+	/*
+	 * The GPHY firmware loader and the MDIO bus are sub-apertures of the
+	 * window mapped above, described as reg-less children of this node, so
+	 * nothing else instantiates them. Their drivers live in a module of
+	 * their own - the GPHY firmware comes from the rootfs, so they must not
+	 * be pulled into this initcall - and bind to these devices when that
+	 * module loads.
+	 */
+	ret = devm_of_platform_populate(dev);
+	if (ret) {
+		dev_err(dev, "failed to create switch sub-nodes: %d\n", ret);
+		gsw_devs_unregister(devid);
+		return ret;
 	}
 
 	return 0;

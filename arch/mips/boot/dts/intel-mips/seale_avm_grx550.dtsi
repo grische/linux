@@ -29,33 +29,6 @@
 	};
 
 	/*
-	 * The second MDIO bus, on the GSW-R instance, carrying the WAN PHY.
-	 * The aperture is the GSW-L arithmetic in seale_avm.dtsi applied to
-	 * the GSW-R base. The vendor device tree gives its equivalent node no
-	 * reg, hanging the bus off the switch node instead, so there is no
-	 * vendor counterpart to check this address against; if the arithmetic
-	 * is wrong the symptom is specific, reads return 0xffff and the WAN
-	 * PHY never enumerates.
-	 *
-	 * lantiq,gswip-instance = <1> keeps the GSW-L switch-core re-init off
-	 * this bus. The PHY is at MDIO address 1.
-	 */
-	gswr_mdio: gswip-mdio@1a003c10 {
-		compatible = "lantiq,gswip-mdio";
-		reg = <0x1a003c10 0x20>;
-		lantiq,gswip-instance = <1>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		status = "okay";
-
-		gphy_wan: ethernet-phy@1 {
-			compatible = "ethernet-phy-idd565.a409",
-				     "ethernet-phy-ieee802.3-c22";
-			reg = <0x01>;
-		};
-	};
-
-	/*
 	 * The blink generator's slow clock source: a fixed 8 kHz input the
 	 * driver divides for its blink table.
 	 */
@@ -95,6 +68,31 @@
 
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_ledc>;
+	};
+};
+
+/*
+ * The second MDIO bus, on the GSW-R instance, carrying the WAN PHY. Same
+ * sub-aperture of the same IP block as the GSW-L bus in seale_avm.dtsi, so
+ * the driver reaches it through the identical offset from this switch node's
+ * own base.
+ *
+ * lantiq,gswip-instance = <1> keeps the GSW-L switch-core re-init off this
+ * bus. The PHY is at MDIO address 1.
+ */
+&gswr {
+	gswr_mdio: mdio {
+		compatible = "lantiq,gswip-mdio";
+		lantiq,gswip-instance = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		gphy_wan: ethernet-phy@1 {
+			compatible = "ethernet-phy-idd565.a409",
+				     "ethernet-phy-ieee802.3-c22";
+			reg = <0x01>;
+		};
 	};
 };
 
