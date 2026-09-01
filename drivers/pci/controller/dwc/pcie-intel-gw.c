@@ -62,14 +62,6 @@
 	PCIE_APP_IRN_BW_MGT | PCIE_APP_IRN_LINK_AUTO_BW_STAT | \
 	PCIE_APP_IRN_INTX)
 
-/*
- * Byte-swap control for the three xRX500 root complexes, in the chiptop
- * syscon rather than in the controller itself. One bit per direction per
- * RC; which bits belong to which RC is described by "intel,inbound-shift"
- * and "intel,outbound-shift" in the devicetree.
- */
-#define PCIE_CHIPTOP_ENDIAN		0x4c
-
 /* xRX500 decodes its 8 MiB config window with only three bits of bus number */
 #define PCIE_XRX500_CFG_BUS(x)		(((x) & 0x7) << 20)
 #define PCIE_XRX500_CFG_DEV(x)		(((x) & 0x1f) << 15)
@@ -107,6 +99,7 @@ struct intel_pcie {
 	struct reset_control	*core_rst;
 	struct phy		*phy;
 	struct regmap		*syscon;
+	unsigned int		endian_off;
 	u32			inbound_shift;
 	u32			outbound_shift;
 	u32			inbound_swap;
@@ -250,6 +243,12 @@ static struct pci_ops intel_pcie_xrx500_child_ops = {
 	.write		= pci_generic_config_write32,
 };
 
+/*
+ * Byte-swap control for the xRX500 root complexes lives in the chiptop syscon
+ * rather than in the controller itself: one bit per direction per RC in a word
+ * that "intel,syscon" gives the offset of, at the bit positions
+ * "intel,inbound-shift" and "intel,outbound-shift" name.
+ */
 static void intel_pcie_endian_setup(struct intel_pcie *pcie)
 {
 	struct device *dev = pcie->pci.dev;
@@ -273,11 +272,11 @@ static void intel_pcie_endian_setup(struct intel_pcie *pcie)
 			val |= BIT(pcie->outbound_shift);
 	}
 
-	regmap_update_bits(pcie->syscon, PCIE_CHIPTOP_ENDIAN, mask, val);
+	regmap_update_bits(pcie->syscon, pcie->endian_off, mask, val);
 
-	if (!regmap_read(pcie->syscon, PCIE_CHIPTOP_ENDIAN, &val))
+	if (!regmap_read(pcie->syscon, pcie->endian_off, &val))
 		dev_info(dev, "chiptop endian %#04x: %#010x (in bit %u swap %u, out bit %u swap %u)\n",
-			 PCIE_CHIPTOP_ENDIAN, val, pcie->inbound_shift,
+			 pcie->endian_off, val, pcie->inbound_shift,
 			 pcie->inbound_swap, pcie->outbound_shift,
 			 pcie->outbound_swap);
 }
@@ -421,17 +420,14 @@ static int intel_pcie_get_resources(struct platform_device *pdev)
 		return ret;
 	}
 
-	pcie->syscon = syscon_regmap_lookup_by_phandle_optional(dev->of_node,
-								"intel,syscon");
+	pcie->syscon = syscon_regmap_lookup_by_phandle_optional_args(dev->of_node,
+								     "intel,syscon",
+								     1,
+								     &pcie->endian_off);
 	if (IS_ERR(pcie->syscon))
 		return dev_err_probe(dev, PTR_ERR(pcie->syscon),
 				     "Failed to look up \"intel,syscon\"\n");
 
-	/*
-	 * syscon_regmap_lookup_by_phandle_optional() returns NULL both when
-	 * the property is absent and when the lookup fails, so the two cases
-	 * have to be told apart by checking for the property first.
-	 */
 	if (pcie->soc->needs_endian_syscon && !pcie->syscon)
 		return dev_err_probe(dev, -EINVAL,
 				     "\"intel,syscon\" is required on this SoC\n");
