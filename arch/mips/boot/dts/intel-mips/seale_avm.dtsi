@@ -82,20 +82,33 @@
 		 * equals this PHY's MDIO address. Getting the pairing wrong
 		 * gives a working link on the wrong front-panel socket, which
 		 * no probe-time check can catch.
+		 *
+		 * The identifier is spelled out on every node so the PHY device
+		 * is created from the device tree alone. These cores answer
+		 * their ID registers before the firmware the SoC loads has
+		 * finished booting, so a bus scan can sample a half-alive core.
 		 */
 		gphy_lan1: ethernet-phy@5 {
+			compatible = "ethernet-phy-idd565.a409",
+				     "ethernet-phy-ieee802.3-c22";
 			reg = <0x05>;
 		};
 
 		gphy_lan2: ethernet-phy@4 {
+			compatible = "ethernet-phy-idd565.a409",
+				     "ethernet-phy-ieee802.3-c22";
 			reg = <0x04>;
 		};
 
 		gphy_lan3: ethernet-phy@3 {
+			compatible = "ethernet-phy-idd565.a409",
+				     "ethernet-phy-ieee802.3-c22";
 			reg = <0x03>;
 		};
 
 		gphy_lan4: ethernet-phy@2 {
+			compatible = "ethernet-phy-idd565.a409",
+				     "ethernet-phy-ieee802.3-c22";
 			reg = <0x02>;
 		};
 	};

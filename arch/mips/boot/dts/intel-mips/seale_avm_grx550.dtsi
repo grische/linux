@@ -49,6 +49,8 @@
 		status = "okay";
 
 		gphy_wan: ethernet-phy@1 {
+			compatible = "ethernet-phy-idd565.a409",
+				     "ethernet-phy-ieee802.3-c22";
 			reg = <0x01>;
 		};
 	};
