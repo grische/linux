@@ -360,3 +360,26 @@ struct regmap *syscon_regmap_lookup_by_phandle_optional(struct device_node *np,
 	return regmap;
 }
 EXPORT_SYMBOL_GPL(syscon_regmap_lookup_by_phandle_optional);
+
+/*
+ * It behaves the same as syscon_regmap_lookup_by_phandle_args() except where
+ * the property is absent. In this case, instead of returning -ENOENT, the
+ * function returns NULL and leaves @out_args untouched. A property that is
+ * present but does not resolve still fails, so a device tree that names a
+ * syscon the wrong way is not mistaken for one that names none.
+ */
+struct regmap *syscon_regmap_lookup_by_phandle_optional_args(struct device_node *np,
+					const char *property,
+					int arg_count,
+					unsigned int *out_args)
+{
+	struct regmap *regmap;
+
+	regmap = syscon_regmap_lookup_by_phandle_args(np, property, arg_count,
+						      out_args);
+	if (IS_ERR(regmap) && PTR_ERR(regmap) == -ENOENT)
+		return NULL;
+
+	return regmap;
+}
+EXPORT_SYMBOL_GPL(syscon_regmap_lookup_by_phandle_optional_args);
