@@ -1308,16 +1308,10 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 	port->phylink_config.dev  = &netdev->dev;
 	port->phylink_config.type = PHYLINK_NETDEV;
 	/*
-	 * The xRX500 GPHY advertises Pause + Asym_Pause (ethtool linkmode
-	 * bits 7 + 9 == 0x280), but with no MAC_*_PAUSE caps
-	 * phylink_caps_to_linkmodes() never sets those bits in the MAC
-	 * support mask, so the support(0x6280) vs advert(0x280) intersection
-	 * failed and phylink_validate returned -EINVAL ("validation of
-	 * internal ... failed"), which in turn made phylink_of_phy_connect()
-	 * return -22. Advertising both pause directions makes
-	 * phylink_caps_to_linkmodes() set the Pause / Asym_Pause linkmode
-	 * bits so the intersection is non-empty and validation passes —
-	 * letting eth0 come up even before MDIO works.
+	 * The MAC handles flow control in both directions, so both pause caps
+	 * are advertised and phylink_caps_to_linkmodes() sets the Pause and
+	 * Asym_Pause link modes in the MAC support mask; the GPHY advertises
+	 * the same pair. Speeds are full duplex only.
 	 */
 	port->phylink_config.mac_capabilities =
 		MAC_SYM_PAUSE | MAC_ASYM_PAUSE |
