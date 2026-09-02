@@ -440,7 +440,13 @@ static void sso_init_freq(struct sso_led_priv *priv)
 {
 	int i;
 
-	priv->freq[0] = 0;
+	/*
+	 * Rank 0 is not a rate of its own: sso_led_freq_set() skips it and the
+	 * pin keeps whatever its blink registers hold. Those are zero at
+	 * reset, which in the encoding the function writes for every other
+	 * rank is the FPID source at freq_div_tbl[0] -- the rate of rank 1.
+	 */
+	priv->freq[0] = priv->fpid_clkrate / freq_div_tbl[0];
 	for (i = 1; i < MAX_FREQ_RANK; i++) {
 		if (i < MAX_FPID_FREQ_RANK) {
 			priv->freq[i] = priv->fpid_clkrate / freq_div_tbl[i - 1];
