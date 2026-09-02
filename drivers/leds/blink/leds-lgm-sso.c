@@ -351,6 +351,26 @@ sso_led_blink_set(struct led_classdev *led_cdev, unsigned long *delay_on,
 	priv = led->priv;
 	freq_idx = delay_to_freq_idx(led, delay_on, delay_off);
 
+	/*
+	 * Only a pin in one of the upper two groups has a rate field of its
+	 * own. Pins 0..23 share one that sso_led_freq_set() does not write, so
+	 * the rank their blink registers already hold is the only rate the
+	 * engine can give them.
+	 */
+	if (freq_idx && sso_led_pin_to_group(led->desc.pin) == LED_GRP0_0_23)
+		return 1;
+
+	/*
+	 * The engine drives the pin from DUTY_CYCLE(pin), and the pairing in
+	 * sso_led_brightness_set() hands the pin over only for a non-zero
+	 * duty: a zero one parks it and there is no phase left to blink. That
+	 * is an LED that is off, or one at full brightness on an active-low
+	 * pin. The software timer picks a brightness of its own and can blink
+	 * such an LED.
+	 */
+	if (!sso_led_duty(led, led->desc.brightness))
+		return 1;
+
 	sso_led_freq_set(priv, led->desc.pin, freq_idx);
 	regmap_update_bits(priv->mmap, SSO_CON2, BIT(led->desc.pin),
 			   1 << led->desc.pin);
@@ -358,7 +378,7 @@ sso_led_blink_set(struct led_classdev *led_cdev, unsigned long *delay_on,
 	led->desc.blink_rate = priv->freq[freq_idx];
 	led->desc.blinking = 1;
 
-	return 1;
+	return 0;
 }
 
 static void sso_led_hw_cfg(struct sso_led_priv *priv, struct sso_led *led)
