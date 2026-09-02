@@ -369,8 +369,15 @@ static void sso_led_hw_cfg(struct sso_led_priv *priv, struct sso_led *led)
 	/* set freq */
 	if (desc->hw_blink) {
 		sso_led_freq_set(priv, desc->pin, desc->freq_idx);
+		/*
+		 * The engine has to start out off for an LED that is off:
+		 * running it would blink a lamp the device tree asked to be
+		 * dark. Keep desc->blinking in step with the bit -- both
+		 * branches of sso_led_brightness_set() are gated on it.
+		 */
+		desc->blinking = desc->brightness != LED_OFF;
 		regmap_update_bits(priv->mmap, SSO_CON2, BIT(desc->pin),
-				   1 << desc->pin);
+				   desc->blinking ? BIT(desc->pin) : 0);
 	}
 
 	if (desc->hw_trig)
