@@ -245,6 +245,31 @@
 
 #define GSWIP_MAX_PORTS		7
 
+/**
+ * struct gswip_mdio_layout - placement of the MDIO master registers
+ * @glob: global control register, carrying the switch macro enable
+ * @ctrl: MDIO transaction control register
+ * @read: MDIO read data register
+ * @write: MDIO write data register
+ * @mdc_cfg0: MDC clock configuration 0, holding the auto-polling enables
+ * @mdc_cfg1: MDC clock configuration 1, holding the clock divider
+ * @phy: per-port PHY address and link force register, -1 if the port has none
+ *
+ * GSWIP-2.x keeps these registers in an address region of their own and
+ * numbers the per-port ones downwards from port 0. Later models place the
+ * same functions elsewhere and number them upwards, so the offsets are a
+ * property of the model rather than of the register block.
+ */
+struct gswip_mdio_layout {
+	u16 glob;
+	u16 ctrl;
+	u16 read;
+	u16 write;
+	u16 mdc_cfg0;
+	u16 mdc_cfg1;
+	s16 phy[GSWIP_MAX_PORTS];
+};
+
 struct gswip_pce_microcode {
 	u16 val_3;
 	u16 val_2;
@@ -257,6 +282,8 @@ struct gswip_hw_info {
 	unsigned int allowed_cpu_ports;
 	s16 mii_cfg[GSWIP_MAX_PORTS];
 	s16 mii_pcdu[GSWIP_MAX_PORTS];
+	/* NULL selects the GSWIP-2.x layout */
+	const struct gswip_mdio_layout *mdio_layout;
 	bool supports_2500m;
 	const struct gswip_pce_microcode (*pce_microcode)[];
 	size_t pce_microcode_size;
@@ -286,6 +313,7 @@ struct gswip_priv {
 	struct regmap *mdio;
 	struct regmap *mii;
 	const struct gswip_hw_info *hw_info;
+	const struct gswip_mdio_layout *mdio_layout;
 	const struct xway_gphy_match_data *gphy_fw_name_cfg;
 	struct dsa_switch *ds;
 	struct device *dev;
