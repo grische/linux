@@ -14,3 +14,9 @@ intel-xrx500-bm-y += cqm/grx500/cbm_intr.o cqm/grx500/fsqm.o cqm/grx500/cbm_dma.
 intel-xrx500-bm-y += cqm/grx500/cbm_ports.o
 intel-xrx500-bm-y += dma/hdma.o
 intel-xrx500-bm-y += tmu/tmu_init.o tmu/drv_tmu_ll.o
+
+#
+# The buffer-manager conduit netdev. Built in, never a module: its transmit
+# path calls MIPS cache maintenance which is not exported to modules.
+#
+obj-$(CONFIG_INTEL_XRX500_CBM_CONDUIT) += xrx500-cbm.o
