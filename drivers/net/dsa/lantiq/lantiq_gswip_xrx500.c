@@ -17,6 +17,7 @@
  */
 
 #include "lantiq_gswip.h"
+#include "lantiq_pce_xrx500.h"
 
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
@@ -92,6 +93,11 @@
 #define GSWIP_XRX500_MAX_PORTS			7
 #define GSWIP_XRX500_R_MAX_PORTS		16
 #define GSWIP_XRX500_R_EXT_PORT			15
+
+/* The WRED mode selector is two bits wide on this generation, where the
+ * common function library knows it as one.
+ */
+#define GSWIP_XRX500_BM_QUEUE_GCTRL_GL_MOD	GENMASK(11, 10)
 
 /* Register window of one switch macro, in 32-bit words. */
 #define GSWIP_XRX500_MAX_REGISTER		0xFFF
@@ -444,6 +450,85 @@ out_put:
 	return dev_err_probe(dev, err, "cannot start the integrated PHYs\n");
 }
 
+/* Loads the parser microcode with the ordering this generation needs: the
+ * macro's global enable is set before the microcode is marked invalid, and
+ * the per-port fetch and store engines are held off across the load.
+ *
+ * The common function library repeats the load from setup(), after the reset
+ * it issues there. This copy exists because the integrated PHYs have to be
+ * started with a loaded parser, and they in turn have to answer before the
+ * MDIO bus is registered, which setup() does between the two.
+ */
+static int gswip_xrx500_load_microcode(struct gswip_priv *priv)
+{
+	unsigned int port;
+	int err, i;
+
+	for (port = 0; port < priv->hw_info->max_ports; port++) {
+		regmap_clear_bits(priv->gswip, GSWIP_FDMA_PCTRLp(port),
+				  GSWIP_FDMA_PCTRL_EN);
+		regmap_clear_bits(priv->gswip, GSWIP_SDMA_PCTRLp(port),
+				  GSWIP_SDMA_PCTRL_EN);
+	}
+
+	regmap_set_bits(priv->gswip, GSWIP_XRX500_GCTRL, GSWIP_XRX500_GCTRL_SE);
+	regmap_clear_bits(priv->gswip, GSWIP_PCE_GCTRL_0,
+			  GSWIP_PCE_GCTRL_0_MC_VALID);
+
+	regmap_write_bits(priv->gswip, GSWIP_PCE_TBL_CTRL,
+			  GSWIP_PCE_TBL_CTRL_ADDR_MASK |
+			  GSWIP_PCE_TBL_CTRL_OPMOD_MASK,
+			  GSWIP_PCE_TBL_CTRL_OPMOD_ADWR);
+
+	for (i = 0; i < priv->hw_info->pce_microcode_size; i++) {
+		u32 ctrl;
+
+		regmap_write(priv->gswip, GSWIP_PCE_TBL_ADDR, i);
+		regmap_write(priv->gswip, GSWIP_PCE_TBL_VAL(0),
+			     (*priv->hw_info->pce_microcode)[i].val_0);
+		regmap_write(priv->gswip, GSWIP_PCE_TBL_VAL(1),
+			     (*priv->hw_info->pce_microcode)[i].val_1);
+		regmap_write(priv->gswip, GSWIP_PCE_TBL_VAL(2),
+			     (*priv->hw_info->pce_microcode)[i].val_2);
+		regmap_write(priv->gswip, GSWIP_PCE_TBL_VAL(3),
+			     (*priv->hw_info->pce_microcode)[i].val_3);
+		regmap_set_bits(priv->gswip, GSWIP_PCE_TBL_CTRL,
+				GSWIP_PCE_TBL_CTRL_BAS);
+
+		err = regmap_read_poll_timeout(priv->gswip, GSWIP_PCE_TBL_CTRL,
+					       ctrl,
+					       !(ctrl & GSWIP_PCE_TBL_CTRL_BAS),
+					       20, 50000);
+		if (err)
+			return err;
+	}
+
+	regmap_set_bits(priv->gswip, GSWIP_PCE_GCTRL_0,
+			GSWIP_PCE_GCTRL_0_MC_VALID);
+
+	return 0;
+}
+
+static int gswip_xrx500_setup(struct dsa_switch *ds)
+{
+	struct gswip_priv *priv = ds->priv;
+
+	/* The queue manager's drop-policy selector is two bits wide here, and
+	 * this generation runs it at zero. Written after the common function
+	 * library has set the one-bit form it knows.
+	 */
+	regmap_clear_bits(priv->gswip, GSWIP_BM_QUEUE_GCTRL,
+			  GSWIP_XRX500_BM_QUEUE_GCTRL_GL_MOD);
+
+	/* Source address spoofing detection on the CPU port is deliberately
+	 * left off. It drops a frame whose source address the switch has
+	 * learned on another port, which is what the software bridge sends
+	 * whenever it forwards for the switch.
+	 */
+
+	return 0;
+}
+
 static void gswip_xrx500_phylink_get_caps(struct dsa_switch *ds, int port,
 					  struct phylink_config *config)
 {
@@ -544,6 +629,14 @@ static int gswip_xrx500_probe(struct platform_device *pdev)
 				     "unexpected GSWIP version: 0x%x\n",
 				     version);
 
+	/* The parser microcode is loaded before the PHY firmware, so the cores are
+	 * released into a switch whose parser is already live.
+	 */
+	err = gswip_xrx500_load_microcode(priv);
+	if (err)
+		return dev_err_probe(dev, err,
+				     "cannot load the parser microcode\n");
+
 	/* The auto-polling master shares the control and data registers with
 	 * software transactions and corrupts them, so turn it off before the
 	 * first read below. It stays off: link state reaches the MAC through
@@ -609,6 +702,9 @@ static const struct gswip_hw_info gswip_xrx500 = {
 	.mdio_layout = &gswip_xrx500_mdio_layout,
 	.mac_ctrl = gswip_xrx500_mac_ctrl,
 	.rmon_table = gswip_xrx500_rmon_table,
+	.pce_microcode = &gswip_xrx500_pce_microcode,
+	.pce_microcode_size = ARRAY_SIZE(gswip_xrx500_pce_microcode),
+	.setup = gswip_xrx500_setup,
 	.phylink_get_caps = gswip_xrx500_phylink_get_caps,
 	.tag_protocol = DSA_TAG_PROTO_GSWIP3,
 };
@@ -621,6 +717,9 @@ static const struct gswip_hw_info gswip_xrx500_r = {
 	.mdio_layout = &gswip_xrx500_mdio_layout,
 	.mac_ctrl = gswip_xrx500_mac_ctrl,
 	.rmon_table = gswip_xrx500_rmon_table,
+	.pce_microcode = &gswip_xrx500_pce_microcode,
+	.pce_microcode_size = ARRAY_SIZE(gswip_xrx500_pce_microcode),
+	.setup = gswip_xrx500_setup,
 	.phylink_get_caps = gswip_xrx500_r_phylink_get_caps,
 	.tag_protocol = DSA_TAG_PROTO_GSWIP3,
 };
