@@ -35,6 +35,7 @@ source "drivers/net/ethernet/lantiq/switch-api/Kconfig"
 config INTEL_XRX500_CBM_CONDUIT
 	bool "xRX500 buffer-manager conduit network device"
 	depends on INTEL_XRX500_NET
+	depends on INTEL_XRX500_GSWIP_API = y
 	default n
 	help
 	  Conduit network device for the xRX500 central buffer manager: one
@@ -44,6 +45,11 @@ config INTEL_XRX500_CBM_CONDUIT
 	  Not a module: the transmit path issues MIPS cache maintenance on a
 	  reserved memory region, and those primitives are not exported to
 	  modules.
+
+	  Depends on the GSWIP HAL being built in rather than modular,
+	  because the receive path drives its DMA channel through that
+	  translation unit's channel interface for as long as both share the
+	  controller. That coupling goes away with the driver it shares with.
 
 	  Say N unless you are bringing this datapath up.
 
