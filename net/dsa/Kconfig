@@ -81,6 +81,17 @@ config NET_DSA_TAG_GSWIP
 	  Say Y or M if you want to enable support for tagging frames for the
 	  Lantiq / Intel GSWIP switches.
 
+config NET_DSA_TAG_GSWIP3
+	tristate "Tag driver for Lantiq / Intel GSWIP 3.0 switches"
+	help
+	  Say Y or M if you want to enable support for tagging frames for the
+	  Lantiq / Intel GSWIP 3.0 switches.
+
+	  GSWIP 3.0 carries an eight byte header in front of the destination
+	  MAC address in both directions, with a wider port map and a
+	  different source port field than the GSWIP 2.x header, so it needs
+	  a tagging driver of its own.
+
 config NET_DSA_TAG_DSA_COMMON
 	tristate
 
