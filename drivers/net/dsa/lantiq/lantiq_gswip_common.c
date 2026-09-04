@@ -126,12 +126,37 @@ static void gswip_mii_mask_cfg(struct gswip_priv *priv, u32 mask, u32 set,
 			  set);
 }
 
+static const struct gswip_mdio_layout gswip_mdio_layout_2x = {
+	.glob		= GSWIP_MDIO_GLOB,
+	.ctrl		= GSWIP_MDIO_CTRL,
+	.read		= GSWIP_MDIO_READ,
+	.write		= GSWIP_MDIO_WRITE,
+	.mdc_cfg0	= GSWIP_MDIO_MDC_CFG0,
+	.mdc_cfg1	= GSWIP_MDIO_MDC_CFG1,
+	.phy		= {
+		GSWIP_MDIO_PHYp(0), GSWIP_MDIO_PHYp(1), GSWIP_MDIO_PHYp(2),
+		GSWIP_MDIO_PHYp(3), GSWIP_MDIO_PHYp(4), GSWIP_MDIO_PHYp(5),
+		GSWIP_MDIO_PHYp(6),
+	},
+};
+
+static void gswip_mdio_mask_phy(struct gswip_priv *priv, int port, u32 mask,
+				u32 set)
+{
+	/* PHY register only exists for ports the MDIO master can poll */
+	if (priv->mdio_layout->phy[port] == -1)
+		return;
+
+	regmap_write_bits(priv->mdio, priv->mdio_layout->phy[port], mask, set);
+}
+
 static int gswip_mdio_poll(struct gswip_priv *priv)
 {
 	u32 ctrl;
 
-	return regmap_read_poll_timeout(priv->mdio, GSWIP_MDIO_CTRL, ctrl,
-					!(ctrl & GSWIP_MDIO_CTRL_BUSY), 40, 4000);
+	return regmap_read_poll_timeout(priv->mdio, priv->mdio_layout->ctrl,
+					ctrl, !(ctrl & GSWIP_MDIO_CTRL_BUSY),
+					40, 4000);
 }
 
 static int gswip_mdio_wr(struct mii_bus *bus, int addr, int reg, u16 val)
@@ -145,8 +170,8 @@ static int gswip_mdio_wr(struct mii_bus *bus, int addr, int reg, u16 val)
 		return err;
 	}
 
-	regmap_write(priv->mdio, GSWIP_MDIO_WRITE, val);
-	regmap_write(priv->mdio, GSWIP_MDIO_CTRL,
+	regmap_write(priv->mdio, priv->mdio_layout->write, val);
+	regmap_write(priv->mdio, priv->mdio_layout->ctrl,
 		     GSWIP_MDIO_CTRL_BUSY | GSWIP_MDIO_CTRL_WR |
 		     ((addr & GSWIP_MDIO_CTRL_PHYAD_MASK) << GSWIP_MDIO_CTRL_PHYAD_SHIFT) |
 		     (reg & GSWIP_MDIO_CTRL_REGAD_MASK));
@@ -166,7 +191,7 @@ static int gswip_mdio_rd(struct mii_bus *bus, int addr, int reg)
 		return err;
 	}
 
-	regmap_write(priv->mdio, GSWIP_MDIO_CTRL,
+	regmap_write(priv->mdio, priv->mdio_layout->ctrl,
 		     GSWIP_MDIO_CTRL_BUSY | GSWIP_MDIO_CTRL_RD |
 		     ((addr & GSWIP_MDIO_CTRL_PHYAD_MASK) << GSWIP_MDIO_CTRL_PHYAD_SHIFT) |
 		     (reg & GSWIP_MDIO_CTRL_REGAD_MASK));
@@ -177,7 +202,7 @@ static int gswip_mdio_rd(struct mii_bus *bus, int addr, int reg)
 		return err;
 	}
 
-	err = regmap_read(priv->mdio, GSWIP_MDIO_READ, &val);
+	err = regmap_read(priv->mdio, priv->mdio_layout->read, &val);
 	if (err)
 		return err;
 
@@ -447,9 +472,8 @@ static int gswip_port_enable(struct dsa_switch *ds, int port,
 		if (phydev)
 			mdio_phy = phydev->mdio.addr & GSWIP_MDIO_PHY_ADDR_MASK;
 
-		regmap_write_bits(priv->mdio, GSWIP_MDIO_PHYp(port),
-				  GSWIP_MDIO_PHY_ADDR_MASK,
-				  mdio_phy);
+		gswip_mdio_mask_phy(priv, port, GSWIP_MDIO_PHY_ADDR_MASK,
+				    mdio_phy);
 	}
 
 	/* RMON Counter Enable for port */
@@ -658,7 +682,8 @@ static int gswip_setup(struct dsa_switch *ds)
 	}
 
 	/* enable Switch */
-	regmap_set_bits(priv->mdio, GSWIP_MDIO_GLOB, GSWIP_MDIO_GLOB_ENABLE);
+	regmap_set_bits(priv->mdio, priv->mdio_layout->glob,
+			GSWIP_MDIO_GLOB_ENABLE);
 
 	err = gswip_pce_load_microcode(priv);
 	if (err) {
@@ -687,10 +712,10 @@ static int gswip_setup(struct dsa_switch *ds)
 	 * Testing shows that when PHY auto polling is disabled these problems
 	 * go away.
 	 */
-	regmap_write(priv->mdio, GSWIP_MDIO_MDC_CFG0, 0x0);
+	regmap_write(priv->mdio, priv->mdio_layout->mdc_cfg0, 0x0);
 
 	/* Configure the MDIO Clock 2.5 MHz */
-	regmap_write_bits(priv->mdio, GSWIP_MDIO_MDC_CFG1, 0xff, 0x09);
+	regmap_write_bits(priv->mdio, priv->mdio_layout->mdc_cfg1, 0xff, 0x09);
 
 	/* bring up the mdio bus */
 	err = gswip_mdio(priv);
@@ -743,7 +768,8 @@ static void gswip_teardown(struct dsa_switch *ds)
 {
 	struct gswip_priv *priv = ds->priv;
 
-	regmap_clear_bits(priv->mdio, GSWIP_MDIO_GLOB, GSWIP_MDIO_GLOB_ENABLE);
+	regmap_clear_bits(priv->mdio, priv->mdio_layout->glob,
+			  GSWIP_MDIO_GLOB_ENABLE);
 }
 
 static enum dsa_tag_protocol gswip_get_tag_protocol(struct dsa_switch *ds,
@@ -1306,8 +1332,7 @@ static void gswip_port_set_link(struct gswip_priv *priv, int port, bool link)
 	else
 		mdio_phy = GSWIP_MDIO_PHY_LINK_DOWN;
 
-	regmap_write_bits(priv->mdio, GSWIP_MDIO_PHYp(port),
-			  GSWIP_MDIO_PHY_LINK_MASK, mdio_phy);
+	gswip_mdio_mask_phy(priv, port, GSWIP_MDIO_PHY_LINK_MASK, mdio_phy);
 }
 
 static void gswip_port_set_speed(struct gswip_priv *priv, int port, int speed,
@@ -1347,8 +1372,7 @@ static void gswip_port_set_speed(struct gswip_priv *priv, int port, int speed,
 		break;
 	}
 
-	regmap_write_bits(priv->mdio, GSWIP_MDIO_PHYp(port),
-			  GSWIP_MDIO_PHY_SPEED_MASK, mdio_phy);
+	gswip_mdio_mask_phy(priv, port, GSWIP_MDIO_PHY_SPEED_MASK, mdio_phy);
 	gswip_mii_mask_cfg(priv, GSWIP_MII_CFG_RATE_MASK, mii_cfg, port);
 	regmap_write_bits(priv->gswip, GSWIP_MAC_CTRL_0p(port),
 			  GSWIP_MAC_CTRL_0_GMII_MASK, mac_ctrl_0);
@@ -1368,8 +1392,7 @@ static void gswip_port_set_duplex(struct gswip_priv *priv, int port, int duplex)
 
 	regmap_write_bits(priv->gswip, GSWIP_MAC_CTRL_0p(port),
 			  GSWIP_MAC_CTRL_0_FDUP_MASK, mac_ctrl_0);
-	regmap_write_bits(priv->mdio, GSWIP_MDIO_PHYp(port),
-			  GSWIP_MDIO_PHY_FDUP_MASK, mdio_phy);
+	gswip_mdio_mask_phy(priv, port, GSWIP_MDIO_PHY_FDUP_MASK, mdio_phy);
 }
 
 static void gswip_port_set_pause(struct gswip_priv *priv, int port,
@@ -1397,9 +1420,9 @@ static void gswip_port_set_pause(struct gswip_priv *priv, int port,
 
 	regmap_write_bits(priv->gswip, GSWIP_MAC_CTRL_0p(port),
 			  GSWIP_MAC_CTRL_0_FCON_MASK, mac_ctrl_0);
-	regmap_write_bits(priv->mdio, GSWIP_MDIO_PHYp(port),
-			  GSWIP_MDIO_PHY_FCONTX_MASK | GSWIP_MDIO_PHY_FCONRX_MASK,
-			  mdio_phy);
+	gswip_mdio_mask_phy(priv, port,
+			    GSWIP_MDIO_PHY_FCONTX_MASK |
+			    GSWIP_MDIO_PHY_FCONRX_MASK, mdio_phy);
 }
 
 static void gswip_phylink_mac_config(struct phylink_config *config,
@@ -1680,6 +1703,11 @@ int gswip_probe_common(struct gswip_priv *priv, u32 version)
 	int err;
 
 	mutex_init(&priv->pce_table_lock);
+
+	if (priv->hw_info->mdio_layout)
+		priv->mdio_layout = priv->hw_info->mdio_layout;
+	else
+		priv->mdio_layout = &gswip_mdio_layout_2x;
 
 	priv->ds = devm_kzalloc(priv->dev, sizeof(*priv->ds), GFP_KERNEL);
 	if (!priv->ds)
