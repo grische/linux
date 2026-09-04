@@ -316,6 +316,12 @@ struct gswip_hw_info {
 	struct phylink_pcs *(*mac_select_pcs)(struct phylink_config *config,
 					      phy_interface_t interface);
 	int (*port_setup)(struct dsa_switch *ds, int port);
+	/* Model-specific part of the switch bring-up. Runs at the end of
+	 * setup(), after the microcode load and the MDIO bus registration,
+	 * so a model can program blocks that the reset at the start of
+	 * setup() returns to their defaults.
+	 */
+	int (*setup)(struct dsa_switch *ds);
 };
 
 struct gswip_gphy_fw {

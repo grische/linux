@@ -794,6 +794,12 @@ static int gswip_setup(struct dsa_switch *ds)
 
 	ds->mtu_enforcement_ingress = true;
 
+	if (priv->hw_info->setup) {
+		err = priv->hw_info->setup(ds);
+		if (err)
+			return err;
+	}
+
 	return 0;
 }
 
