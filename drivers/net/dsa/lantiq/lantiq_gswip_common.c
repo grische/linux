@@ -177,6 +177,11 @@ static const s16 gswip_rmon_table_2x[GSWIP_MAX_PORTS] = {
 	[GSWIP_2X_MAX_PORTS ... GSWIP_MAX_PORTS - 1] = -1,
 };
 
+/* Some models raise the busy bit themselves a short time after the control
+ * register is written, rather than taking it from the written value. Polling
+ * for the bit to clear before that happens returns the result of the previous
+ * transaction, so a model that behaves that way asks for a settle delay.
+ */
 static int gswip_mdio_poll(struct gswip_priv *priv)
 {
 	u32 ctrl;
@@ -202,6 +207,7 @@ static int gswip_mdio_wr(struct mii_bus *bus, int addr, int reg, u16 val)
 		     GSWIP_MDIO_CTRL_BUSY | GSWIP_MDIO_CTRL_WR |
 		     ((addr & GSWIP_MDIO_CTRL_PHYAD_MASK) << GSWIP_MDIO_CTRL_PHYAD_SHIFT) |
 		     (reg & GSWIP_MDIO_CTRL_REGAD_MASK));
+	udelay(priv->mdio_layout->settle_us);
 
 	return 0;
 }
@@ -222,6 +228,7 @@ static int gswip_mdio_rd(struct mii_bus *bus, int addr, int reg)
 		     GSWIP_MDIO_CTRL_BUSY | GSWIP_MDIO_CTRL_RD |
 		     ((addr & GSWIP_MDIO_CTRL_PHYAD_MASK) << GSWIP_MDIO_CTRL_PHYAD_SHIFT) |
 		     (reg & GSWIP_MDIO_CTRL_REGAD_MASK));
+	udelay(priv->mdio_layout->settle_us);
 
 	err = gswip_mdio_poll(priv);
 	if (err) {

@@ -266,6 +266,7 @@
  * @mdc_cfg1: MDC clock configuration 1, holding the clock divider
  * @mdc_cfg1_mask: bits of @mdc_cfg1 the bus setup owns
  * @mdc_cfg1_val: value the bus setup writes into those bits
+ * @settle_us: delay between starting a transaction and polling for its end
  * @phy: per-port PHY address and link force register, -1 if the port has none
  *
  * GSWIP-2.x keeps these registers in an address region of their own and
@@ -282,6 +283,7 @@ struct gswip_mdio_layout {
 	u16 mdc_cfg1;
 	u16 mdc_cfg1_mask;
 	u16 mdc_cfg1_val;
+	u16 settle_us;
 	s16 phy[GSWIP_MAX_PORTS];
 };
 
