@@ -100,6 +100,7 @@
 #define   GSWIP_VERSION_2_1		0x021
 #define   GSWIP_VERSION_2_2		0x122
 #define   GSWIP_VERSION_2_2_ETC		0x022
+#define   GSWIP_VERSION_3_0		0x030
 /* The hardware has the 'major/minor' version bytes in the wrong order
  * preventing numerical comparisons. Swap the bytes of the 16-bit value
  * to end up with REV being the most significant byte and MOD being the
