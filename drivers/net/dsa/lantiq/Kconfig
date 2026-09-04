@@ -10,3 +10,17 @@ config NET_DSA_LANTIQ_GSWIP
 	help
 	  This enables support for the Lantiq / Intel GSWIP 2.1 found in
 	  the xrx200 / VR9 SoC.
+
+config NET_DSA_LANTIQ_GSWIP_XRX500
+	tristate "Lantiq / Intel GSWIP 3.0"
+	depends on HAS_IOMEM
+	depends on RESET_CONTROLLER
+	select NET_DSA_TAG_GSWIP3
+	select NET_DSA_LANTIQ_COMMON
+	help
+	  This enables support for the two Lantiq / Intel GSWIP 3.0 switch
+	  macros found in the xRX500 SoC family.
+
+	  The integrated PHYs need their firmware from the file system, which
+	  a built-in driver cannot reach when it probes, so build this as a
+	  module.
