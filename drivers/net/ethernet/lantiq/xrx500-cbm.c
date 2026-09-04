@@ -383,21 +383,36 @@ static const struct xrx500_cbm_egress xrx500_cbm_egress_wan[] = {
  */
 #define XRX500_CBM_TXQ_NONE		0
 
+/*
+ * The topology this driver replaces gives the first macro's receive ring a
+ * consumer of its own: a peripheral-to-peripheral copy into the second
+ * macro's transmit controller, which walks the very same descriptors. Nothing
+ * consumes the second macro's ring that way - it is admitted straight into
+ * the buffer manager, which simply stops being fed once the ring moves - so
+ * the second macro names no consumer to stop.
+ */
+#define CBM_RX_RELAY_NONE		0
+
 /**
  * struct xrx500_cbm_macro - what one switch macro's conduit serves.
- * @eg:  egress rows, one per front-panel port of the macro.
- * @num: rows in @eg.
+ * @eg:       egress rows, one per front-panel port of the macro.
+ * @num:      rows in @eg.
+ * @rx_relay: channel of the receive ring's previous consumer, or
+ *            %CBM_RX_RELAY_NONE where the ring has none.
  *
  * Indexed by the conduit's own register value, which names the macro.
  */
 struct xrx500_cbm_macro {
 	const struct xrx500_cbm_egress *eg;
 	unsigned int num;
+	u32 rx_relay;
 };
 
 static const struct xrx500_cbm_macro xrx500_cbm_macros[] = {
-	{ xrx500_cbm_egress_lan, ARRAY_SIZE(xrx500_cbm_egress_lan) },
-	{ xrx500_cbm_egress_wan, ARRAY_SIZE(xrx500_cbm_egress_wan) },
+	{ xrx500_cbm_egress_lan, ARRAY_SIZE(xrx500_cbm_egress_lan),
+	  DMA1TX_LAN_SWITCH_CLASS0 },
+	{ xrx500_cbm_egress_wan, ARRAY_SIZE(xrx500_cbm_egress_wan),
+	  CBM_RX_RELAY_NONE },
 };
 
 /* Wire format */
@@ -496,12 +511,6 @@ static_assert(sizeof(struct xrx500_cbm_rxd) == 16);
  */
 #define CBM_RX_CHAN_NR			DMA_CHANNEL_0
 #define CBM_RX_CHAN_PORT		0
-
-/*
- * The peripheral-to-peripheral consumer that walks the first macro's receive
- * ring in the topology this driver replaces.
- */
-#define CBM_RX_RELAY_CHAN		DMA1TX_LAN_SWITCH_CLASS0
 
 /*
  * Ring geometry. The descriptor length field is twelve bits wide, and a ring
@@ -636,6 +645,8 @@ struct xrx500_cbm_rx {
  * @dma_desc_pa: physical base of @desc, needed as a DMA descriptor base.
  * @rx_chan:     receive channel handle on the controller the device tree
  *               names for this conduit.
+ * @rx_relay:    channel of the receive ring's previous consumer, or
+ *               %CBM_RX_RELAY_NONE.
  * @std:         standard segment pool.
  * @jbo:         jumbo segment pool.
  * @eg:          egress resources, one row per port this conduit serves.
@@ -663,6 +674,7 @@ struct xrx500_cbm {
 	void __iomem *dma;
 	phys_addr_t dma_desc_pa;
 	u32 rx_chan;
+	u32 rx_relay;
 
 	struct xrx500_cbm_pool std;
 	struct xrx500_cbm_pool jbo;
@@ -2201,12 +2213,9 @@ err:
  * that delivers nothing until the engine happens to lap the ring. So the
  * channel is reset first, which is also what puts both sides at zero.
  *
- * In the topology this driver replaces the same ring is consumed by a
- * peripheral-to-peripheral copy into the second switch instance's transmit
- * channel, which walks the very same descriptors. That consumer is stopped
- * before the base changes, and it is stopped after the reset, so a controller
- * that is not there at all is discovered while the existing path is still
- * whole.
+ * A ring that had a consumer of its own names it, and that consumer is
+ * stopped before the base changes and after the reset, so a controller that
+ * is not there at all is discovered while the existing path is still whole.
  *
  * Return: 0 on success, negative errno otherwise.
  */
@@ -2219,8 +2228,10 @@ static int xrx500_cbm_rx_take(struct xrx500_cbm *priv)
 	if (ret)
 		return ret;
 
-	ltq_dma_chan_irq_disable(CBM_RX_RELAY_CHAN);
-	ltq_dma_chan_off(CBM_RX_RELAY_CHAN);
+	if (priv->rx_relay != CBM_RX_RELAY_NONE) {
+		ltq_dma_chan_irq_disable(priv->rx_relay);
+		ltq_dma_chan_off(priv->rx_relay);
+	}
 
 	/*
 	 * Release the ring the channel used to have, so that the bookkeeping
@@ -2655,6 +2666,7 @@ static int xrx500_cbm_probe(struct platform_device *pdev)
 	priv->ndev = ndev;
 	priv->eg = macro->eg;
 	priv->eg_num = macro->num;
+	priv->rx_relay = macro->rx_relay;
 	INIT_LIST_HEAD(&priv->node);
 	timer_setup(&priv->restart, xrx500_cbm_restart, 0);
 
