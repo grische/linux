@@ -137,6 +137,7 @@ static const struct gswip_mdio_layout gswip_mdio_layout_2x = {
 		GSWIP_MDIO_PHYp(0), GSWIP_MDIO_PHYp(1), GSWIP_MDIO_PHYp(2),
 		GSWIP_MDIO_PHYp(3), GSWIP_MDIO_PHYp(4), GSWIP_MDIO_PHYp(5),
 		GSWIP_MDIO_PHYp(6),
+		[GSWIP_2X_MAX_PORTS ... GSWIP_MAX_PORTS - 1] = -1,
 	},
 };
 
@@ -155,6 +156,7 @@ static const s16 gswip_mac_ctrl_2x[GSWIP_MAX_PORTS] = {
 	GSWIP_MAC_CTRL_BASEp(2), GSWIP_MAC_CTRL_BASEp(3),
 	GSWIP_MAC_CTRL_BASEp(4), GSWIP_MAC_CTRL_BASEp(5),
 	GSWIP_MAC_CTRL_BASEp(6),
+	[GSWIP_2X_MAX_PORTS ... GSWIP_MAX_PORTS - 1] = -1,
 };
 
 /* Returns the address of one register of a port's MAC block, or a negative

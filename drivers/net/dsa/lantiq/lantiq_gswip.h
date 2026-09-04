@@ -245,7 +245,16 @@
 
 #define GSWIP_VLAN_UNAWARE_PVID	0
 
-#define GSWIP_MAX_PORTS		7
+/* Widest port count in the family. GSWIP-3.0 numbers its WAN port 15, so the
+ * per-port arrays below have to reach that far even though no single model
+ * uses every entry.
+ */
+#define GSWIP_MAX_PORTS		16
+
+/* Port count of the GSWIP-2.x models, which is also the width of the register
+ * blocks the tables in the common core describe.
+ */
+#define GSWIP_2X_MAX_PORTS	7
 
 /**
  * struct gswip_mdio_layout - placement of the MDIO master registers
