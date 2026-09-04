@@ -306,6 +306,14 @@ int ltq_dma_chan_desc_cfg(u32 chan, dma_addr_t desc_base, int desc_num);
 dma_addr_t ltq_dma_chan_get_curr_desc_addr(u32 chan);
 
 /*
+ * Controller identity of the register window based at @base, or a negative
+ * error for an address that is not a controller of this family. The identity
+ * is encoded in the top byte of every channel handle, so a driver that holds
+ * only a phandle to a controller needs this to name a channel on it.
+ */
+int ltq_dma_ctrl_id_by_phys(phys_addr_t base);
+
+/*
  * Opens the per-controller channel set CBM EQM port_id is wired to.
  *
  *   ndo_open:

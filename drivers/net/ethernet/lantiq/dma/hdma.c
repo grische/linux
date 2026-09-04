@@ -61,6 +61,110 @@ static const char *const dma_name[] = {
 	"dma4",
 };
 
+/**
+ * struct ltq_dma_soc_cfg - fabric configuration of one DMA controller.
+ * @base:         physical base of the controller's register window.
+ * @cid:          controller identity.
+ * @pkt_arb:      arbitration mode between channels.
+ * @burst:        burst length, shared by both directions of the port.
+ * @polling_cnt:  descriptor polling interval.
+ * @chan_fc:      channel flow control.
+ * @desc_fod:     fetch descriptors on demand.
+ * @desc_in_sram: descriptors are staged in on-chip memory.
+ * @drb:          descriptor read burst.
+ * @byte_en:      byte enables on the write master.
+ * @budget:       frames per software poll; no register behind it.
+ * @lab_cnt:      look-ahead buffer count.
+ * @orrc:         outstanding read requests.
+ * @txendi:       transmit byte order.
+ * @rxendi:       receive byte order.
+ *
+ * Every value here describes on-chip fabric behaviour - arbitration, burst
+ * length, descriptor placement, prefetch, byte enables - or, in the case of
+ * @budget, a software quota with no register behind it at all. None of it is
+ * something a board can wire differently, so it belongs to the driver rather
+ * than to a device tree node.
+ *
+ * The identity cannot be allocated at probe: it is encoded in the top byte of
+ * every channel handle, so it is keyed off the register base like everything
+ * else here.
+ *
+ * Several fields reach no register on some controllers, because the setter
+ * for them returns early unless the controller is the one that implements the
+ * field. They are carried as the vendor states them per controller rather
+ * than pruned, so that the table stays a transcription.
+ */
+struct ltq_dma_soc_cfg {
+	phys_addr_t base;
+	enum dma_controller cid;
+	u32 pkt_arb;
+	u32 burst;
+	u32 polling_cnt;
+	u32 chan_fc;
+	u32 desc_fod;
+	u32 desc_in_sram;
+	u32 drb;
+	u32 byte_en;
+	u32 budget;
+	u32 lab_cnt;
+	u32 orrc;
+	u32 txendi;
+	u32 rxendi;
+};
+
+static const struct ltq_dma_soc_cfg ltq_dma_soc_cfgs[] = {
+	{
+		.base = 0x1a100000, .cid = DMA1TX,
+		.pkt_arb = DMA_ARB_PKT, .burst = 16, .polling_cnt = 108,
+		.chan_fc = 1, .desc_fod = 1, .desc_in_sram = 1, .drb = 0,
+		.byte_en = 1, .budget = DMA_IRQ_BUDGET, .lab_cnt = 2,
+		.orrc = 0,
+		.txendi = DMA_ENDIAN_TYPE3, .rxendi = DMA_ENDIAN_TYPE3,
+	},
+	{
+		.base = 0x1a200000, .cid = DMA1RX,
+		.pkt_arb = DMA_ARB_PKT, .burst = 16, .polling_cnt = 24,
+		.chan_fc = 0, .desc_fod = 1, .desc_in_sram = 0, .drb = 0,
+		.byte_en = 0, .budget = DMA_IRQ_BUDGET, .lab_cnt = 0,
+		.orrc = 0,
+		.txendi = DMA_ENDIAN_TYPE3, .rxendi = DMA_ENDIAN_TYPE3,
+	},
+	{
+		.base = 0x1c100000, .cid = DMA2TX,
+		.pkt_arb = DMA_ARB_PKT, .burst = 16, .polling_cnt = 24,
+		.chan_fc = 1, .desc_fod = 1, .desc_in_sram = 0, .drb = 0,
+		.byte_en = 1, .budget = DMA_IRQ_BUDGET, .lab_cnt = 0,
+		.orrc = 0,
+		.txendi = DMA_ENDIAN_TYPE3, .rxendi = DMA_ENDIAN_TYPE3,
+	},
+	{
+		.base = 0x1c200000, .cid = DMA2RX,
+		.pkt_arb = DMA_ARB_PKT, .burst = 16, .polling_cnt = 24,
+		.chan_fc = 0, .desc_fod = 1, .desc_in_sram = 0, .drb = 0,
+		.byte_en = 1, .budget = DMA_IRQ_BUDGET, .lab_cnt = 0,
+		.orrc = 0,
+		.txendi = DMA_ENDIAN_TYPE3, .rxendi = DMA_ENDIAN_TYPE3,
+	},
+};
+
+static const struct ltq_dma_soc_cfg *ltq_dma_soc_cfg_get(phys_addr_t base)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ltq_dma_soc_cfgs); i++)
+		if (ltq_dma_soc_cfgs[i].base == base)
+			return &ltq_dma_soc_cfgs[i];
+
+	return NULL;
+}
+
+int ltq_dma_ctrl_id_by_phys(phys_addr_t base)
+{
+	const struct ltq_dma_soc_cfg *cfg = ltq_dma_soc_cfg_get(base);
+
+	return cfg ? (int)cfg->cid : -ENODEV;
+}
+
 /*
  * ltq_dma_controller[] — per-cid storage for the struct dma_ctrl bound by
  * ltq_dma_probe. AVM hdma.c:238 verbatim.
@@ -848,105 +952,57 @@ static int dma_irq_chip_init(struct dma_ctrl *pctrl)
  * dma_cfg_init() - AVM hdma.c:4120-4319 with the DMA0 / DMA3 / DMA4 branches
  * stripped.
  */
-static int dma_cfg_init(struct dma_ctrl *pctrl)
+static int dma_cfg_init(struct dma_ctrl *pctrl,
+			const struct ltq_dma_soc_cfg *cfg)
 {
+	u32 burst;
 	int i;
-	u32 prop;
-	u32 chan_fc = 0;
-	u32 desc_fod = 0;
-	u32 desc_insram = 0;
-	u32 dma_drb = 0;
-	u32 byte_en = 0;
-	u32 txendi;
-	u32 rxendi;
 	struct dma_port *pport;
 	struct dmax_chan *pch;
-	struct device_node *node = pctrl->dev->of_node;
 
 	pctrl->flags |= DMA_CTL_64BIT;
 
 	pctrl->burst_mask = DMA_4DW_DESC_MASK;
 	pctrl->desc_size = DMA_4DW_DESC_SIZE;
 
-	if (!of_property_read_u32(node, "lantiq,dma-pkt-arb", &prop)) {
-		if (prop > DMA_ARB_MAX)
-			pctrl->arb_type = DMA_ARB_PKT;
-		else
-			pctrl->arb_type = prop;
-	} else {
-		pctrl->arb_type = DMA_ARB_PKT;
-	}
+	pctrl->arb_type = cfg->pkt_arb > DMA_ARB_MAX ? DMA_ARB_PKT
+						     : cfg->pkt_arb;
 
-	if (!of_property_read_u32(node, "lantiq,dma-chan-fc", &chan_fc)) {
-		if (chan_fc)
-			pctrl->flags |= DMA_FLCTL;
-		else
-			pctrl->flags &= ~DMA_FLCTL;
-	}
-
-	if (!of_property_read_u32(node, "lantiq,dma-desc-fod", &desc_fod)) {
-		if (desc_fod)
-			pctrl->flags |= DMA_FTOD;
-		else
-			pctrl->flags &= ~DMA_FTOD;
-	}
-
-	if (!of_property_read_u32(node, "lantiq,dma-desc-in-sram",
-				  &desc_insram)) {
-		if (desc_insram)
-			pctrl->flags |= DMA_DESC_IN_SRAM;
-		else
-			pctrl->flags &= ~DMA_DESC_IN_SRAM;
-	}
-
-	if (!of_property_read_u32(node, "lantiq,dma-drb", &dma_drb)) {
-		if (dma_drb)
-			pctrl->flags |= DMA_DRB;
-		else
-			pctrl->flags &= ~DMA_DRB;
-	}
-
-	if (!of_property_read_u32(node, "lantiq,dma-byte-en", &byte_en)) {
-		if (byte_en)
-			pctrl->flags |= DMA_EN_BYTE_EN;
-		else
-			pctrl->flags &= ~DMA_EN_BYTE_EN;
-	}
-
-	if (!of_property_read_u32(node, "lantiq,dma-polling-cnt", &prop))
-		pctrl->pollcnt = prop;
+	if (cfg->chan_fc)
+		pctrl->flags |= DMA_FLCTL;
 	else
-		pctrl->pollcnt = DMA_GLOBAL_POLLING_DEFAULT_INTERVAL;
+		pctrl->flags &= ~DMA_FLCTL;
 
-	if (!of_property_read_u32(node, "lantiq,dma-lab-cnt", &prop))
-		pctrl->labcnt = prop;
+	if (cfg->desc_fod)
+		pctrl->flags |= DMA_FTOD;
 	else
-		pctrl->labcnt = 0;
+		pctrl->flags &= ~DMA_FTOD;
 
-	if (!of_property_read_u32(node, "lantiq,dma-orrc", &prop))
-		pctrl->orrc = prop;
+	if (cfg->desc_in_sram)
+		pctrl->flags |= DMA_DESC_IN_SRAM;
 	else
-		pctrl->orrc = 0;
+		pctrl->flags &= ~DMA_DESC_IN_SRAM;
 
-	if (!of_property_read_u32(node, "lantiq,dma-txendi", &prop))
-		txendi = prop;
+	if (cfg->drb)
+		pctrl->flags |= DMA_DRB;
 	else
-		txendi = DMA_DEFAULT_ENDIAN;
+		pctrl->flags &= ~DMA_DRB;
 
-	if (!of_property_read_u32(node, "lantiq,dma-rxendi", &prop))
-		rxendi = prop;
+	if (cfg->byte_en)
+		pctrl->flags |= DMA_EN_BYTE_EN;
 	else
-		rxendi = DMA_DEFAULT_ENDIAN;
+		pctrl->flags &= ~DMA_EN_BYTE_EN;
+
+	pctrl->pollcnt = cfg->polling_cnt;
+	pctrl->labcnt = cfg->lab_cnt;
+	pctrl->orrc = cfg->orrc;
+	pctrl->budget = cfg->budget;
 
 	dev_dbg(pctrl->dev,
 		"arb %d fc %d fod %d insram %d drb %d ben %d pcnt %d labcnt %d orrc %d\n",
-		pctrl->arb_type, chan_fc, desc_fod, desc_insram, dma_drb,
-		byte_en, pctrl->pollcnt, pctrl->labcnt, pctrl->orrc);
-
-	if (!of_property_read_u32(node, "lantiq,budget", &prop))
-		pctrl->budget = prop;
-	else
-		pctrl->budget = DMA_IRQ_BUDGET;
+		pctrl->arb_type, cfg->chan_fc, cfg->desc_fod,
+		cfg->desc_in_sram, cfg->drb, cfg->byte_en, pctrl->pollcnt,
+		pctrl->labcnt, pctrl->orrc);
 
 	pctrl->ports = devm_kzalloc(pctrl->dev,
 				    pctrl->port_nrs * sizeof(*pport),
@@ -958,18 +1014,12 @@ static int dma_cfg_init(struct dma_ctrl *pctrl)
 	pport->chan_nrs = pctrl->chans;
 	pport->pid = 0;
 	pport->name = dma_name[pctrl->cid];
-	pport->rxendi = rxendi;
-	pport->txendi = txendi;
+	pport->rxendi = cfg->rxendi;
+	pport->txendi = cfg->txendi;
 
-	if (!of_property_read_u32(node, "lantiq,dma-burst", &prop)) {
-		u32 burst = burst_len_to_burst_cfg(prop);
-
-		pport->rxbl = burst;
-		pport->txbl = burst;
-	} else {
-		pport->rxbl = DMA_DEFAULT_BURST;
-		pport->txbl = DMA_DEFAULT_BURST;
-	}
+	burst = burst_len_to_burst_cfg(cfg->burst);
+	pport->rxbl = burst;
+	pport->txbl = burst;
 	pport->txwgt = DMA_TX_PORT_DEFAULT_WEIGHT;
 	pport->pkt_drop = DMA_PKT_DROP_DISABLE;
 	pport->flush_memcpy = 0;
@@ -1080,9 +1130,9 @@ static int dma_ctrl_init(struct dma_ctrl *pctrl)
  */
 static int ltq_dma_probe(struct platform_device *pdev)
 {
+	const struct ltq_dma_soc_cfg *cfg;
 	int err;
 	int irq;
-	struct device_node *node = pdev->dev.of_node;
 	struct resource *memres;
 	struct dma_ctrl *pctrl;
 	unsigned int id;
@@ -1098,12 +1148,24 @@ static int ltq_dma_probe(struct platform_device *pdev)
 	BUILD_BUG_ON(sizeof(struct dma_tx_desc) != 16);
 	BUILD_BUG_ON(MAX_DMA_CHAN_PER_PORT != 64);
 
-	/* DMA controller physical idx from aliases. */
-	cidx = of_alias_get_id(node, "dma");
-	if (cidx < 0) {
-		dev_err(&pdev->dev, "failed to get alias id, errno %d\n", cidx);
-		return cidx;
+	memres = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	if (!memres) {
+		dev_err(&pdev->dev, "failed to get dma resource\n");
+		return -ENODEV;
 	}
+
+	/*
+	 * One compatible describes four controllers that differ in their
+	 * fabric configuration, and the identity is silicon-encoded rather
+	 * than allocated, so both come from the register base.
+	 */
+	cfg = ltq_dma_soc_cfg_get(memres->start);
+	if (!cfg) {
+		dev_err(&pdev->dev, "unknown dma controller at %pa\n",
+			&memres->start);
+		return -ENODEV;
+	}
+	cidx = cfg->cid;
 
 	pdev->id = cidx;
 
@@ -1117,12 +1179,6 @@ static int ltq_dma_probe(struct platform_device *pdev)
 	pctrl->cid = pdev->id;
 	pctrl->name = dma_name[pctrl->cid];
 	pctrl->dev = &pdev->dev;
-
-	memres = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!memres) {
-		dev_err(&pdev->dev, "failed to get dma resource\n");
-		return -ENODEV;
-	}
 
 	/* remap dma register range */
 	pctrl->membase = devm_ioremap_resource(&pdev->dev, memres);
@@ -1147,7 +1203,7 @@ static int ltq_dma_probe(struct platform_device *pdev)
 	pctrl->port_nrs = MS(id, DMA_ID_PRTNR);
 	pctrl->ver = MS(id, DMA_ID_REV);
 
-	err = dma_cfg_init(pctrl);
+	err = dma_cfg_init(pctrl, cfg);
 	if (err)
 		return err;
 
@@ -1173,9 +1229,9 @@ static int ltq_dma_probe(struct platform_device *pdev)
  * Returns NULL when ltq_dma_controller[cid].dev is NULL (controller never
  * bound by ltq_dma_probe).
  *
- * DMA2RX only binds when the xrx500.dtsi dma2rx node (alias dma4) is present;
- * absent that node ltq_dma_controller[DMA2RX] .dev stays NULL and this
- * function still returns NULL for DMA2RX cids.
+ * DMA2RX only binds when the xrx500.dtsi dma2rx node is present; absent that
+ * node ltq_dma_controller[DMA2RX] .dev stays NULL and this function still
+ * returns NULL for DMA2RX cids.
  */
 static struct dma_ctrl *dma_lookup_ctrl(int cid)
 {
@@ -1951,14 +2007,14 @@ dma_addr_t ltq_dma_chan_get_curr_desc_addr(u32 chan)
  * wholesale).
  */
 static const struct of_device_id ltq_dma_match[] = {
-	{ .compatible = "lantiq,dma-xrx500" },
+	{ .compatible = "lantiq,xrx500-dma" },
 	{},
 };
 
 static struct platform_driver ltq_dma_driver = {
 	.probe = ltq_dma_probe,
 	.driver = {
-		.name = "dma-xrx500",
+		.name = "xrx500-dma",
 		.of_match_table = ltq_dma_match,
 	},
 };
