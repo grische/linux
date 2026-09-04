@@ -40,3 +40,9 @@ intel-xrx500-mdio-y += switch-api/mdio_xrx500.o
 # netdev per LAN port.
 #
 intel-xrx500-gswip-y += intel_xrx500.o
+
+#
+# The buffer-manager conduit netdev. Built in, never a module: its transmit
+# path calls MIPS cache maintenance which is not exported to modules.
+#
+obj-$(CONFIG_INTEL_XRX500_CBM_CONDUIT) += xrx500-cbm.o
