@@ -40,4 +40,19 @@ config INTEL_XRX500_BM
 
 	  Say N unless you are bringing this datapath up.
 
+config INTEL_XRX500_CBM_CONDUIT
+	bool "xRX500 buffer-manager conduit network device"
+	depends on INTEL_XRX500_BM
+	default n
+	help
+	  Conduit network device for the xRX500 central buffer manager: one
+	  netdev per switch macro whose transmit path enqueues into the
+	  buffer manager and whose receive path terminates that macro's own
+	  receive DMA ring.
+
+	  This is what a DSA switch driver for the macros binds as its
+	  conduit; without it the switch has no processor port.
+
+	  Say N unless you are bringing this datapath up.
+
 endif # INTEL_XRX500_NET
