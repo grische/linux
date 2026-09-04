@@ -178,7 +178,9 @@
 #define GSWIP_PCE_DEFPVID(p)		(0x486 + ((p) * 0xA))
 
 #define GSWIP_MAC_FLEN			0x8C5
-#define GSWIP_MAC_CTRL_0p(p)		(0x903 + ((p) * 0xC))
+/* Base of a port's MAC block, and the offsets of the registers inside it */
+#define GSWIP_MAC_CTRL_BASEp(p)		(0x903 + ((p) * 0xC))
+#define GSWIP_MAC_CTRL_0		0x0
 #define  GSWIP_MAC_CTRL_0_PADEN		BIT(8)
 #define  GSWIP_MAC_CTRL_0_FCS_EN	BIT(7)
 #define  GSWIP_MAC_CTRL_0_FCON_MASK	0x0070
@@ -195,10 +197,10 @@
 #define  GSWIP_MAC_CTRL_0_GMII_AUTO	0x0000
 #define  GSWIP_MAC_CTRL_0_GMII_MII	0x0001
 #define  GSWIP_MAC_CTRL_0_GMII_RGMII	0x0002
-#define GSWIP_MAC_CTRL_2p(p)		(0x905 + ((p) * 0xC))
+#define GSWIP_MAC_CTRL_2		0x2
 #define GSWIP_MAC_CTRL_2_LCHKL		BIT(2) /* Frame Length Check Long Enable */
 #define GSWIP_MAC_CTRL_2_MLEN		BIT(3) /* Maximum Untagged Frame Lnegth */
-#define GSWIP_MAC_CTRL_4p(p)		(0x907 + ((p) * 0xC))
+#define GSWIP_MAC_CTRL_4		0x4
 #define  GSWIP_MAC_CTRL_4_LPIEN		BIT(7) /* LPI Mode Enable */
 #define  GSWIP_MAC_CTRL_4_GWAIT_MASK	GENMASK(14, 8) /* LPI Wait Time 1G */
 #define  GSWIP_MAC_CTRL_4_GWAIT(t)	u16_encode_bits((t), GSWIP_MAC_CTRL_4_GWAIT_MASK)
@@ -284,6 +286,10 @@ struct gswip_hw_info {
 	s16 mii_pcdu[GSWIP_MAX_PORTS];
 	/* NULL selects the GSWIP-2.x layout */
 	const struct gswip_mdio_layout *mdio_layout;
+	/* Per-port MAC block base, -1 if the port has no MAC block.
+	 * NULL maps the blocks 1:1 onto the port numbers.
+	 */
+	const s16 *mac_ctrl;
 	bool supports_2500m;
 	const struct gswip_pce_microcode (*pce_microcode)[];
 	size_t pce_microcode_size;
@@ -314,6 +320,7 @@ struct gswip_priv {
 	struct regmap *mii;
 	const struct gswip_hw_info *hw_info;
 	const struct gswip_mdio_layout *mdio_layout;
+	const s16 *mac_ctrl;
 	const struct xway_gphy_match_data *gphy_fw_name_cfg;
 	struct dsa_switch *ds;
 	struct device *dev;

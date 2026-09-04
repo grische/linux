@@ -150,6 +150,24 @@ static void gswip_mdio_mask_phy(struct gswip_priv *priv, int port, u32 mask,
 	regmap_write_bits(priv->mdio, priv->mdio_layout->phy[port], mask, set);
 }
 
+static const s16 gswip_mac_ctrl_2x[GSWIP_MAX_PORTS] = {
+	GSWIP_MAC_CTRL_BASEp(0), GSWIP_MAC_CTRL_BASEp(1),
+	GSWIP_MAC_CTRL_BASEp(2), GSWIP_MAC_CTRL_BASEp(3),
+	GSWIP_MAC_CTRL_BASEp(4), GSWIP_MAC_CTRL_BASEp(5),
+	GSWIP_MAC_CTRL_BASEp(6),
+};
+
+/* Returns the address of one register of a port's MAC block, or a negative
+ * value if the port has no MAC block.
+ */
+static int gswip_mac_ctrl_reg(struct gswip_priv *priv, int port, u16 reg)
+{
+	if (priv->mac_ctrl[port] == -1)
+		return -1;
+
+	return priv->mac_ctrl[port] + reg;
+}
+
 static int gswip_mdio_poll(struct gswip_priv *priv)
 {
 	u32 ctrl;
@@ -1292,6 +1310,7 @@ static int gswip_port_max_mtu(struct dsa_switch *ds, int port)
 static int gswip_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 {
 	struct gswip_priv *priv = ds->priv;
+	int reg;
 
 	/* CPU port always has maximum mtu of user ports, so use it to set
 	 * switch frame size, including 8 byte special header.
@@ -1302,15 +1321,17 @@ static int gswip_port_change_mtu(struct dsa_switch *ds, int port, int new_mtu)
 			     VLAN_ETH_HLEN + new_mtu + ETH_FCS_LEN);
 	}
 
+	reg = gswip_mac_ctrl_reg(priv, port, GSWIP_MAC_CTRL_2);
+	if (reg < 0)
+		return 0;
+
 	/* Enable MLEN for ports with non-standard MTUs, including the special
 	 * header on the CPU port added above.
 	 */
 	if (new_mtu != ETH_DATA_LEN)
-		regmap_set_bits(priv->gswip, GSWIP_MAC_CTRL_2p(port),
-				GSWIP_MAC_CTRL_2_MLEN);
+		regmap_set_bits(priv->gswip, reg, GSWIP_MAC_CTRL_2_MLEN);
 	else
-		regmap_clear_bits(priv->gswip, GSWIP_MAC_CTRL_2p(port),
-				  GSWIP_MAC_CTRL_2_MLEN);
+		regmap_clear_bits(priv->gswip, reg, GSWIP_MAC_CTRL_2_MLEN);
 
 	return 0;
 }
@@ -1339,6 +1360,7 @@ static void gswip_port_set_speed(struct gswip_priv *priv, int port, int speed,
 				 phy_interface_t interface)
 {
 	u32 mdio_phy = 0, mii_cfg = 0, mac_ctrl_0 = 0;
+	int reg;
 
 	switch (speed) {
 	case SPEED_10:
@@ -1374,13 +1396,17 @@ static void gswip_port_set_speed(struct gswip_priv *priv, int port, int speed,
 
 	gswip_mdio_mask_phy(priv, port, GSWIP_MDIO_PHY_SPEED_MASK, mdio_phy);
 	gswip_mii_mask_cfg(priv, GSWIP_MII_CFG_RATE_MASK, mii_cfg, port);
-	regmap_write_bits(priv->gswip, GSWIP_MAC_CTRL_0p(port),
-			  GSWIP_MAC_CTRL_0_GMII_MASK, mac_ctrl_0);
+
+	reg = gswip_mac_ctrl_reg(priv, port, GSWIP_MAC_CTRL_0);
+	if (reg >= 0)
+		regmap_write_bits(priv->gswip, reg, GSWIP_MAC_CTRL_0_GMII_MASK,
+				  mac_ctrl_0);
 }
 
 static void gswip_port_set_duplex(struct gswip_priv *priv, int port, int duplex)
 {
 	u32 mac_ctrl_0, mdio_phy;
+	int reg;
 
 	if (duplex == DUPLEX_FULL) {
 		mac_ctrl_0 = GSWIP_MAC_CTRL_0_FDUP_EN;
@@ -1390,8 +1416,10 @@ static void gswip_port_set_duplex(struct gswip_priv *priv, int port, int duplex)
 		mdio_phy = GSWIP_MDIO_PHY_FDUP_DIS;
 	}
 
-	regmap_write_bits(priv->gswip, GSWIP_MAC_CTRL_0p(port),
-			  GSWIP_MAC_CTRL_0_FDUP_MASK, mac_ctrl_0);
+	reg = gswip_mac_ctrl_reg(priv, port, GSWIP_MAC_CTRL_0);
+	if (reg >= 0)
+		regmap_write_bits(priv->gswip, reg, GSWIP_MAC_CTRL_0_FDUP_MASK,
+				  mac_ctrl_0);
 	gswip_mdio_mask_phy(priv, port, GSWIP_MDIO_PHY_FDUP_MASK, mdio_phy);
 }
 
@@ -1399,6 +1427,7 @@ static void gswip_port_set_pause(struct gswip_priv *priv, int port,
 				 bool tx_pause, bool rx_pause)
 {
 	u32 mac_ctrl_0, mdio_phy;
+	int reg;
 
 	if (tx_pause && rx_pause) {
 		mac_ctrl_0 = GSWIP_MAC_CTRL_0_FCON_RXTX;
@@ -1418,8 +1447,10 @@ static void gswip_port_set_pause(struct gswip_priv *priv, int port,
 			   GSWIP_MDIO_PHY_FCONRX_DIS;
 	}
 
-	regmap_write_bits(priv->gswip, GSWIP_MAC_CTRL_0p(port),
-			  GSWIP_MAC_CTRL_0_FCON_MASK, mac_ctrl_0);
+	reg = gswip_mac_ctrl_reg(priv, port, GSWIP_MAC_CTRL_0);
+	if (reg >= 0)
+		regmap_write_bits(priv->gswip, reg, GSWIP_MAC_CTRL_0_FCON_MASK,
+				  mac_ctrl_0);
 	gswip_mdio_mask_phy(priv, port,
 			    GSWIP_MDIO_PHY_FCONTX_MASK |
 			    GSWIP_MDIO_PHY_FCONRX_MASK, mdio_phy);
@@ -1592,9 +1623,13 @@ static void gswip_phylink_mac_disable_tx_lpi(struct phylink_config *config)
 {
 	struct dsa_port *dp = dsa_phylink_to_port(config);
 	struct gswip_priv *priv = dp->ds->priv;
+	int reg;
 
-	regmap_clear_bits(priv->gswip, GSWIP_MAC_CTRL_4p(dp->index),
-			  GSWIP_MAC_CTRL_4_LPIEN);
+	reg = gswip_mac_ctrl_reg(priv, dp->index, GSWIP_MAC_CTRL_4);
+	if (reg < 0)
+		return;
+
+	regmap_clear_bits(priv->gswip, reg, GSWIP_MAC_CTRL_4_LPIEN);
 }
 
 static int gswip_phylink_mac_enable_tx_lpi(struct phylink_config *config,
@@ -1602,8 +1637,13 @@ static int gswip_phylink_mac_enable_tx_lpi(struct phylink_config *config,
 {
 	struct dsa_port *dp = dsa_phylink_to_port(config);
 	struct gswip_priv *priv = dp->ds->priv;
+	int reg;
 
-	return regmap_update_bits(priv->gswip, GSWIP_MAC_CTRL_4p(dp->index),
+	reg = gswip_mac_ctrl_reg(priv, dp->index, GSWIP_MAC_CTRL_4);
+	if (reg < 0)
+		return -EOPNOTSUPP;
+
+	return regmap_update_bits(priv->gswip, reg,
 				  GSWIP_MAC_CTRL_4_LPIEN |
 				  GSWIP_MAC_CTRL_4_GWAIT_MASK |
 				  GSWIP_MAC_CTRL_4_WAIT_MASK,
@@ -1708,6 +1748,11 @@ int gswip_probe_common(struct gswip_priv *priv, u32 version)
 		priv->mdio_layout = priv->hw_info->mdio_layout;
 	else
 		priv->mdio_layout = &gswip_mdio_layout_2x;
+
+	if (priv->hw_info->mac_ctrl)
+		priv->mac_ctrl = priv->hw_info->mac_ctrl;
+	else
+		priv->mac_ctrl = gswip_mac_ctrl_2x;
 
 	priv->ds = devm_kzalloc(priv->dev, sizeof(*priv->ds), GFP_KERNEL);
 	if (!priv->ds)
