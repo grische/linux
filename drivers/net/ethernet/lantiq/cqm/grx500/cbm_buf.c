@@ -41,7 +41,7 @@ phys_addr_t cbm_buf_pool_phys_base(int which);
 /*
  * struct cbm_pool — one CBM reserved-memory carve pool.
  *
- * @name:        human-readable label ("cbm-std-pool" / "cbm-jbo-pool")
+ * @name:        memory-region-names entry ("std-pool" / "jumbo-pool")
  *               used in pr_info / pr_err substrings the hardware tester
  *               greps for. Set from of_reserved_mem_lookup()->name so the
  *               DT name is reflected verbatim.
@@ -89,8 +89,8 @@ struct cbm_pool {
 };
 
 static struct cbm_pool g_cbm_pools[CBM_POOL_NUM] = {
-	[CBM_POOL_STD] = { .name = "cbm-std-pool" },
-	[CBM_POOL_JBO] = { .name = "cbm-jbo-pool" },
+	[CBM_POOL_STD] = { .name = "std-pool" },
+	[CBM_POOL_JBO] = { .name = "jumbo-pool" },
 };
 
 /* Global pool tracker. */
@@ -165,11 +165,8 @@ static void carve_pool_build_freelist(struct cbm_pool *pool)
  * 6. Re-derive phys_base by applying the same alignment shift, so
  * cbm_buf_pool_phys_base() reflects the carved start (not the raw
  * reserved-region start). 7. Compute frm_num = floor(size / frm_size). 8.
- * Build the embedded free-list. 9. Substring contract: "cbm: reserved-memory
- * cbm-std-pool resolved @ phys 0x23800000 size 0x1200000" (the jbo line uses
- * the same shape with its own address/size). These substrings are unique
- * enough that a hardware tester can grep for "reserved-memory cbm-std-pool
- * resolved" without false positives.
+ * Build the embedded free-list. 9. Each pool logs its resolved physical base
+ * and size under its own name.
  */
 static int carve_pool_init_one(struct device *dev,
 			       struct cbm_pool *pool,

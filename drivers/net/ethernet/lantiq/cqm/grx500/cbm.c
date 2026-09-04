@@ -17,6 +17,7 @@
 #include <linux/platform_device.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/of_platform.h>
 #include <linux/mod_devicetable.h>
 #include <linux/clk.h>
 #include <linux/printk.h>
@@ -56,13 +57,12 @@ irqreturn_t cbm_isr_7(int irq, void *dev_id);
 
 
 /*
- * MMIO base pointers — populated by cbm_xrx500_probe from the 12 reg tuples
- * in the DT node.
+ * MMIO base pointers, populated by cbm_xrx500_probe from the named reg
+ * tuples of the DT node.
  */
 void __iomem *g_cbm_tmu_base;
 void __iomem *g_cbm_base;
 void __iomem *g_cbm_qidt_base;
-void __iomem *g_cbm_sbim_base;
 void __iomem *g_cbm_qeqcnt_base;
 void __iomem *g_cbm_qdqcnt_base;
 void __iomem *g_cbm_ls_base;
@@ -74,7 +74,6 @@ void __iomem *g_cbm_dma_desc_base;
 EXPORT_SYMBOL_GPL(g_cbm_tmu_base);
 EXPORT_SYMBOL_GPL(g_cbm_base);
 EXPORT_SYMBOL_GPL(g_cbm_qidt_base);
-EXPORT_SYMBOL_GPL(g_cbm_sbim_base);
 EXPORT_SYMBOL_GPL(g_cbm_qeqcnt_base);
 EXPORT_SYMBOL_GPL(g_cbm_qdqcnt_base);
 EXPORT_SYMBOL_GPL(g_cbm_ls_base);
@@ -99,9 +98,9 @@ static int cbm_irqs[5];
 static struct clk *cbm_clk;
 
 /*
- * Slot order MUST match the DT reg-names order EXACTLY (tmu first, dma_desc
- * last); a mismatch would silently route every subsequent MMIO write to the
- * wrong window.
+ * The windows are looked up by the name the device tree gives them rather
+ * than by position, so that adding or removing one cannot silently route
+ * every subsequent write to the wrong window.
  */
 struct cbm_ioremap_slot {
 	const char *name;
@@ -109,18 +108,17 @@ struct cbm_ioremap_slot {
 };
 
 static const struct cbm_ioremap_slot cbm_ioremap_table[] = {
-	{ "tmu",      &g_cbm_tmu_base },      /* idx 0 - TMU       */
-	{ "cbm",      &g_cbm_base },          /* idx 1 - CBM       */
-	{ "qidt",     &g_cbm_qidt_base },     /* idx 2 - QIDT      */
-	{ "sbim",     &g_cbm_sbim_base },     /* idx 3 - SBIM      */
-	{ "qeqcnt",   &g_cbm_qeqcnt_base },   /* idx 4 - QEQCNTR   */
-	{ "qdqcnt",   &g_cbm_qdqcnt_base },   /* idx 5 - QDQCNTR   */
-	{ "ls",       &g_cbm_ls_base },       /* idx 6 - LS        */
-	{ "eqm",      &g_cbm_eqm_base },      /* idx 7 - CBM EQM   */
-	{ "dqm",      &g_cbm_dqm_base },      /* idx 8 - CBM DQM   */
-	{ "fsqm0",    &g_cbm_fsqm_base[0] },  /* idx 9 - FSQM0     */
-	{ "fsqm1",    &g_cbm_fsqm_base[1] },  /* idx 10 - FSQM1    */
-	{ "dma_desc", &g_cbm_dma_desc_base }, /* idx 11 - CBM DMA  */
+	{ "tmu",      &g_cbm_tmu_base },
+	{ "cbm",      &g_cbm_base },
+	{ "qidt",     &g_cbm_qidt_base },
+	{ "qeqcnt",   &g_cbm_qeqcnt_base },
+	{ "qdqcnt",   &g_cbm_qdqcnt_base },
+	{ "ls",       &g_cbm_ls_base },
+	{ "eqm",      &g_cbm_eqm_base },
+	{ "dqm",      &g_cbm_dqm_base },
+	{ "fsqm0",    &g_cbm_fsqm_base[0] },
+	{ "fsqm1",    &g_cbm_fsqm_base[1] },
+	{ "dma-desc", &g_cbm_dma_desc_base },
 };
 
 static u32 cbm_p2p_setup_done;
@@ -363,28 +361,55 @@ int cbm_hw_init(struct platform_device *pdev)
 bool g_cbm_egress_preconfig[CBM_MAX_DP_PORTS];
 
 /*
- * cbm_dt_dp_ports - collect the datapath port ids this board's ethernet node
- * declares, ascending, into @out (capacity @max).
+ * cbm_dt_dp_ports - collect the datapath port ids this board describes,
+ * ascending, into @out (capacity @max).
  *
- * If no ethernet node is present, no netdev will exist either; fall back to
- * the four LAN ports so a DT without an ethernet node behaves exactly as it
- * did before this became DT-driven.
+ * A switch macro's own port number is its datapath port number, and the port
+ * children of the macro nodes are where the board says which of them it
+ * wires. Both macros have to be read: the second one carries a single
+ * front-panel socket on the die variant that wires one, and that socket's
+ * dequeue port needs its egress state written before the controllers are
+ * enabled, exactly as the first macro's ports do. The CPU port owns no
+ * dequeue port of its own and is skipped.
+ *
+ * If no macro is described, no netdev will exist either; fall back to the
+ * first macro's four ports so such a device tree behaves exactly as it did
+ * before this became DT-driven.
  */
 static int cbm_dt_dp_ports(u32 *out, int max)
 {
+	static const char * const macros[] = {
+		"lantiq,xrx500-gswip",
+		"lantiq,xrx500-gswip-r",
+	};
 	static const u32 lan_only[] = { 2, 3, 4, 5 };
-	struct device_node *eth, *port;
+	struct device_node *sw, *ports, *port;
 	int n = 0, i, j;
+	size_t k;
 
-	eth = of_find_compatible_node(NULL, NULL, "intel,xrx500-net");
-	if (eth) {
-		for_each_available_child_of_node(eth, port) {
+	for (k = 0; k < ARRAY_SIZE(macros); k++) {
+		sw = of_find_compatible_node(NULL, NULL, macros[k]);
+		if (!sw)
+			continue;
+		if (!of_device_is_available(sw)) {
+			of_node_put(sw);
+			continue;
+		}
+
+		ports = of_get_child_by_name(sw, "ports");
+		of_node_put(sw);
+		if (!ports)
+			continue;
+
+		for_each_available_child_of_node(ports, port) {
 			u32 dp;
 
 			if (n >= max)
 				continue;
-			if (of_property_read_u32(port, "intel,dp-port-id", &dp))
+			if (of_property_read_u32(port, "reg", &dp))
 				continue;
+			if (!dp || dp >= CBM_MAX_DP_PORTS)
+				continue;	/* the CPU port, or not one */
 			/* insertion sort; the lists are 4-5 entries long */
 			for (i = 0; i < n && out[i] < dp; i++)
 				;
@@ -395,7 +420,7 @@ static int cbm_dt_dp_ports(u32 *out, int max)
 			out[i] = dp;
 			n++;
 		}
-		of_node_put(eth);
+		of_node_put(ports);
 	}
 
 	if (n)
@@ -572,22 +597,20 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 		return -EBUSY;
 	}
 
-	/* (b) Loop ioremap the 12 MMIO windows in fixed DT-reg order. */
+	/* (b) Map every named MMIO window. */
 	for (i = 0; i < (int)ARRAY_SIZE(cbm_ioremap_table); i++) {
-		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM,
+						   cbm_ioremap_table[i].name);
 		if (!res) {
-			dev_err(dev,
-				"cbm: missing reg resource %s (idx %d)\n",
-				cbm_ioremap_table[i].name, i);
+			dev_err(dev, "cbm: no window named %s\n",
+				cbm_ioremap_table[i].name);
 			ret = -ENOENT;
 			goto err;
 		}
 		base = devm_ioremap_resource(dev, res);
 		if (IS_ERR(base)) {
-			dev_err(dev,
-				"cbm: ioremap %s (idx %d) failed: %ld\n",
-				cbm_ioremap_table[i].name, i,
-				PTR_ERR(base));
+			dev_err(dev, "cbm: ioremap %s failed: %ld\n",
+				cbm_ioremap_table[i].name, PTR_ERR(base));
 			ret = PTR_ERR(base);
 			goto err;
 		}
@@ -608,8 +631,11 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 		cbm_irqs[i] = irq;
 	}
 
-	/* (d) Optional clock. */
-	cbm_clk = devm_clk_get_optional(dev, NULL);
+	/*
+	 * (d) The gate. Without it the common clock framework switches the
+	 * datapath off again as an unused clock during late boot.
+	 */
+	cbm_clk = devm_clk_get_optional(dev, "cbm");
 	if (IS_ERR(cbm_clk)) {
 		ret = PTR_ERR(cbm_clk);
 		dev_err(dev, "cbm: clk_get failed: %d\n", ret);
@@ -791,6 +817,17 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	cbm_eqm_rx_chan_open(DMA1RX_CBM_P7_CLASS6_JUMBO, 7, CBM_PORT_F_JUMBO_BUF);
 	cbm_eqm_rx_chan_open(DMA1RX_CBM_P8_CLASS11_JUMBO, 8, CBM_PORT_F_JUMBO_BUF);
 
+	/*
+	 * A processor's end of a switch macro's datapath owns no window of its
+	 * own and is described as a child of this node, so the children get
+	 * their devices once the manager is up.
+	 */
+	ret = devm_of_platform_populate(dev);
+	if (ret) {
+		dev_err(dev, "cbm: cannot populate the conduits: %d\n", ret);
+		goto err_clk;
+	}
+
 	dev_info(dev,
 		 "%s: CBM XRX500 ready (reserved-memory pools 18MiB std / 8MiB jbo)\n",
 		 dev_name(dev));
@@ -834,7 +871,7 @@ static void cbm_xrx500_remove(struct platform_device *pdev)
 
 /* of_match_table — AVM cqm/grx500/cbm.c:5480-5483. */
 static const struct of_device_id cbm_xrx500_match[] = {
-	{ .compatible = "lantiq,cbm-xrx500" },
+	{ .compatible = "lantiq,xrx500-cbm" },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, cbm_xrx500_match);
@@ -842,8 +879,13 @@ MODULE_DEVICE_TABLE(of, cbm_xrx500_match);
 static struct platform_driver cbm_xrx500_driver = {
 	.probe  = cbm_xrx500_probe,
 	.remove = cbm_xrx500_remove,
+	/*
+	 * The name is the driver's, not the device's: the conduit driver
+	 * binds this node's children and already answers to the device's own
+	 * name, and two platform drivers cannot share one.
+	 */
 	.driver = {
-		.name           = "lantiq-cbm-xrx500",
+		.name           = "xrx500-buffer-manager",
 		.of_match_table = cbm_xrx500_match,
 	},
 };

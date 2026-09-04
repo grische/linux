@@ -186,7 +186,6 @@ struct cbm_dqm_cpu_egp_reg {
 extern void __iomem *g_cbm_tmu_base;
 extern void __iomem *g_cbm_base;
 extern void __iomem *g_cbm_qidt_base;
-extern void __iomem *g_cbm_sbim_base;
 extern void __iomem *g_cbm_qeqcnt_base;
 extern void __iomem *g_cbm_qdqcnt_base;
 extern void __iomem *g_cbm_ls_base;
