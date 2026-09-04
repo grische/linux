@@ -133,6 +133,8 @@ static const struct gswip_mdio_layout gswip_mdio_layout_2x = {
 	.write		= GSWIP_MDIO_WRITE,
 	.mdc_cfg0	= GSWIP_MDIO_MDC_CFG0,
 	.mdc_cfg1	= GSWIP_MDIO_MDC_CFG1,
+	.mdc_cfg1_mask	= 0xff,
+	.mdc_cfg1_val	= 0x09,
 	.phy		= {
 		GSWIP_MDIO_PHYp(0), GSWIP_MDIO_PHYp(1), GSWIP_MDIO_PHYp(2),
 		GSWIP_MDIO_PHYp(3), GSWIP_MDIO_PHYp(4), GSWIP_MDIO_PHYp(5),
@@ -734,8 +736,14 @@ static int gswip_setup(struct dsa_switch *ds)
 	 */
 	regmap_write(priv->mdio, priv->mdio_layout->mdc_cfg0, 0x0);
 
-	/* Configure the MDIO Clock 2.5 MHz */
-	regmap_write_bits(priv->mdio, priv->mdio_layout->mdc_cfg1, 0xff, 0x09);
+	/* Configure the MDIO clock. On GSWIP-2.x the clock divider is the only
+	 * field the driver owns in this register; later models also carry the
+	 * MDIO master enable here, and it has to be set before the bus is
+	 * registered and the first transaction is issued.
+	 */
+	regmap_write_bits(priv->mdio, priv->mdio_layout->mdc_cfg1,
+			  priv->mdio_layout->mdc_cfg1_mask,
+			  priv->mdio_layout->mdc_cfg1_val);
 
 	/* bring up the mdio bus */
 	err = gswip_mdio(priv);
