@@ -6,8 +6,13 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
 
 title: Lantiq GSWIP Ethernet switches
 
-allOf:
-  - $ref: dsa.yaml#/$defs/ethernet-ports
+description:
+  The GSWIP switch macro is embedded in Lantiq and Intel SoCs. The GSWIP-2.x
+  models place the MDIO master and the MII port configuration in register
+  regions of their own, next to the switch core. GSWIP-3.0 keeps the same
+  switch core at the same offsets and moves those functions, along with the
+  packet MAC that faces the SoC's queue manager, into the switch's own
+  register window, so one region describes the whole macro.
 
 maintainers:
   - Hauke Mehrtens <hauke@hauke-m.de>
@@ -18,9 +23,11 @@ properties:
       - lantiq,xrx200-gswip
       - lantiq,xrx300-gswip
       - lantiq,xrx330-gswip
+      - lantiq,xrx500-gswip
+      - lantiq,xrx500-gswip-r
 
   reg:
-    minItems: 3
+    minItems: 1
     maxItems: 3
 
   reg-names:
@@ -29,6 +36,8 @@ properties:
       - const: mdio
       - const: mii
 
+  dma-noncoherent: true
+
   mdio:
     $ref: /schemas/net/mdio.yaml#
     unevaluatedProperties: false
@@ -36,9 +45,6 @@ properties:
     properties:
       compatible:
         const: lantiq,xrx200-mdio
-
-    required:
-      - compatible
 
   gphy-fw:
     type: object
@@ -50,19 +56,27 @@ properties:
         const: 0
 
       compatible:
-        items:
-          - enum:
-              - lantiq,xrx200-gphy-fw
-              - lantiq,xrx300-gphy-fw
-              - lantiq,xrx330-gphy-fw
-          - const: lantiq,gphy-fw
+        oneOf:
+          - items:
+              - enum:
+                  - lantiq,xrx200-gphy-fw
+                  - lantiq,xrx300-gphy-fw
+                  - lantiq,xrx330-gphy-fw
+              - const: lantiq,gphy-fw
+          - const: lantiq,xrx500-gphy-fw
 
       lantiq,rcu:
         $ref: /schemas/types.yaml#/definitions/phandle
         description: phandle to the RCU syscon
 
+      firmware-name:
+        maxItems: 1
+        description:
+          Image the integrated PHYs run, where the loader takes the name from
+          the device tree rather than from its own compatible.
+
     patternProperties:
-      "^gphy@[0-9a-f]{1,2}$":
+      "^gphy@[0-9a-f]{1,3}$":
         type: object
 
         additionalProperties: false
@@ -70,9 +84,9 @@ properties:
         properties:
           reg:
             minimum: 0
-            maximum: 255
             description:
-              Offset of the GPHY firmware register in the RCU register range
+              Offset of this PHY's firmware address register in the window
+              the loader's compatible names.
 
           resets:
             items:
@@ -87,13 +101,102 @@ properties:
 
     required:
       - compatible
-      - lantiq,rcu
 
     additionalProperties: false
 
 required:
   - compatible
   - reg
+
+allOf:
+  - $ref: dsa.yaml#/$defs/ethernet-ports
+
+  # The GSWIP-2.x models: three regions, an MDIO bus that is a device of its
+  # own, and the firmware address registers of the integrated PHYs in the
+  # reset control unit.
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - lantiq,xrx200-gswip
+              - lantiq,xrx300-gswip
+              - lantiq,xrx330-gswip
+    then:
+      properties:
+        reg:
+          minItems: 3
+
+        mdio:
+          required:
+            - compatible
+
+        gphy-fw:
+          patternProperties:
+            "^gphy@[0-9a-f]{1,3}$":
+              properties:
+                reg:
+                  maximum: 255
+
+          required:
+            - lantiq,rcu
+
+  # GSWIP-3.0: one region covering the switch core, the macro's top block and
+  # the packet MAC. The MDIO bus and the firmware loader reach their registers
+  # through that region, so neither is a device of its own and neither takes a
+  # region or a syscon of its own.
+  - if:
+      properties:
+        compatible:
+          contains:
+            enum:
+              - lantiq,xrx500-gswip
+              - lantiq,xrx500-gswip-r
+    then:
+      properties:
+        reg:
+          maxItems: 1
+
+        reg-names: false
+
+        mdio:
+          properties:
+            compatible: false
+
+        gphy-fw:
+          properties:
+            lantiq,rcu: false
+
+          patternProperties:
+            "^gphy@[0-9a-f]{1,3}$":
+              properties:
+                reg:
+                  maximum: 4095
+
+          required:
+            - firmware-name
+
+      required:
+        - dma-noncoherent
+
+  - if:
+      not:
+        properties:
+          compatible:
+            contains:
+              enum:
+                - lantiq,xrx200-gswip
+                - lantiq,xrx300-gswip
+                - lantiq,xrx330-gswip
+                - lantiq,xrx500-gswip
+                - lantiq,xrx500-gswip-r
+    then:
+      properties:
+        reg:
+          maxItems: 1
+
+        reg-names: false
+        gphy-fw: false
 
 unevaluatedProperties: false
 
@@ -196,6 +299,60 @@ examples:
                             reg = <0x68>;
 
                             resets = <&reset0 29 28>;
+                            reset-names = "gphy";
+                    };
+            };
+    };
+
+  - |
+    switch@1c000000 {
+            compatible = "lantiq,xrx500-gswip";
+            reg = <0x1c000000 0x4000>;
+            dsa,member = <0 0>;
+            dma-noncoherent;
+
+            ports {
+                    #address-cells = <1>;
+                    #size-cells = <0>;
+
+                    port@0 {
+                            reg = <0>;
+                            phy-mode = "internal";
+                            ethernet = <&conduit>;
+
+                            fixed-link {
+                                    speed = <1000>;
+                                    full-duplex;
+                            };
+                    };
+
+                    port@5 {
+                            reg = <5>;
+                            label = "lan1";
+                            phy-mode = "internal";
+                            phy-handle = <&gphy5>;
+                    };
+            };
+
+            mdio {
+                    #address-cells = <1>;
+                    #size-cells = <0>;
+
+                    gphy5: ethernet-phy@5 {
+                            reg = <5>;
+                    };
+            };
+
+            gphy-fw {
+                    #address-cells = <1>;
+                    #size-cells = <0>;
+                    compatible = "lantiq,xrx500-gphy-fw";
+                    firmware-name = "lantiq/xrx500-phy-fw.bin";
+
+                    gphy@f96 {
+                            reg = <0xf96>;
+
+                            resets = <&rcu_reset0 25 25>;
                             reset-names = "gphy";
                     };
             };
