@@ -72,21 +72,26 @@
 };
 
 /*
- * The second MDIO bus, on the GSW-R instance, carrying the WAN PHY. Same
- * sub-aperture of the same IP block as the GSW-L bus in seale_avm.dtsi, so
- * the driver reaches it through the identical offset from this switch node's
- * own base.
- *
- * lantiq,gswip-instance = <1> keeps the GSW-L switch-core re-init off this
- * bus. The PHY is at MDIO address 1.
+ * The second switch macro, which is where this die's WAN socket lands. It is
+ * a tree of its own with a conduit of its own: nothing forwards between the
+ * two macros in hardware, so a bridge spanning them would blackhole, and a
+ * conduit carries exactly one CPU port.
  */
 &gswr {
-	gswr_mdio: mdio {
-		compatible = "lantiq,gswip-mdio";
-		lantiq,gswip-instance = <1>;
+	status = "okay";
+
+	/*
+	 * The same sub-aperture of the same block as the LAN macro's bus, so
+	 * the driver reaches it through the identical offset from this node's
+	 * own window.
+	 *
+	 * The address on the bus is 1, which is the number of the register
+	 * slots the external port's PHY address is written into. It has
+	 * nothing to do with the port's own number.
+	 */
+	mdio {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		status = "okay";
 
 		gphy_wan: ethernet-phy@1 {
 			compatible = "ethernet-phy-idd565.a409",
@@ -94,38 +99,32 @@
 			reg = <0x01>;
 		};
 	};
+
+	ports {
+		port@f {
+			reg = <15>;
+			label = "wan";
+			phy-mode = "internal";
+			phy-handle = <&gphy_wan>;
+		};
+	};
+};
+
+&conduit_wan {
+	status = "okay";
 };
 
 /*
- * All five GPHYs. The reset bit list is not contiguous, so every entry is
- * spelled out; on this die request bit 31 is the fifth PHY's own reset line
- * and not a group master reset, which is how the vendor device tree names it.
- * That PHY reports its status in bit 30, and bit 31 of the status register
- * belongs to the watchdog instead -- the request bit and the status bit are
- * different numbers on four of these five lines, see the map on the reset
- * controller in xrx500.dtsi. A PHY without firmware never answers MDIO and
- * probe is all-or-nothing.
+ * The fifth integrated PHY, which carries the WAN socket. On this die request
+ * bit 31 is that core's own reset line and not a group master reset, which is
+ * how the vendor device tree names it. Its status is reported in bit 30, and
+ * bit 31 of the status register belongs to the watchdog instead.
  */
 &gphy_fw {
-	phy_id = <0x02 0x03 0x04 0x05 0x0F>;
-	resets = <&rcu_reset0 29 28>,
-		 <&rcu_reset0 28 23>,
-		 <&rcu_reset0 26 22>,
-		 <&rcu_reset0 25 25>,
-		 <&rcu_reset0 31 30>;
-	reset-names = "phy2", "phy3", "phy4", "phy5", "phyF";
-};
-
-/*
- * The WAN port, on the second GSWIP instance. Port id 15 is forced by the
- * allocator range, and lantiq,wan selects the PMAC template for it.
- */
-&intel_xrx500_net {
-	port@4 {
-		reg = <4>;
-		intel,dp-port-id = <15>;
-		lantiq,wan;
-		phy-handle = <&gphy_wan>;
+	gphy@f9a {
+		reg = <0xf9a>;
+		resets = <&rcu_reset0 31 30>;
+		reset-names = "gphy";
 	};
 };
 

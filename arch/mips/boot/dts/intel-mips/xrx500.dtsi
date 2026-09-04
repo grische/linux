@@ -10,17 +10,6 @@
 	compatible = "intel,xrx500";
 
 	/*
-	 * The driver takes each controller's id from its alias; the numbering
-	 * indexes enum dma_controller.
-	 */
-	aliases {
-		dma1 = &dma1tx;
-		dma2 = &dma1rx;
-		dma3 = &dma2tx;
-		dma4 = &dma2rx;
-	};
-
-	/*
 	 * Two interAptiv cores, two VPEs each. Only cpu0 carries clocks:
 	 * time.c reads the rate from node 0. The vmb-fw-ipi numbers are
 	 * firmware-owned — the same three values appear in the vendor device
@@ -273,33 +262,87 @@
 	};
 
 	/*
-	 * GSWIP-3.x register windows: the two switch cores and the shared
-	 * top-level block, given as physical addresses.
+	 * The two GSWIP-3.0 switch macros. One window each covers the switch
+	 * core, the macro's top block and the packet MAC, so the MDIO bus and
+	 * the loader for the integrated PHYs are children with no window of
+	 * their own.
+	 *
+	 * Two trees rather than two switches in one tree: a conduit carries
+	 * exactly one CPU port, and nothing forwards between the macros in
+	 * hardware, so a bridge spanning both would blackhole.
+	 *
+	 * dma-noncoherent is not decoration. The PHY cores fetch their
+	 * firmware without taking part in the platform's cache coherence, so
+	 * the staged image has to be written back before they are released.
 	 */
-	gswl: gswip@1c000000 {
-		compatible = "intel,xrx500-gswip-3.0";
+	gswl: switch@1c000000 {
+		compatible = "lantiq,xrx500-gswip";
 		reg = <0x1c000000 0x4000>;
-		lantiq,gswip-instance = <0>;
+		dsa,member = <0 0>;
+		dma-noncoherent;
 		status = "disabled";
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/*
+			 * The CPU port. Which conduit it reaches is on the die
+			 * and not on the board: this macro's frames leave over
+			 * the second pair of DMA controllers and no other.
+			 */
+			port@0 {
+				reg = <0>;
+				phy-mode = "internal";
+				ethernet = <&conduit_lan>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+		};
 	};
 
-	gswr: gswip@1a000000 {
-		compatible = "intel,xrx500-gswip-3.0";
+	gswr: switch@1a000000 {
+		compatible = "lantiq,xrx500-gswip-r";
 		reg = <0x1a000000 0x4000>;
-		lantiq,gswip-instance = <1>;
+		dsa,member = <1 0>;
+		dma-noncoherent;
 		status = "disabled";
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				phy-mode = "internal";
+				ethernet = <&conduit_wan>;
+
+				fixed-link {
+					speed = <1000>;
+					full-duplex;
+				};
+			};
+		};
 	};
 
 	/*
-	 * Central Buffer Manager. The reg-names order must match the driver's
-	 * ioremap table. The interrupts are level-high.
+	 * Packet buffer manager. It owns the segment pools every packet on the
+	 * datapath is held in, the enqueue and dequeue managers, the traffic
+	 * manager between them, and the table binding an endpoint to a queue.
+	 * Both switch macros and all four DMA controllers draw from it.
+	 *
+	 * A conduit is a processor's end of one macro's datapath and owns no
+	 * window of its own, so it is a child of this node. There are two of
+	 * them because a conduit carries exactly one CPU port.
 	 */
-	cbm: cbm@1e700000 {
-		compatible = "lantiq,cbm-xrx500";
+	cbm: ethernet@1e700000 {
+		compatible = "lantiq,xrx500-cbm";
 		reg = <0x1e700000 0x1000>,    /* tmu      */
 		      <0x1e710000 0x10000>,   /* cbm      */
 		      <0x1e720000 0x4000>,    /* qidt     */
-		      <0x1e730000 0x14000>,   /* sbim     */
 		      <0x1e750000 0x400>,     /* qeqcnt   */
 		      <0x1e750800 0x400>,     /* qdqcnt   */
 		      <0x1e760000 0x10000>,   /* ls       */
@@ -307,97 +350,77 @@
 		      <0x1e7c0000 0x30000>,   /* dqm      */
 		      <0x1e800000 0x100000>,  /* fsqm0    */
 		      <0x1e900000 0x100000>,  /* fsqm1    */
-		      <0x1e500000 0x100000>;  /* dma_desc */
-		reg-names = "tmu", "cbm", "qidt", "sbim",
-			    "qeqcnt", "qdqcnt", "ls", "eqm", "dqm",
-			    "fsqm0", "fsqm1", "dma_desc";
+		      <0x1e500000 0x100000>;  /* dma-desc */
+		reg-names = "tmu", "cbm", "qidt", "qeqcnt", "qdqcnt", "ls",
+			    "eqm", "dqm", "fsqm0", "fsqm1", "dma-desc";
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 174 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SHARED 178 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SHARED 179 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SHARED 180 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SHARED 181 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "cbm", "ls0", "ls1", "ls2", "ls3";
 		clocks = <&cgu CLK_CBM>, <&cgu GCLK_CBM>;
 		clock-names = "freq", "cbm";
+		#address-cells = <1>;
+		#size-cells = <0>;
 		status = "disabled";
+
+		conduit_lan: ethernet@0 {
+			compatible = "lantiq,xrx500-conduit";
+			reg = <0>;
+			lantiq,transmit-dma = <&dma2tx>;
+			lantiq,receive-dma = <&dma2rx>;
+		};
+
+		/*
+		 * The second macro carries a front-panel socket only on the
+		 * die variant that wires one, so its conduit is left to the
+		 * board files to enable.
+		 */
+		conduit_wan: ethernet@1 {
+			compatible = "lantiq,xrx500-conduit";
+			reg = <1>;
+			lantiq,transmit-dma = <&dma1tx>;
+			lantiq,receive-dma = <&dma1rx>;
+			status = "disabled";
+		};
 	};
 
-	/* The three GSWIP-3.0 DMA controller register windows. */
+	/*
+	 * The four packet DMA controllers, a transmit and a receive one for
+	 * each switch macro. Their channels are hard-bound to a macro and to a
+	 * port of the buffer manager, so they offer nothing to an arbitrary
+	 * consumer and are reached through the phandle of the endpoint that
+	 * uses them. How each instance arbitrates, bursts, polls and places
+	 * its descriptors is fixed by the die and belongs to the driver.
+	 */
 	dma1tx: dma@1a100000 {
-		compatible = "lantiq,dma-xrx500";
+		compatible = "lantiq,xrx500-dma";
 		reg = <0x1a100000 0x10000>;
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 65 IRQ_TYPE_LEVEL_HIGH>;
-		lantiq,dma-pkt-arb = <2>; /* 0 - burst, 1 - mulitburst, 2 - pkt */
-		lantiq,dma-burst = <16>; /* 2, 4, 8, 16 */
-		lantiq,dma-polling-cnt = <108>;
-		lantiq,dma-chan-fc = <1>;
-		lantiq,dma-desc-fod = <1>;
-		lantiq,dma-desc-in-sram = <1>; /* A11 - 0, A21 - 1 */
-		lantiq,dma-drb = <0>;
-		lantiq,dma-byte-en = <1>;
-		lantiq,budget = <20>;
-		lantiq,dma-lab-cnt = <2>; /* 0, 1, 2, 3 */
-		lantiq,dma-txendi = <3>;
-		lantiq,dma-rxendi = <3>;
-		status = "okay";
 	};
 
 	dma1rx: dma@1a200000 {
-		compatible = "lantiq,dma-xrx500";
+		compatible = "lantiq,xrx500-dma";
 		reg = <0x1a200000 0x10000>;
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 66 IRQ_TYPE_LEVEL_HIGH>;
-		lantiq,dma-pkt-arb = <2>; /* 0 - burst, 1 - mulitburst, 2 - pkt */
-		lantiq,dma-burst = <16>; /* 2, 4, 8, 16 */
-		lantiq,dma-polling-cnt = <24>;
-		lantiq,dma-chan-fc = <0>;
-		lantiq,dma-desc-fod = <1>;
-		lantiq,dma-desc-in-sram = <0>;
-		lantiq,dma-drb = <0>;
-		lantiq,dma-byte-en = <0>;
-		lantiq,dma-txendi = <3>;
-		lantiq,dma-rxendi = <3>;
-		lantiq,budget = <20>;
-		status = "okay";
 	};
 
 	dma2tx: dma@1c100000 {
-		compatible = "lantiq,dma-xrx500";
+		compatible = "lantiq,xrx500-dma";
 		reg = <0x1c100000 0x10000>;
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 67 IRQ_TYPE_LEVEL_HIGH>;
-		lantiq,dma-pkt-arb = <2>; /* 0 - burst, 1 - mulitburst, 2 - pkt */
-		lantiq,dma-burst = <16>; /* 2, 4, 8, 16 */
-		lantiq,dma-polling-cnt = <24>;
-		lantiq,dma-chan-fc = <1>;
-		lantiq,dma-desc-fod = <1>;
-		lantiq,dma-desc-in-sram = <0>;
-		lantiq,dma-drb = <0>;
-		lantiq,dma-byte-en = <1>;
-		lantiq,dma-txendi = <3>;
-		lantiq,dma-rxendi = <3>;
-		lantiq,budget = <20>;
-		status = "okay";
 	};
 
 	dma2rx: dma@1c200000 {
-		compatible = "lantiq,dma-xrx500";
+		compatible = "lantiq,xrx500-dma";
 		reg = <0x1c200000 0x10000>;
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 68 IRQ_TYPE_LEVEL_HIGH>;
-		lantiq,dma-pkt-arb = <2>; /* 0 - burst, 1 - mulitburst, 2 - pkt */
-		lantiq,dma-burst = <16>; /* 2, 4, 8, 16 */
-		lantiq,dma-polling-cnt = <24>;
-		lantiq,dma-chan-fc = <0>;
-		lantiq,dma-desc-fod = <1>;
-		lantiq,dma-desc-in-sram = <0>;
-		lantiq,dma-drb = <0>;
-		lantiq,dma-byte-en = <1>;
-		lantiq,dma-txendi = <3>;
-		lantiq,dma-rxendi = <3>;
-		lantiq,budget = <20>;
-		status = "okay";
 	};
 
 	/*
