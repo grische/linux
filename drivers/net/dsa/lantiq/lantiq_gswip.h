@@ -303,6 +303,10 @@ struct gswip_hw_info {
 	 * NULL maps the blocks 1:1 onto the port numbers.
 	 */
 	const s16 *mac_ctrl;
+	/* Per-port RMON counter bank id, -1 if the port has no bank.
+	 * NULL maps the banks 1:1 onto the port numbers.
+	 */
+	const s16 *rmon_table;
 	bool supports_2500m;
 	const struct gswip_pce_microcode (*pce_microcode)[];
 	size_t pce_microcode_size;
@@ -334,6 +338,7 @@ struct gswip_priv {
 	const struct gswip_hw_info *hw_info;
 	const struct gswip_mdio_layout *mdio_layout;
 	const s16 *mac_ctrl;
+	const s16 *rmon_table;
 	const struct xway_gphy_match_data *gphy_fw_name_cfg;
 	struct dsa_switch *ds;
 	struct device *dev;

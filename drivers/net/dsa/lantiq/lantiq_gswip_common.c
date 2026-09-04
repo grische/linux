@@ -172,6 +172,11 @@ static int gswip_mac_ctrl_reg(struct gswip_priv *priv, int port, u16 reg)
 	return priv->mac_ctrl[port] + reg;
 }
 
+static const s16 gswip_rmon_table_2x[GSWIP_MAX_PORTS] = {
+	0, 1, 2, 3, 4, 5, 6,
+	[GSWIP_2X_MAX_PORTS ... GSWIP_MAX_PORTS - 1] = -1,
+};
+
 static int gswip_mdio_poll(struct gswip_priv *priv)
 {
 	u32 ctrl;
@@ -1596,16 +1601,20 @@ static void gswip_get_ethtool_stats(struct dsa_switch *ds, int port,
 {
 	struct gswip_priv *priv = ds->priv;
 	const struct gswip_rmon_cnt_desc *rmon_cnt;
+	s16 table = priv->rmon_table[port];
 	int i;
 	u64 high;
+
+	if (table < 0)
+		return;
 
 	for (i = 0; i < ARRAY_SIZE(gswip_rmon_cnt); i++) {
 		rmon_cnt = &gswip_rmon_cnt[i];
 
-		data[i] = gswip_bcm_ram_entry_read(priv, port,
+		data[i] = gswip_bcm_ram_entry_read(priv, table,
 						   rmon_cnt->offset);
 		if (rmon_cnt->size == 2) {
-			high = gswip_bcm_ram_entry_read(priv, port,
+			high = gswip_bcm_ram_entry_read(priv, table,
 							rmon_cnt->offset + 1);
 			data[i] |= high << 32;
 		}
@@ -1763,6 +1772,11 @@ int gswip_probe_common(struct gswip_priv *priv, u32 version)
 		priv->mac_ctrl = priv->hw_info->mac_ctrl;
 	else
 		priv->mac_ctrl = gswip_mac_ctrl_2x;
+
+	if (priv->hw_info->rmon_table)
+		priv->rmon_table = priv->hw_info->rmon_table;
+	else
+		priv->rmon_table = gswip_rmon_table_2x;
 
 	priv->ds = devm_kzalloc(priv->dev, sizeof(*priv->ds), GFP_KERNEL);
 	if (!priv->ds)
