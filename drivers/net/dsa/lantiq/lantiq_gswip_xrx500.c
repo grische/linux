@@ -710,6 +710,7 @@ static int gswip_xrx500_setup(struct dsa_switch *ds)
 {
 	struct gswip_priv *priv = ds->priv;
 	const struct gswip_xrx500_model *model = gswip_xrx500_model(priv);
+	struct dsa_port *cpu_dp;
 	int err;
 
 	/* The queue manager's drop-policy selector is two bits wide here, and
@@ -724,6 +725,24 @@ static int gswip_xrx500_setup(struct dsa_switch *ds)
 	 * learned on another port, which is what the software bridge sends
 	 * whenever it forwards for the switch.
 	 */
+
+	/* Every frame the software forwarding path sends arrives at the switch
+	 * on the processor port carrying the sending station's address, so a
+	 * switch that learns from the processor port ends up with every
+	 * station recorded against it. From then on the fabric has an address
+	 * table entry for each station and it names the processor, so a frame
+	 * between two front ports is delivered to the processor instead of
+	 * being forwarded in hardware - which is worse than having no entry at
+	 * all, because an unknown destination is flooded to every port.
+	 *
+	 * Learning on the processor port therefore has to be off. The ports
+	 * that face a wire keep it, which is what makes an entry name the port
+	 * a station is really on.
+	 */
+	dsa_switch_for_each_cpu_port(cpu_dp, ds)
+		regmap_set_bits(priv->gswip,
+				GSWIP_PCE_PCTRL_3p(cpu_dp->index),
+				GSWIP_PCE_PCTRL_3_LNDIS);
 
 	/* Address the egress table by traffic class rather than by the
 	 * processing flags of the accelerator paths, which this design does
