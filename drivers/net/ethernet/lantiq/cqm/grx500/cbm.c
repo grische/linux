@@ -51,7 +51,6 @@ extern phys_addr_t cbm_buf_pool_phys_base(int which);
 
 irqreturn_t cbm_isr_0(int irq, void *dev_id);
 
-
 /*
  * MMIO base pointers, populated by cbm_xrx500_probe from the named reg
  * tuples of the DT node.
@@ -896,10 +895,3 @@ int init_cbm_basic(void)
 	pr_info("cbm: init basic CBM successfully (jsel=%d)\n", jsel);
 	return 0;
 }
-
-u8 get_lookup_qid_via_index(u32 lookup_idx)
-{
-	(void)lookup_idx;
-	return 0;
-}
-EXPORT_SYMBOL_GPL(get_lookup_qid_via_index);

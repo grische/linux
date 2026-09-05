@@ -476,14 +476,10 @@ int cbm_intr_mapping_init(void);
 int cbm_interrupt_init(struct platform_device *pdev, int *irqs);
 int cbm_hw_init(struct platform_device *pdev);
 
-void *cbm_buf_alloc(u32 size, u32 *pool_phys, u32 flags);
-int cbm_buf_free(void *buf, u32 size);
 void *cbm_buf_phys_to_virt(u32 phys);
 
 void *cbm_fsqm_buf_alloc(int pid, u32 flags, u32 *buf_phys); /* flags = pool select */
-int cbm_fsqm_buf_free(int pid, u32 buf_phys);
 
-int dma_port_enable(u32 idx, int dqm_flag);
 int init_cbm_eqm_dma_port(int idx, u32 flags); /* flags = std/jumbo buffer type */
 int init_cbm_eqm_ldma_port(void); /* IGP15 VRX318/LDMA arming */
 int init_cbm_eqm_cpu_port(int idx);
@@ -498,8 +494,6 @@ int init_cbm_dqm_dma_port(int dqp);
 int init_cbm_dqm_cpu_port(int idx);
 extern bool g_cbm_egress_preconfig[CBM_MAX_DP_PORTS];
 int setup_eqm_dma_desc(int pid, int desc_count, u32 flags, u32 buf_offset);
-u8 get_lookup_qid_via_index(u32 lookup_idx);
-int cbm_counter_mode_set(int idx, int mode);
 
 /* cbm_dw_memset - 32-bit-aligned wordwise memset over MMIO. */
 void cbm_dw_memset(u32 *base, int val, u32 size);
