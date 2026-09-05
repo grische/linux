@@ -21,7 +21,6 @@
 #include <asm/io.h>
 #include <asm/barrier.h>
 
-#include <net/cqm_cbm_api.h>
 #include "cbm.h"
 
 /*
@@ -514,70 +513,4 @@ EXPORT_SYMBOL_GPL(dma_port_enable);
 #define CBM_DEQUEUE_DEFAULT_WAIT_CYCLES  20U
 #define CBM_DEQUEUE_RCNT_CONSUMED        0xFFFFF800U
 
-int cbm_dequeue(int pid, u32 buf_ptr, u32 flags)
-{
-	u32 i = 0;
-	u32 rcnt_off;
-
-	(void)flags;
-
-	if (pid < 0 || pid >= CPU_EQM_PORT_NUM) {
-		pr_err("cbm: cbm_dequeue: pid=%d out of range (0..%d)\n",
-		       pid, CPU_EQM_PORT_NUM - 1);
-		return -EINVAL;
-	}
-	if (!g_cbm_eqm_base) {
-		pr_err("cbm: cbm_dequeue: g_cbm_eqm_base not mapped\n");
-		return -ENODEV;
-	}
-
-	rcnt_off = CBM_EQM_CPU_PORT(pid, rcnt);
-
-	/* Step 1: write the buffer pointer to the per-port rcnt register. */
-	__raw_writel(buf_ptr, g_cbm_eqm_base + rcnt_off);
-
-	/* Step 2: bounded wait for silicon to ack with 0xFFFFF800. */
-	while (__raw_readl(g_cbm_eqm_base + rcnt_off) !=
-		       CBM_DEQUEUE_RCNT_CONSUMED &&
-	       (i++) < CBM_DEQUEUE_DEFAULT_WAIT_CYCLES) {
-		/* spin */
-	}
-
-	if (i >= CBM_DEQUEUE_DEFAULT_WAIT_CYCLES) {
-		pr_err_ratelimited("cbm: cbm_dequeue: pid=%d buf=0x%x refcnt incr timeout (waited %u cycles)\n",
-				   pid, buf_ptr,
-				   CBM_DEQUEUE_DEFAULT_WAIT_CYCLES);
-		return -ETIMEDOUT;
-	}
-	return 0;
-}
-EXPORT_SYMBOL_GPL(cbm_dequeue);
-
 /* cbm_cpu_enqueue_hw - faithful. */
-int cbm_cpu_enqueue_hw(int pid, u32 dw0, u32 dw1, u32 data_phys, u32 dw3)
-{
-	u32 base;
-
-	if (pid < 0 || pid >= 4) {
-		pr_err_ratelimited("cbm: cbm_cpu_enqueue_hw: pid=%d out of range\n",
-				   pid);
-		return -EINVAL;
-	}
-	if (!g_cbm_eqm_base) {
-		pr_err_ratelimited("cbm: cbm_cpu_enqueue_hw: g_cbm_eqm_base not mapped\n");
-		return -ENODEV;
-	}
-
-	/* Offset of desc0.desc0 in the per-CPU-port EQM window (AVM eqmdesc). */
-	base = CBM_EQM_CPU_PORT(pid, desc0.desc0);
-
-	cbm_eqm_w32(base + 0,  dw0);
-	cbm_eqm_w32(base + 4,  dw1);
-	cbm_eqm_w32(base + 8,  data_phys);
-	wmb();                      /* publish DW0..DW2 before the commit */
-	cbm_eqm_w32(base + 12, dw3); /* DW3 (own=0) commits the enqueue */
-	wmb();                      /* ensure commit is globally visible */
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(cbm_cpu_enqueue_hw);

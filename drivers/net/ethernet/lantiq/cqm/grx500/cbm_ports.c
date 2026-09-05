@@ -159,130 +159,10 @@ static struct cbm_pmac_port_map *cbm_add_to_list(
 }
 
 /* AVM cbm.c:448-488 verbatim. */
-struct cbm_pmac_port_map *is_cbm_allocated(
-	s32 cbm, u32 flags)
-{
-	struct cbm_pmac_port_map *ptr = NULL;
-	unsigned long lock_flags;
-	int num_deq_ports, i;
-	u32 port_map, index;
-
-	if ((flags != DP_F_MPE_ACCEL) &&
-	    (flags != DP_F_DIRECTPATH_RX) &&
-	    (flags != DP_F_CHECKSUM))
-		flags = DP_F_DONTCARE;
-	spin_lock_irqsave(&cbm_port_mapping, lock_flags);
-	if (flags == DP_F_DONTCARE) {
-		list_for_each_entry (ptr, &pmac_mapping_list, list) {
-			num_deq_ports = hweight_long(ptr->egp_port_map);
-			port_map = ptr->egp_port_map;
-			for (i = 0; i < num_deq_ports; i++) {
-				index = get_is_bit_set(port_map);
-				if ((index == cbm) &&
-				    (ptr->egp_type != DP_F_MPE_ACCEL) &&
-				    (ptr->egp_type != DP_F_DIRECTPATH_RX)) {
-					spin_unlock_irqrestore(&cbm_port_mapping,
-							       lock_flags);
-					return ptr;
-				}
-				port_map &= ~(1 << index);
-			}
-		}
-	} else {
-		list_for_each_entry (ptr, &pmac_mapping_list, list) {
-			if (ptr->egp_type == flags) {
-				spin_unlock_irqrestore(&cbm_port_mapping,
-						       lock_flags);
-				return ptr;
-			}
-		}
-	}
-	spin_unlock_irqrestore(&cbm_port_mapping, lock_flags);
-	return NULL;
-}
-
-struct cbm_pmac_port_map *is_dp_allocated(
-	s32 pmac, u32 flags)
-{
-	struct cbm_pmac_port_map *ptr = NULL;
-	unsigned long lock_flags;
-
-	if ((!(flags & DP_F_MPE_ACCEL)) &&
-	    (!(flags & DP_F_DIRECTPATH_RX)) &&
-	    (!(flags & DP_F_CHECKSUM)))
-		flags = DP_F_DONTCARE;
-	pr_debug("cbm: %s: flags 0x%x\r\n", __func__, flags);
-	spin_lock_irqsave(&cbm_port_mapping, lock_flags);
-	if (flags & DP_F_DONTCARE) {
-		list_for_each_entry (ptr, &pmac_mapping_list, list) {
-			pr_debug("cbm: 11:pmac %d type %d  input %d \
-			input %d\r\n",
-				 ptr->pmac, ptr->egp_type, pmac, flags);
-			if ((ptr->pmac == pmac) &&
-			    (!(ptr->egp_type & DP_F_MPE_ACCEL)) &&
-			    (!(ptr->egp_type & DP_F_DIRECTPATH_RX)) &&
-			    (IS_ENABLED(CONFIG_LTQ_DATAPATH_ACA_CSUM_WORKAROUND) || (!(ptr->egp_type & DP_F_CHECKSUM)))) {
-				spin_unlock_irqrestore(&cbm_port_mapping,
-						       lock_flags);
-				return ptr;
-			}
-		}
-	} else {
-		list_for_each_entry (ptr, &pmac_mapping_list, list) {
-			pr_debug("cbm: 22:pmac %d type %d \r\n", ptr->pmac,
-				 ptr->egp_type);
-			if (ptr->egp_type == flags) {
-				spin_unlock_irqrestore(&cbm_port_mapping,
-						       lock_flags);
-				return ptr;
-			}
-		}
-	}
-	spin_unlock_irqrestore(&cbm_port_mapping, lock_flags);
-	return NULL;
-}
-
 /*
  * AVM cbm.c:531-565 verbatim. __maybe_unused: static in AVM too; no caller
  * until the dp_port_dealloc registry teardown is ported.
  */
-static int __maybe_unused cbm_delete_from_list(
-	s32 pmac, u32 flags)
-{
-	struct cbm_pmac_port_map *ptr = NULL;
-	struct cbm_pmac_port_map *next = NULL;
-	int found = 0;
-	unsigned long lock_flags;
-
-	if ((flags != DP_F_MPE_ACCEL) &&
-	    (flags != DP_F_DIRECTPATH_RX) &&
-	    (flags != DP_F_CHECKSUM))
-		flags = DP_F_DONTCARE;
-	pr_debug("cbm: %s: flags 0x%x\r\n", __func__, flags);
-
-	spin_lock_irqsave(&cbm_port_mapping, lock_flags);
-
-	list_for_each_entry_safe (ptr, next, &pmac_mapping_list, list) {
-		if (ptr->pmac == pmac) {
-			if (flags == DP_F_DONTCARE) {
-				found = 1;
-				break;
-			} else if (ptr->egp_type & flags) {
-				found = 1;
-				break;
-			}
-		}
-	}
-	if (found) {
-		list_del(&ptr->list);
-		kfree(ptr);
-		spin_unlock_irqrestore(&cbm_port_mapping, lock_flags);
-		return 1;
-	}
-	spin_unlock_irqrestore(&cbm_port_mapping, lock_flags);
-	return 0;
-}
-
 /*
  * Static here (non-static in AVM's single cbm.c TU); this TU is the only
  * consumer.
@@ -427,22 +307,6 @@ int cbm_dp_egress_res_get(u32 dp_port_id, struct cbm_dp_egress_res *res)
  * cbm_dp_deq_port_get — @deq_port only, for callers that have no reason to
  * see the rest and would otherwise need a duplicate struct definition.
  */
-int cbm_dp_deq_port_get(u32 dp_port_id, u32 *deq_port)
-{
-	struct cbm_dp_egress_res res;
-	int ret;
-
-	if (!deq_port)
-		return -EINVAL;
-
-	ret = cbm_dp_egress_res_get(dp_port_id, &res);
-	if (ret)
-		return ret;
-
-	*deq_port = res.deq_port;
-	return 0;
-}
-
 /* AVM cbm.c:625-644 verbatim. */
 static u32 assign_port_from_DT(
 	u32 flags,
@@ -468,118 +332,16 @@ static u32 assign_port_from_DT(
  * callers (cbm_dp_port_dealloc / cbm_cpu_pkt_tx PMAC resolution) are not in
  * B1 scope yet.
  */
-static u32 __maybe_unused get_matching_flag(
-	u32 *flags,
-	u32 cbm_port)
-{
-	int i, result = CBM_NOTFOUND;
-
-	for (i = 0; i < ARRAY_SIZE(epg_lookup_table); i++) {
-		if (epg_lookup_table[i].epg == cbm_port) {
-			*flags = epg_lookup_table[i].port_type;
-			result = CBM_SUCCESS;
-			break;
-		}
-	}
-	return result;
-}
-
 /*
  * AVM cbm.c:698-725 verbatim. __maybe_unused: its only AVM caller is the
  * dp_port_resources_get static-pmac fallback, which B1 gates off (spec
  * risk 3) — kept ready for the verbatim restore once conf_dqm_dma_port
  * populates the dqm_port_info DMA rows.
  */
-static u32 __maybe_unused get_matching_pmac_noflags(
-	u32 *cbm_port,
-	int pmac,
-	u32 *flags,
-	u32 *num_ports)
-{
-	int i, j = 0, result = CBM_NOTFOUND;
-
-	for (i = 0; i < CBM_MAX_PHY_PORT_PER_EP;
-	     i++) {
-		cbm_port[i] = CBM_PORT_INVALID;
-	}
-	for (i = 0; i < ARRAY_SIZE(epg_lookup_table); i++) {
-		if (j < CBM_MAX_PHY_PORT_PER_EP) {
-			if (
-				(epg_lookup_table[i].pmac == pmac) &&
-				(epg_lookup_table[i].port_type != DP_F_MPE_ACCEL) &&
-				(epg_lookup_table[i].port_type != DP_F_DIRECTPATH_RX)) {
-				cbm_port[j] = epg_lookup_table[i].epg;
-				*flags = epg_lookup_table[i].port_type;
-				j++;
-				*num_ports = j;
-				result = CBM_SUCCESS;
-			}
-		}
-	}
-	return result;
-}
-
 /*
  * Non-static (static in AVM) so cbm_dp.c can wrap+EXPORT it; prototype in
  * cbm.h.
  */
-s32 dp_port_resources_get(
-	u32 *dp_port,
-	u32 *num_tmu_ports,
-	struct cbm_tmu_res **res_pp,
-	u32 flags)
-{
-	int i = 0;
-	u32 port_map;
-	struct cbm_tmu_res *res;
-	struct cbm_pmac_port_map *local_entry = NULL;
-
-	pr_debug("cbm: %s: flags 0x%x dp %d\r\n", __func__, flags,
-		 dp_port ? *dp_port : 0);
-	if (dp_port) {
-		pr_debug("cbm: %s: dp %d\r\n", __func__, *dp_port);
-		local_entry = is_dp_allocated(*dp_port, flags);
-	} else {
-		local_entry = is_dp_allocated(0, flags);
-	}
-	if (local_entry) {
-		*num_tmu_ports = hweight_long(local_entry->egp_port_map);
-		if ((*num_tmu_ports > 16) || (*num_tmu_ports == 0))
-			return -1;
-		res = kmalloc_array(*num_tmu_ports, sizeof(*res), GFP_ATOMIC);
-		if (res) {
-			*res_pp = res;
-			port_map = local_entry->egp_port_map;
-			pr_debug("cbm: port_map %d\r\n", port_map);
-			for (i = 0; i < *num_tmu_ports; i++) {
-				res[i].tmu_port = get_is_bit_set(port_map);
-				res[i].cbm_deq_port = get_is_bit_set(port_map);
-				pr_debug("cbm: %d tmu_port\r\n", res[i].tmu_port);
-				/*clear the flag for the current bitpos*/
-				port_map &= ~(1 << res[i].tmu_port);
-				res[i].tmu_q = local_entry->qids[i];
-				pr_debug("cbm: %d tmu_q\r\n", res[i].tmu_q);
-				res[i].tmu_sched = res[i].tmu_q - SBID_START;
-			}
-		} else {
-			pr_err("cbm: %s error in allocating memory", __func__);
-			return -1;
-		}
-	} else if ((!local_entry) &&
-		   ((flags & DP_F_MPE_ACCEL) ||
-		    (flags & DP_F_DIRECTPATH_RX) ||
-		    (flags & DP_F_CHECKSUM))) {
-		return -1;
-	} else if (dp_port && ((*dp_port <= 6) || (*dp_port == 15))) {
-		pr_warn_ratelimited("cbm: resources_get static-LAN fallback not ported (dqm_port_info DMA rows empty)\n");
-		return -1;
-	} else {
-		/*pr_err("cbm: %s: unallocated pmac port\r\n", __func__);*/
-		return -1;
-	}
-	return 0;
-}
-
 /* AVM cbm.c:5031-5052 verbatim — SW high-watermark bookkeeping only (the
  * dynamic port allocator reads it back at AVM cbm.c:914); no register
  * writes.

@@ -411,7 +411,6 @@ struct cbm_dp_egress_res {
 };
 
 int cbm_dp_egress_res_get(u32 dp_port_id, struct cbm_dp_egress_res *res);
-int cbm_dp_deq_port_get(u32 dp_port_id, u32 *deq_port);
 
 /*
  * cbm_dq_info_t — REDUCED port of AVM include/net/lantiq_cbm_api.h:486-492.
@@ -462,8 +461,6 @@ static inline int get_is_bit_set(u32 flags)
 	return ffs(flags) - 1;
 }
 
-struct cbm_pmac_port_map *is_cbm_allocated(s32 cbm, u32 flags);
-struct cbm_pmac_port_map *is_dp_allocated(s32 pmac, u32 flags);
 int cbm_configure_dqm_cpu_ports(void);
 /*
  * Descriptor count conf_dqm_cpu_port recorded for a DQM port, 0 if no config
@@ -471,10 +468,6 @@ int cbm_configure_dqm_cpu_ports(void);
  * to write dptr at all — AVM cbm.c:1435/1439-1441.
  */
 u32 cbm_dqm_port_num_desc(int idx);
-s32 dp_port_resources_get(u32 *dp_port, u32 *num_tmu_ports,
-			  struct cbm_tmu_res **res_pp, u32 flags);
-s32 cbm_dp_port_resources_get(u32 *dp_port, u32 *num_tmu_ports,
-			      struct cbm_tmu_res **res_pp, u32 flags);
 void cbm_program_cpu_qidt(u8 qid_val);
 
 void init_fsqm(int idx);
@@ -482,15 +475,6 @@ int init_cbm_basic(void);
 int cbm_intr_mapping_init(void);
 int cbm_interrupt_init(struct platform_device *pdev, int *irqs);
 int cbm_hw_init(struct platform_device *pdev);
-
-int cbm_dp_enable(struct module *owner, u32 port_id,
-		  struct cbm_dp_en_data *cbm_data, u32 flags, u32 alloc_flags);
-
-int cbm_dp_port_alloc(struct module *owner, struct net_device *dev,
-		      u32 dev_port, s32 port_id,
-		      struct cbm_dp_alloc_data *data, u32 flags);
-int cbm_dp_port_dealloc(struct module *owner, u32 dev_port, s32 port_id,
-			struct cbm_dp_alloc_data *data, u32 flags);
 
 void *cbm_buf_alloc(u32 size, u32 *pool_phys, u32 flags);
 int cbm_buf_free(void *buf, u32 size);
