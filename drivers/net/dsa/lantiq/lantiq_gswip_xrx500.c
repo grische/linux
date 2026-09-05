@@ -116,14 +116,16 @@
 #define GSWIP_XRX500_PMAC_TABLE_INGRESS		1
 #define GSWIP_XRX500_PMAC_TABLE_EGRESS		2
 
-/* Ingress table entry: the header the packet MAC assumes on a frame arriving
- * from the CPU, and which of its fields to take from that header rather than
- * from the descriptor.
+/* Ingress table entry: whether a frame arriving from the CPU carries a header
+ * at all, and, field by field, whether to take that field from the frame's own
+ * header or from the default header this entry holds. A bit set means the
+ * default; a bit clear means the frame.
  */
 #define GSWIP_XRX500_PMAC_IG_PMAC_PRESENT	BIT(0)
 #define GSWIP_XRX500_PMAC_IG_SPID_DEFAULT	BIT(1)
 #define GSWIP_XRX500_PMAC_IG_SUBID_DEFAULT	BIT(2)
 #define GSWIP_XRX500_PMAC_IG_CLASS_ENA		BIT(3)
+/* Both port-map bits have to stay clear for the tag to reach the fabric. */
 #define GSWIP_XRX500_PMAC_IG_PMAP_ENA		BIT(4)
 #define GSWIP_XRX500_PMAC_IG_CLASS_DEFAULT	BIT(5)
 #define GSWIP_XRX500_PMAC_IG_PMAP_DEFAULT	BIT(6)
@@ -638,11 +640,20 @@ static int gswip_xrx500_pmac_write(struct gswip_priv *priv, u8 table,
 					20, 50000);
 }
 
-/* One ingress entry per transmit channel. Every field comes from the default
- * header this entry holds, the source port, the sub-interface id, the traffic
- * class and the destination port map alike, so a malformed frame cannot claim
- * to have arrived from a front port, and a frame the packet MAC finds broken
- * is dropped rather than handed to the switch.
+/* One ingress entry per transmit channel.
+ *
+ * The destination port map comes from the frame, because that is the field the
+ * tagging driver writes to say which port the frame is for; taking it from the
+ * default header instead would discard the tag's decision on every frame. The
+ * source port, the sub-interface id and the traffic class come from the default
+ * header, which names the processor port for all three, so a malformed frame
+ * cannot claim to have arrived from a front port. A frame the packet MAC finds
+ * broken is dropped rather than handed to the switch.
+ *
+ * The default map is only reached by a frame whose own header does not enable
+ * one. It has to name the port the channel serves, and it can: the network
+ * device selects its transmit channel by switch port number, so channel and
+ * destination port are the same number on both macros.
  */
 static int gswip_xrx500_pmac_ingress(struct gswip_priv *priv)
 {
@@ -653,14 +664,12 @@ static int gswip_xrx500_pmac_ingress(struct gswip_priv *priv)
 		u16 val[5] = {};
 
 		val[1] = ((((chan & 0x8) >> 3) * 2 + 1) << 8) | 0x90;
-		val[3] = BIT(chan & 0x7);
+		val[3] = BIT(chan);
 		val[4] = GSWIP_XRX500_PMAC_IG_PMAC_PRESENT |
 			 GSWIP_XRX500_PMAC_IG_SPID_DEFAULT |
 			 GSWIP_XRX500_PMAC_IG_SUBID_DEFAULT |
 			 GSWIP_XRX500_PMAC_IG_CLASS_ENA |
-			 GSWIP_XRX500_PMAC_IG_PMAP_ENA |
 			 GSWIP_XRX500_PMAC_IG_CLASS_DEFAULT |
-			 GSWIP_XRX500_PMAC_IG_PMAP_DEFAULT |
 			 GSWIP_XRX500_PMAC_IG_ERR_DISCARD;
 
 		err = gswip_xrx500_pmac_write(priv,
