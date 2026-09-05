@@ -121,120 +121,6 @@ static const struct cbm_ioremap_slot cbm_ioremap_table[] = {
 	{ "dma-desc", &g_cbm_dma_desc_base },
 };
 
-static u32 cbm_p2p_setup_done;
-static u32 cbm_p2p_turned_on;
-
-static void setup_DMA_p2p(void)
-{
-	/*do only p2p here.commented out other dma channel setup*/
-	int chan1 = DMA1TX_LAN_SWITCH_CLASS0;
-	int chan2 = DMA2RX_GSWIP_R_CLASS0;
-#if !defined(SINGLE_RX_CH0_ONLY) || !SINGLE_RX_CH0_ONLY
-	int chan1_1 = DMA1TX_LAN_SWITCH_CLASS1;
-	int chan2_1 = DMA2RX_GSWIP_R_CLASS1;
-	int chan1_2 = DMA1TX_LAN_SWITCH_CLASS2;
-	int chan2_2 = DMA2RX_GSWIP_R_CLASS2;
-	int chan1_3 = DMA1TX_LAN_SWITCH_CLASS3;
-	int chan2_3 = DMA2RX_GSWIP_R_CLASS3;
-#endif
-
-	if ((ltq_request_dma(chan1, "dma1 tx lan")) < 0)
-		pr_err(" %s failed to open chan for chan1\r\n", __func__);
-
-	if ((ltq_request_dma(chan2, "dma2 rx gswpr")) < 0)
-		pr_err(" %s failed to open chan for chan2\r\n", __func__);
-
-	/* rx decriptor setup */
-	if (ltq_dma_chan_desc_alloc(chan2, 32) == 0)
-		ltq_dma_chan_data_buf_alloc(chan2);
-
-#if !defined(SINGLE_RX_CH0_ONLY) || !SINGLE_RX_CH0_ONLY
-	if ((ltq_request_dma(chan1_1, "dma1 tx lan")) < 0)
-		pr_err(" %s failed to open chan for chan1_1\r\n", __func__);
-
-	if ((ltq_request_dma(chan2_1, "dma2 rx gswpr")) < 0)
-		pr_err(" %s failed to open chan for chan2_1\r\n", __func__);
-
-	/* rx decriptor setup */
-	if (ltq_dma_chan_desc_alloc(chan2_1, 32) == 0)
-		ltq_dma_chan_data_buf_alloc(chan2_1);
-
-	if ((ltq_request_dma(chan1_2, "dma1 tx lan")) < 0)
-		pr_err(" %s failed to open chan for chan1_2\r\n", __func__);
-
-	if ((ltq_request_dma(chan2_2, "dma2 rx gswpr")) < 0)
-		pr_err(" %s failed to open chan for chan2_2\r\n", __func__);
-
-	/* rx decriptor setup */
-	if (ltq_dma_chan_desc_alloc(chan2_2, 32) == 0)
-		ltq_dma_chan_data_buf_alloc(chan2_2);
-
-	if ((ltq_request_dma(chan1_3, "dma1 tx lan")) < 0)
-		pr_err(" %s failed to open chan for chan1_3\r\n", __func__);
-
-	if ((ltq_request_dma(chan2_3, "dma2 rx gswpr")) < 0)
-		pr_err(" %s failed to open chan for chan2_3\r\n", __func__);
-
-	/* rx decriptor setup */
-	if (ltq_dma_chan_desc_alloc(chan2_3, 32) == 0)
-		ltq_dma_chan_data_buf_alloc(chan2_3);
-#endif
-
-	/* Any other configuration ???? */
-	ltq_dma_p2p_cfg(chan2, chan1);
-#if !defined(SINGLE_RX_CH0_ONLY) || !SINGLE_RX_CH0_ONLY
-	ltq_dma_p2p_cfg(chan2_3, chan1_3);
-	ltq_dma_p2p_cfg(chan2_1, chan1_1);
-	ltq_dma_p2p_cfg(chan2_2, chan1_2);
-#endif
-	ltq_dma_chan_irq_disable(chan2);
-	ltq_dma_chan_irq_disable(chan1);
-#if !defined(SINGLE_RX_CH0_ONLY) || !SINGLE_RX_CH0_ONLY
-	ltq_dma_chan_irq_disable(chan2_3);
-	ltq_dma_chan_irq_disable(chan1_3);
-	ltq_dma_chan_irq_disable(chan2_1);
-	ltq_dma_chan_irq_disable(chan1_1);
-	ltq_dma_chan_irq_disable(chan2_2);
-	ltq_dma_chan_irq_disable(chan1_2);
-#endif
-	cbm_p2p_setup_done = 1;
-	pr_info("%s executed\n", __func__);
-}
-
-int turn_on_DMA_p2p(void)
-{
-	int chan1 = DMA1TX_LAN_SWITCH_CLASS0;
-	int chan2 = DMA2RX_GSWIP_R_CLASS0;
-#if !defined(SINGLE_RX_CH0_ONLY) || !SINGLE_RX_CH0_ONLY
-	int chan1_1 = DMA1TX_LAN_SWITCH_CLASS1;
-	int chan2_1 = DMA2RX_GSWIP_R_CLASS1;
-	int chan1_2 = DMA1TX_LAN_SWITCH_CLASS2;
-	int chan2_2 = DMA2RX_GSWIP_R_CLASS2;
-	int chan1_3 = DMA1TX_LAN_SWITCH_CLASS3;
-	int chan2_3 = DMA2RX_GSWIP_R_CLASS3;
-#endif
-
-	if (!cbm_p2p_setup_done || cbm_p2p_turned_on)
-		return -EPERM;
-
-	if (!cbm_p2p_turned_on) {
-		ltq_dma_chan_on(chan1);
-		ltq_dma_chan_on(chan2);
-#if !defined(SINGLE_RX_CH0_ONLY) || !SINGLE_RX_CH0_ONLY
-		ltq_dma_chan_on(chan1_1);
-		ltq_dma_chan_on(chan2_1);
-
-		ltq_dma_chan_on(chan1_2);
-		ltq_dma_chan_on(chan2_2);
-
-		ltq_dma_chan_on(chan1_3);
-		ltq_dma_chan_on(chan2_3);
-#endif
-		cbm_p2p_turned_on = 1;
-	}
-	return 0;
-}
-
 static int cbm_eqm_rx_chan_open(int chan, int cbm_port, u32 buf_type)
 {
 	dma_addr_t desc;
@@ -346,14 +232,6 @@ int cbm_hw_init(struct platform_device *pdev)
 			pr_err("cbm: init_cbm_eqm_ldma_port failed: %d\n",
 			       sret);
 	}
-
-	/*
-	 * SINGLE_RX_CH0_ONLY: only the CLASS0 channel pair is brought up,
-	 * matching the vendor's own definition in
-	 * include/net/lantiq_cbm_api.h.
-	 */
-	if (!cbm_p2p_setup_done)
-		setup_DMA_p2p();
 
 	return 0;
 }
