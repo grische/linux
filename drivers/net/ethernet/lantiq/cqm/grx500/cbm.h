@@ -20,11 +20,82 @@
 #include <linux/bitops.h>
 
 #include "cbm_regs.h"
-#include "../../datapath/lantiq_cbm_api.h"
 
-struct cbm_dp_en_data;
 struct net_device;
-struct cbm_dp_alloc_data;
+
+/*
+ * Port-resource vocabulary, from the AVM FRITZ!Box 7560 GPL release (Linux
+ * 4.9.198), include/net/lantiq_cbm_api.h. It described the interface between
+ * the buffer manager and a datapath registry that no longer exists; what
+ * survives is the part the manager itself speaks, so it lives here.
+ */
+
+/* Which fields of struct cbm_dp_alloc_data the manager filled in. */
+#define CBM_PORT_DP_SET		BIT(0)
+#define CBM_PORT_DQ_SET		BIT(1)
+#define CBM_PORT_DMA_CHAN_SET	BIT(2)
+
+/*
+ * Dequeue-port class. The first four name a processor port; the rest
+ * describe the kind of endpoint a datapath port serves, and select the row
+ * of the dequeue-resource table that port is allocated from.
+ */
+#define DP_F_DEQ_CPU		0x2
+#define DP_F_DEQ_CPU1		0x3
+#define DP_F_DEQ_MPE		0x4
+#define DP_F_DEQ_DL		0x5
+
+#define DP_F_FAST_ETH_LAN	BIT(1)
+#define DP_F_FAST_ETH_WAN	BIT(2)
+#define DP_F_FAST_WLAN		BIT(3)
+#define DP_F_FAST_DSL		BIT(4)
+#define DP_F_DIRECT		BIT(5)
+#define DP_F_LOOPBACK		BIT(6)
+#define DP_F_DIRECTLINK		BIT(7)
+#define DP_F_MPE_ACCEL		BIT(25)
+#define DP_F_CHECKSUM		BIT(26)
+#define DP_F_DIRECTPATH_RX	BIT(27)
+#define DP_F_DONTCARE		BIT(28)
+#define DP_F_LRO		BIT(29)
+#define DP_F_FAST_DSL_DOWNSTREAM BIT(30)
+#define DP_F_PORT_TUNNEL_DECAP	DP_F_LOOPBACK
+
+/* The dequeue resources a datapath port was allocated. */
+struct cbm_dp_alloc_data {
+	int dp_inst;
+	int cbm_inst;
+	u32 flags;
+	u32 dp_port;
+	u32 deq_port_num;
+	u32 deq_port;
+	u32 dma_chan;
+	u32 tx_pkt_credit;
+	u32 tx_b_credit;
+	u32 tx_ring_addr;
+	u32 tx_ring_size;
+	u32 tx_ring_offset;
+	u32 num_dma_chan;
+};
+
+/* The dequeue resources to arm when a datapath port is enabled. */
+struct cbm_dp_en_data {
+	int dp_inst;
+	int cbm_inst;
+	u32 deq_port;
+	u32 dma_chnl_init;
+	u32 num_dma_chan;
+};
+
+/*
+ * One traffic-manager port: its dequeue port, and the scheduler and queue
+ * hung off it. -1 in a field means nothing is allocated there.
+ */
+struct cbm_tmu_res {
+	u32 tmu_port;
+	u32 cbm_deq_port;
+	s32 tmu_sched;
+	s32 tmu_q;
+};
 
 /*
  * struct cbm_desc — CBM/TMU 16-byte descriptor.
@@ -402,7 +473,9 @@ int cbm_configure_dqm_cpu_ports(void);
  */
 u32 cbm_dqm_port_num_desc(int idx);
 s32 dp_port_resources_get(u32 *dp_port, u32 *num_tmu_ports,
-			  cbm_tmu_res_t **res_pp, u32 flags);
+			  struct cbm_tmu_res **res_pp, u32 flags);
+s32 cbm_dp_port_resources_get(u32 *dp_port, u32 *num_tmu_ports,
+			      struct cbm_tmu_res **res_pp, u32 flags);
 void cbm_program_cpu_qidt(u8 qid_val);
 
 void init_fsqm(int idx);

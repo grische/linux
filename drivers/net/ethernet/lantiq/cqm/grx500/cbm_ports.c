@@ -20,7 +20,6 @@
 #include <linux/string.h>
 
 #include "cbm.h"
-#include "../../datapath/lantiq_cbm_api.h"
 #include "../../tmu/drv_tmu_ll.h"
 
 /*
@@ -529,12 +528,12 @@ static u32 __maybe_unused get_matching_pmac_noflags(
 s32 dp_port_resources_get(
 	u32 *dp_port,
 	u32 *num_tmu_ports,
-	cbm_tmu_res_t **res_pp,
+	struct cbm_tmu_res **res_pp,
 	u32 flags)
 {
 	int i = 0;
 	u32 port_map;
-	cbm_tmu_res_t *res;
+	struct cbm_tmu_res *res;
 	struct cbm_pmac_port_map *local_entry = NULL;
 
 	pr_debug("cbm: %s: flags 0x%x dp %d\r\n", __func__, flags,
@@ -549,7 +548,7 @@ s32 dp_port_resources_get(
 		*num_tmu_ports = hweight_long(local_entry->egp_port_map);
 		if ((*num_tmu_ports > 16) || (*num_tmu_ports == 0))
 			return -1;
-		res = kmalloc(sizeof(cbm_tmu_res_t) * (*num_tmu_ports), GFP_ATOMIC);
+		res = kmalloc_array(*num_tmu_ports, sizeof(*res), GFP_ATOMIC);
 		if (res) {
 			*res_pp = res;
 			port_map = local_entry->egp_port_map;
@@ -587,9 +586,9 @@ s32 dp_port_resources_get(
  * dynamic port allocator reads it back at AVM cbm.c:914); no register
  * writes.
  */
-static void reserved_ports_highest(cbm_tmu_res_t *tmu_res, int flag_set)
+static void reserved_ports_highest(struct cbm_tmu_res *tmu_res, int flag_set)
 {
-	static cbm_tmu_res_t high_tmu_res = { 0 };
+	static struct cbm_tmu_res high_tmu_res = { 0 };
 
 	if (flag_set) {
 		if (high_tmu_res.tmu_port < tmu_res->tmu_port)
@@ -623,7 +622,7 @@ static void reserved_ports_highest(cbm_tmu_res_t *tmu_res, int flag_set)
 static int conf_dqm_cpu_port(const struct dqm_cpu_port *cpu_ptr)
 {
 	u32 tmu_port, flags = 0;
-	cbm_tmu_res_t tmp_res;
+	struct cbm_tmu_res tmp_res;
 	struct cbm_pmac_port_map local_entry = { 0 };
 	u32 ep, res;
 
