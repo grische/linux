@@ -347,49 +347,6 @@ void *cbm_fsqm_buf_alloc(int pid, u32 flags, u32 *buf_phys)
 }
 EXPORT_SYMBOL_GPL(cbm_fsqm_buf_alloc);
 
-/*
- * cbm_fsqm_buf_free - return a BUFREQ-popped standard segment to the FSQM
- * free pool by writing its PHYSICAL (segment-aligned) address to the DQM
- * CPU-port ptr_rtn register (AVM cbm_buffer_free_grx500, cbm.c:1039).
- *
- * Used on the TX side ONLY to roll back a segment that was popped but never
- * successfully enqueued (the hardware never took ownership, so it will not
- * auto-recycle it). On the normal TX success path the CBM hardware recycles
- * the segment automatically after the DMA2TX egress — do NOT call this there
- * (the hardware still owns the buffer until egress). The RX side calls it for
- * every consumed segment, on every path (cbm_intr.c).
- *
- * @pid MUST be the calling CPU's own DQM CPU port. ptr_rtn is one register per
- * port and the local_irq_save() below is CPU-local, so two CPUs sharing a pid
- * race on the same register and lose returns — a silent FSQM segment leak.
- * AVM's rule is simply "free on smp_processor_id()" (AVM cbm.c:2645/2695), and
- * every port a CPU can name is brought up for it at probe (AVM cbm.c:5753-
- * 5759). Callers must be pinned across the read of their CPU id and this call:
- * softirq context, or IRQs disabled under a lock.
- */
-int cbm_fsqm_buf_free(int pid, u32 buf_phys)
-{
-	unsigned long irqflags;
-
-	if (!g_cbm_dqm_base) {
-		pr_err_ratelimited("cbm: cbm_fsqm_buf_free: g_cbm_dqm_base not mapped\n");
-		return -ENODEV;
-	}
-	if (pid < 0 || pid >= CPU_DQM_PORT_NUM) {
-		pr_err_ratelimited("cbm: cbm_fsqm_buf_free: illegal pid %d (0..%d); segment 0x%08x LEAKED\n",
-				   pid, CPU_DQM_PORT_NUM - 1, buf_phys);
-		return -EINVAL;
-	}
-
-	local_irq_save(irqflags);
-	cbm_dqm_w32(CBM_DQM_CPU_PORT(pid, ptr_rtn),
-		    buf_phys & CBM_FSQM_BUF_EMPTY);
-	wmb();
-	local_irq_restore(irqflags);
-	return 0;
-}
-EXPORT_SYMBOL_GPL(cbm_fsqm_buf_free);
-
 #define CBM_DQM_EGP_CFG_DQREQ   0x1U      /* AVM CFG_DMA_EGP_6_DQREQ  (bit0) */
 #define CBM_DQM_EGP_CFG_DQPCEN  0x100U    /* AVM CFG_DMA_EGP_6_DQPCEN (bit8) */
 #define CBM_DQM_EGP_EPMAP_POS   16        /* AVM CFG_DMA_EGP_6_EPMAP_POS    */
@@ -481,27 +438,6 @@ int init_cbm_dqm_cpu_port(int idx)
 		idx, cfg_val, idx, num_desc);
 	return 0;
 }
-
-int dma_port_enable(u32 idx, int dqm_flag)
-{
-	int ret;
-
-	if (dqm_flag) {
-		dev_warn_ratelimited(NULL,
-				     "cbm: DQM-side dma_port_enable is not implemented, idx=%u\n",
-				     idx);
-		return -ENOSYS;
-	}
-
-	ret = init_cbm_eqm_dma_port((int)idx, CBM_PORT_F_STANDARD_BUF);
-	if (ret) {
-		pr_err("cbm: dma_port_enable: init_cbm_eqm_dma_port(idx=%u) failed: %d\n",
-		       idx, ret);
-		return ret;
-	}
-	return 0;
-}
-EXPORT_SYMBOL_GPL(dma_port_enable);
 
 #define CBM_DEQUEUE_DEFAULT_WAIT_CYCLES  20U
 #define CBM_DEQUEUE_RCNT_CONSUMED        0xFFFFF800U

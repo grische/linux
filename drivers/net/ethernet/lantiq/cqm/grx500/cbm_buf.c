@@ -301,7 +301,7 @@ int cbm_buf_init_pools(struct device *dev)
 	if (ret)
 		return ret;
 
-	/* Mirror dimensions into g_cbm_buff for the legacy readers. */
+	/* Mirror dimensions into g_cbm_buff. */
 	g_cbm_buff.std_frm_size  = g_cbm_pools[CBM_POOL_STD].frm_size;
 	g_cbm_buff.jbo_frm_size  = g_cbm_pools[CBM_POOL_JBO].frm_size;
 	g_cbm_buff.std_pool_size = g_cbm_pools[CBM_POOL_STD].size;
@@ -337,59 +337,6 @@ phys_addr_t cbm_buf_pool_phys_base(int which)
 EXPORT_SYMBOL_GPL(cbm_buf_pool_phys_base);
 
 /*
- * cbm_buf_alloc - request a chunk from one of the carve pools.
- *
- * @pool_phys: optional out — physical address of the returned chunk. The
- *             carve allocator computes phys = pool->phys_base +
- *             (chunk - pool->virt_base) so callers can populate DMA
- *             descriptors directly.
- */
-void *cbm_buf_alloc(u32 size, u32 *pool_phys, u32 flags)
-{
-	struct cbm_pool *pool;
-	void *chunk;
-	unsigned long irq_flags;
-
-	(void)flags;  /* dispatch is by SIZE, @flags unused. */
-
-	if (size <= DEFAULT_STD_FRM_SIZE) {
-		pool = &g_cbm_pools[CBM_POOL_STD];
-	} else if (size <= DEFAULT_JBO_FRM_SIZE) {
-		pool = &g_cbm_pools[CBM_POOL_JBO];
-	} else {
-		pr_err("cbm: cbm_buf_alloc(size=%u): exceeds jbo_frm_size cap %u — no pool can service\n",
-		       size, DEFAULT_JBO_FRM_SIZE);
-		return NULL;
-	}
-
-	if (!pool->virt_base) {
-		pr_err("cbm: cbm_buf_alloc(%s): pool not initialised (probe path missed of_reserved_mem_lookup?)\n",
-		       pool->name);
-		return NULL;
-	}
-
-	spin_lock_irqsave(&pool->lock, irq_flags);
-	chunk = pool->free_head;
-	if (chunk)
-		pool->free_head = *(void **)chunk;
-	spin_unlock_irqrestore(&pool->lock, irq_flags);
-
-	if (!chunk) {
-		pr_err_ratelimited("cbm: cbm_buf_alloc(%s): free-list empty (frm_num=%u)\n",
-				   pool->name, pool->frm_num);
-		return NULL;
-	}
-
-	if (pool_phys)
-		*pool_phys = (u32)(pool->phys_base +
-				   ((phys_addr_t)((u8 *)chunk -
-						  (u8 *)pool->virt_base)));
-
-	return chunk;
-}
-EXPORT_SYMBOL_GPL(cbm_buf_alloc);
-
-/*
  * cbm_buf_phys_to_virt - map a CBM pool PHYSICAL address back to its
  * kernel-virtual address within the memremap'd carve pool.
  */
@@ -412,55 +359,3 @@ void *cbm_buf_phys_to_virt(u32 phys)
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(cbm_buf_phys_to_virt);
-
-/*
- * cbm_buf_free - return a chunk previously handed out by cbm_buf_alloc.
- *
- * @buf:  kernel-virtual address as returned by cbm_buf_alloc.
- *
- * @size: byte size originally requested.
- */
-int cbm_buf_free(void *buf, u32 size)
-{
-	struct cbm_pool *pool;
-	uintptr_t addr;
-	uintptr_t lo;
-	uintptr_t hi;
-	unsigned long irq_flags;
-
-	if (!buf)
-		return -EINVAL;
-
-	/* Pick the pool the same way alloc did. */
-	if (size <= DEFAULT_STD_FRM_SIZE) {
-		pool = &g_cbm_pools[CBM_POOL_STD];
-	} else if (size <= DEFAULT_JBO_FRM_SIZE) {
-		pool = &g_cbm_pools[CBM_POOL_JBO];
-	} else {
-		pr_err("cbm: cbm_buf_free(size=%u): exceeds jbo_frm_size cap %u\n",
-		       size, DEFAULT_JBO_FRM_SIZE);
-		return -EINVAL;
-	}
-
-	if (!pool->virt_base)
-		return -EINVAL;
-
-	/* Range check — the buf must point inside the chosen pool. */
-	addr = (uintptr_t)buf;
-	lo   = (uintptr_t)pool->virt_base;
-	hi   = lo + pool->frm_num * pool->frm_size;
-	if (addr < lo || addr >= hi) {
-		pr_err_ratelimited("cbm: cbm_buf_free(%s): buf %p outside pool [%p, +0x%zx)\n",
-				   pool->name, buf, pool->virt_base,
-				   (size_t)(pool->frm_num * pool->frm_size));
-		return -EINVAL;
-	}
-
-	spin_lock_irqsave(&pool->lock, irq_flags);
-	*(void **)buf = pool->free_head;
-	pool->free_head = buf;
-	spin_unlock_irqrestore(&pool->lock, irq_flags);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(cbm_buf_free);
