@@ -289,16 +289,10 @@ int ltq_dma_chan_off(u32 chan);
 int ltq_dma_chan_open(u32 chan);
 int ltq_dma_chan_close(u32 chan);
 int ltq_dma_chan_reset(u32 chan);
-int ltq_dma_chan_pktsize_cfg(u32 chan, size_t pktsize);
 int ltq_dma_chan_desc_alloc(u32 chan, u32 desc_num);
 int ltq_dma_chan_desc_free(u32 chan);
-int ltq_dma_chan_data_buf_alloc(u32 chan);
-int ltq_dma_chan_data_buf_free(u32 chan);
 int ltq_dma_chan_irq_enable(u32 chan);
 int ltq_dma_chan_irq_disable(u32 chan);
-int ltq_dma_chan_pkt_drop_cfg(u32 chan, int enable);
-int ltq_dma_chan_byte_offset_cfg(u32 chan, u32 boff_len);
-int ltq_dma_chan_class_cfg(u32 chan, u32 cls);
 int ltq_dma_chan_pseudo_irq_handler_callback_cfg(u32 chan,
 						 intr_handler_t handler,
 						 void *priv);
@@ -333,24 +327,5 @@ int ltq_dma_ctrl_id_by_phys(phys_addr_t base);
 int hdma_port_enable(int port_id);
 
 int hdma_ig192_toe_dma3_reset(void);
-
-/*
- * AVM per-channel SW-poll knob (DMA_C_SWPOLL): takes one channel off the
- * controller-global CH_FL flow-control engine.
- */
-int ltq_dma_chan_sw_poll_cfg(u32 chan, int enable);
-
-int ltq_dma_p2p_cfg(u32 rx_chan, u32 tx_chan);
-
-/*
- * Releases the DMA channels that hdma_port_enable(port_id) opened, in reverse
- * order: ltq_dma_chan_close -> ltq_dma_chan_desc_free -> ltq_free_dma per
- * channel.
- *
- * Returns 0 on success; non-zero on partial failure (each failing step
- * is logged via pr_err and teardown continues for the remaining
- * channels so a single stuck channel does not strand the others).
- */
-int hdma_port_disable(int port_id);
 
 #endif /* LANTIQ_DMAX_H */
