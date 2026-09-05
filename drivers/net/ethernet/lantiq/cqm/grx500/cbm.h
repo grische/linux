@@ -514,8 +514,6 @@ void dqm_intr_ctrl(u32 val);
 int init_cbm_dqm_dma_port(int dqp);
 int init_cbm_dqm_cpu_port(int idx);
 void cbm_rx_engine_init(void);
-void cbm_rx_set_netdev(u32 sppid, struct net_device *dev);
-int turn_on_DMA_p2p(void);
 extern bool g_cbm_egress_preconfig[CBM_MAX_DP_PORTS];
 int setup_eqm_dma_desc(int pid, int desc_count, u32 flags, u32 buf_offset);
 u8 get_lookup_qid_via_index(u32 lookup_idx);
