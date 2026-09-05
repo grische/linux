@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
-# Intel xRX500 GSWIP-3.x ethernet driver suite.
+# Intel xRX500 packet datapath.
 #
 # INTEL_XRX500_NET is separate from LANTIQ_XRX200 because INTEL_MIPS and
 # LANTIQ are mutually exclusive entries in arch/mips/Kconfig's "System
@@ -10,46 +10,48 @@ menuconfig INTEL_XRX500_NET
 	bool "Intel xRX500 / GRX350 ethernet drivers"
 	depends on INTEL_MIPS && OF && HAS_IOMEM
 	default n
-	select MFD_SYSCON
-	select REGMAP_MMIO
-	select RESET_CONTROLLER
-	select RESET_LANTIQ
 	help
-	  Selects the Intel xRX500-family ethernet driver suite, beginning
-	  with a passive register-access HAL for the GSWIP-3.x switch core.
-	  Say N here unless you are building for a GRX350-class board such
-	  as the AVM FRITZ!Box 7560.
+	  Selects the packet datapath of the Intel xRX500 family: the buffer
+	  manager that owns the segment pools and the egress queues, the DMA
+	  controllers that move frames between them and the switch macros, and
+	  the network device that carries the processor's end of it.
 
-	  Selects MFD_SYSCON + REGMAP_MMIO + RESET_CONTROLLER + RESET_LANTIQ
-	  because the rcu0 reset-controller (lantiq,xrx200-reset, declared
-	  inside the rcu@ syscon node) is the GPHY reset producer for the
-	  phy-xrx500 GPHY firmware loader. RESET_LANTIQ defaults to
-	  SOC_TYPE_XWAY which the INTEL_MIPS target does NOT set, and it
-	  lives inside the RESET_CONTROLLER menu, so both are selected here
-	  for the intel-mips/xrx500 family.
+	  The switch macros themselves are driven as DSA switches and are
+	  configured under Distributed Switch Architecture instead.
+
+	  Say N here unless you are building for a GRX350-class board such as
+	  the AVM FRITZ!Box 7560.
 
 if INTEL_XRX500_NET
 
-source "drivers/net/ethernet/lantiq/switch-api/Kconfig"
+config INTEL_XRX500_BM
+	bool "xRX500 packet buffer manager"
+	default n
+	help
+	  The central buffer manager, the traffic manager it dequeues
+	  through, and the packet DMA controllers. Together they own the
+	  reserved segment pools every frame is carried in, the free-segment
+	  queue those segments are drawn from and returned to, and the
+	  per-port egress resources a frame is enqueued on.
+
+	  Not a module: the buffer economy is a set of reserved memory
+	  regions the driver maintains by hand, and the MIPS cache
+	  maintenance that takes is not exported to modules.
+
+	  Say N unless you are bringing this datapath up.
 
 config INTEL_XRX500_CBM_CONDUIT
 	bool "xRX500 buffer-manager conduit network device"
-	depends on INTEL_XRX500_NET
-	depends on INTEL_XRX500_GSWIP_API = y
+	depends on INTEL_XRX500_BM
 	default n
 	help
 	  Conduit network device for the xRX500 central buffer manager: one
-	  netdev whose transmit path enqueues into the buffer manager and
-	  whose receive path terminates the switch's own receive DMA ring.
+	  netdev per switch macro whose transmit path enqueues into the
+	  buffer manager and whose receive path terminates that macro's own
+	  receive DMA ring.
 
-	  Not a module: the transmit path issues MIPS cache maintenance on a
-	  reserved memory region, and those primitives are not exported to
-	  modules.
-
-	  Depends on the GSWIP HAL being built in rather than modular,
-	  because the receive path drives its DMA channel through that
-	  translation unit's channel interface for as long as both share the
-	  controller. That coupling goes away with the driver it shares with.
+	  This is what a DSA switch driver for the macros binds as its
+	  conduit; without it the switch has no processor port.
 
 	  Say N unless you are bringing this datapath up.
 
