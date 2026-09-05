@@ -707,11 +707,9 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	 *    entry"
 	 *
 	 * The config table walked above covers ports 2/1/3 only, so port 0 was
-	 * never configured at all — yet it is a buffer-return port on both ends
-	 * of the datapath: the TX enqueue-failure rollback in intel_xrx500.c
-	 * writes ptr_rtn on raw_smp_processor_id()'s port, and the RX tasklet
-	 * (cbm_intr.c) now returns every consumed segment on the running CPU's
-	 * port. A ptr_rtn write into an unconfigured port does not fault and
+	 * never configured at all — yet it is a buffer-return port: the RX
+	 * tasklet (cbm_intr.c) returns every consumed segment on the running
+	 * CPU's port. A ptr_rtn write into an unconfigured port does not fault and
 	 * does not log — it silently drops the segment, so the FSQM free-list
 	 * count (fsqm0 OFSC) walks down one per event until the std pool runs
 	 * dry and RX starves. That misfires even under nosmp, where every
@@ -739,8 +737,7 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	/*
 	 * AVM's configure_ports() walks all 17 compiled-in rows at probe
 	 * (cbm_config.c), so every DMA egress port is preconfigured before
-	 * the controllers come up; dp 2..4 were falling through to the
-	 * ndo_open path. The per-port numbers come from
+	 * the controllers come up. The per-port numbers come from
 	 * cbm_dp_egress_res_get() (the ported epg_lookup_table + cbm_config.c
 	 * rows) rather than the dp+5 / dp+15 arithmetic they used to be
 	 * computed with — that arithmetic is a LAN coincidence and does not
@@ -798,7 +795,7 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 
 			hret = hdma_port_enable((int)res.deq_port);
 			if (hret)
-				dev_warn(dev, "cbm: probe-time hdma_port_enable(%u) = %d (ndo_open will retry)\n",
+				dev_warn(dev, "cbm: probe-time hdma_port_enable(%u) = %d\n",
 					 res.deq_port, hret);
 			else
 				pr_info("cbm: DMA%uTX ch%u opened at probe-end for deq %u (AVM order)\n",

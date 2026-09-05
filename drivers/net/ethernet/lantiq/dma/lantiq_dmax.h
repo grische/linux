@@ -315,20 +315,6 @@ int ltq_dma_ctrl_id_by_phys(phys_addr_t base);
 
 /*
  * Opens the per-controller channel set CBM EQM port_id is wired to.
- *
- *   ndo_open:
- *     hdma_port_enable(port_id)
- *       -> cbm_dp_enable(... 0 ...)        // TRANSITIVE via
- *       -> dp_register_subif(...)          //    dp_register_subif_private
- *
- *   ndo_stop:
- *     dp_deregister_subif(...)             // TRANSITIVE
- *       -> cbm_dp_enable(... CBM_PORT_F_DISABLE ...)
- *     hdma_port_disable(port_id)
- *
- * The reverse-order pairing (enable: hdma -> dp; disable: dp -> hdma)
- * ensures DMA channels are still held open while the datapath unprograms
- * the CTP / BridgePort / QIDT entries that reference them.
  */
 int hdma_port_enable(int port_id);
 

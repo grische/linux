@@ -355,14 +355,14 @@ static u32 get_matching_EP(
  * a different controller from every LAN port, not merely a different channel.
  *
  * Only the rows this driver can serve end to end are carried, because this
- * table IS the admissibility test - it is what decides which intel,dp-port-id
- * a board may declare, and which ports the CBM probe programs DQM and TMU
- * state for. The vendor's remaining DQM-DMA rows are deliberately absent:
+ * table IS the admissibility test - it is what decides which ports the CBM
+ * probe programs DQM and TMU state for. The vendor's remaining DQM-DMA rows
+ * are deliberately absent:
  *
  * deq 6 and 11 (dp 1 and 6) are real GSWIP-L ports, but no board here wires
  * them and hdma_port_chan_tbl() has no channel for either, so admitting them
- * would hand out a netdev that fails at ifup and program egress state at
- * probe for a port that does not exist on the board. - deq 12..17 are the
+ * would program egress state at probe for a port that does not exist on the
+ * board. - deq 12..17 are the
  * high-priority twins of the six LAN ports (AVM's intel,highprio-lan). They
  * carry the same pmac values as the primaries, which take precedence in the
  * lookup below, so these rows could never be selected even if they were here.
@@ -425,9 +425,7 @@ int cbm_dp_egress_res_get(u32 dp_port_id, struct cbm_dp_egress_res *res)
 
 /*
  * cbm_dp_deq_port_get — @deq_port only, for callers that have no reason to
- * see the rest and would otherwise need a duplicate struct definition
- * (intel_xrx500.c declares its CQM entry points locally rather than including
- * cbm.h).
+ * see the rest and would otherwise need a duplicate struct definition.
  */
 int cbm_dp_deq_port_get(u32 dp_port_id, u32 *deq_port)
 {
