@@ -276,11 +276,6 @@ static inline u32 xrx500_cbm_r32(u32 off)
 {
 	return __raw_readl(g_cbm_base + off);
 }
-static inline void xrx500_cbm_w32(u32 off, u32 val)
-{
-	__raw_writel(val, g_cbm_base + off);
-}
-
 static inline u32 cbm_eqm_r32(u32 off)
 {
 	return __raw_readl(g_cbm_eqm_base + off);
@@ -454,12 +449,6 @@ struct cbm_pmac_port_map {
 	u32 egp_type;
 	struct list_head list;
 };
-
-/* AVM cqm/cqm_common.h:232-235 verbatim — lowest-set-bit helper. */
-static inline int get_is_bit_set(u32 flags)
-{
-	return ffs(flags) - 1;
-}
 
 int cbm_configure_dqm_cpu_ports(void);
 /*

@@ -462,28 +462,6 @@ int tmu_init(void);
 void tmu_egress_port_enable(uint32_t epn, bool ena);
 
 /**
- * tmu_qfmt_read - indirect read of the Queue Format table for @qid. Faithful
- * port of AVM drv_tmu_ll.c:724-744. Fills qfm[0..2] (QFMT0/1/2); qfm[1]
- * HQPP[13:0] is the head PDU's PPT index. Bounded spin; returns -ETIMEDOUT if
- * the QMTC valid bit never sets.
- */
-int tmu_qfmt_read(u32 qid, u32 *qfm);
-
-/**
- * tmu_ppt_read - indirect read of Packet Pointer Table entry @pos. Faithful
- * port of AVM drv_tmu_ll.c:3954-3963. Fills ppt[0..3] (PPT0/1/2/3); ppt[2]
- * BDYL[15:0] is the PDU body length, ppt[1] SEGL[9:0], ppt[0] OFFS[15:8].
- * Bounded spin; returns -ETIMEDOUT on timeout.
- */
-int tmu_ppt_read(u32 pos, u32 *ppt);
-
-/**
- * tmu_reset_mib_all - zero all egress-queue MIB counters (enq + deq + QDCT
- * rings) for every QID up to EGRESS_QUEUE_ID_MAX.
- */
-int tmu_reset_mib_all(void);
-
-/**
  * tmu_create_flat_egress_path - build a flat TMU egress path for one port.
  *
  * @num_ports:  number of consecutive egress ports to build (1 per LAN port).
