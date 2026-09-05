@@ -95,6 +95,83 @@
 #define GSWIP_XRX500_R_MAX_PORTS		16
 #define GSWIP_XRX500_R_EXT_PORT			15
 
+/* Flow table. The rule geometry of this generation is wider than the one the
+ * common function library's table helper knows: sixteen key words and ten
+ * value words, of which the first five sit where the older layout puts its
+ * five and the remaining five continue downwards from the last key word. The
+ * helper writes the older geometry, so the rule below is written here.
+ */
+#define GSWIP_XRX500_PCE_TBL_FLOW		0x0f
+#define GSWIP_XRX500_PCE_FLOW_KEYS		16
+#define GSWIP_XRX500_PCE_FLOW_VALS		10
+#define GSWIP_XRX500_PCE_FLOW_VAL_HI(x)		(0x43c - (x))
+
+/* The field of a rule that names the frame's forwarding domain: the domain
+ * sits in the high byte of the action's VLAN word, over a low byte that
+ * indexes the active-VLAN table and is left at zero, which needs no row there.
+ *
+ * The field is declared eight bits wide and implemented as six, so the
+ * numbering in the common header has to stay inside six bits whatever the mask
+ * says.
+ */
+#define GSWIP_XRX500_PCE_FLOW_VAL2_FID		GENMASK(15, 8)
+
+/* Key words above the ingress port, for a rule that selects on the ingress
+ * port alone: every field they can express, switched off, and the
+ * sub-interface word above as the last of them.
+ *
+ * Which of these fields a macro implements is not the same across this
+ * family, and a field a macro leaves out reads back zero whatever is written
+ * to it. So every word carries its marker whether or not the macro at hand
+ * needs it: writing the marker into a field that does not exist costs
+ * nothing, and leaving it out of a field that does exist turns a disabled
+ * compare into a live one against entry zero of that field's sub-table.
+ *
+ * The last word of the table is different in kind. Its sixteen bits are not
+ * key data but one invert-this-compare flag per match field, so its neutral
+ * value is zero and the marker would turn every compare in the rule inside
+ * out. It is the one entry that stays zero.
+ *
+ * A rule whose markers are incomplete is stored, reads back intact and
+ * matches nothing, and no register read can tell it apart from a rule that
+ * matches and assigns a domain.
+ */
+static const u16 gswip_xrx500_pce_flow_key[GSWIP_XRX500_PCE_FLOW_KEYS - 1] = {
+	0x3f3f, 0x7f7f, 0x7f7f, 0x7f7f, 0x7f7f, 0x7f0f, 0x1f1f, 0x7f1f,
+	0x7f3f, 0x7f7f, 0x7f7f, 0x3f3f, 0x0000, 0x0100, 0x0000,
+};
+
+/* Action words, likewise, for a rule that assigns a forwarding domain. Only
+ * the domain itself varies per port, so it is the one word this table leaves
+ * at zero and the writer fills in.
+ *
+ * The rest are written rather than trimmed. Two of them are what enables the
+ * domain at all - the VLAN action at word 0 bit 1, and word 5 bit 3, which
+ * selects the alternative VLAN and domain the rule carries over the frame's
+ * own tag. Word 0 bit 9 enables the learning action, so the domain the rule
+ * assigns is the domain the port learns in. The others shape what that action
+ * is allowed to touch:
+ *
+ *   word 1  a forwarding port map, inert here because all three of its gates
+ *           stay clear - word 0 bit 0, word 4 bit 4 and word 6 bit 0.
+ *   word 3  bits 12 to 14 are the active-low "do not remark" selectors, which
+ *           stop the VLAN action rewriting the frame's priority fields; the
+ *           low nibble is a meter id, inert because word 0 bit 11 is clear.
+ *   word 5  bit 2 ignores the frame's inner VLAN tag for this rule.
+ *   word 6  bits 1 and 2 are the tag priority and drop-eligible remark
+ *           disables, over the port-map gate at bit 0, which stays clear.
+ *
+ * Word 9 stays zero. Its upper byte and its four mask-compare bits qualify a
+ * routing-session lookup, and the two bits that arm that lookup are clear, so
+ * there is nothing for it to qualify on a switch driven as a plain bridge.
+ *
+ * The action words are not independent of one another, so the set is written
+ * whole rather than reduced to the words a rule appears to need.
+ */
+static const u16 gswip_xrx500_pce_flow_val[GSWIP_XRX500_PCE_FLOW_VALS] = {
+	[0] = 0x0202, [1] = 0x007f, [3] = 0x700f, [5] = 0x000c, [6] = 0x0006,
+};
+
 /* Packet MAC. It sits inside the switch's register window rather than being a
  * device of its own, and the reset the common function library issues in
  * setup() returns it to its defaults, so this model programs it from the
@@ -861,6 +938,90 @@ static void gswip_xrx500_r_phylink_get_caps(struct dsa_switch *ds, int port,
 		MAC_10 | MAC_100 | MAC_1000;
 }
 
+/* Write one ingress-classification rule: match a frame by the port it arrived
+ * on and put it in forwarding domain @fid.
+ *
+ * On this switch generation the domain a frame is classified into at ingress
+ * is the one its destination lookup runs in, so a station learned in one
+ * domain is a miss for a frame classified into another, and the
+ * unknown-destination map sends that frame to the processor rather than across
+ * the fabric. The domain a port reaches through its default VLAN or through
+ * the VLAN tables does not take part in that lookup here, which is why the
+ * common function library's VLAN-table model cannot express a forwarding
+ * domain on its own on this generation.
+ *
+ * The write follows the vendor's table sequence: wait for the previous access
+ * to retire, address the row, fill key, mask and value words, and start the
+ * access from the control word last.
+ */
+static int gswip_xrx500_flow_rule_write(struct gswip_priv *priv,
+					unsigned int slot, u16 port, u16 fid)
+{
+	u16 key[GSWIP_XRX500_PCE_FLOW_KEYS] = { port };
+	u16 val[GSWIP_XRX500_PCE_FLOW_VALS] = { };
+	unsigned int i;
+	u32 ctrl;
+	int err;
+
+	memcpy(&key[1], gswip_xrx500_pce_flow_key,
+	       sizeof(gswip_xrx500_pce_flow_key));
+	memcpy(val, gswip_xrx500_pce_flow_val,
+	       sizeof(gswip_xrx500_pce_flow_val));
+
+	val[2] = FIELD_PREP(GSWIP_XRX500_PCE_FLOW_VAL2_FID, fid);
+
+	mutex_lock(&priv->pce_table_lock);
+
+	err = regmap_read_poll_timeout(priv->gswip, GSWIP_PCE_TBL_CTRL, ctrl,
+				       !(ctrl & GSWIP_PCE_TBL_CTRL_BAS),
+				       20, 50000);
+	if (err)
+		goto out_unlock;
+
+	regmap_write(priv->gswip, GSWIP_PCE_TBL_ADDR, slot);
+
+	for (i = 0; i < ARRAY_SIZE(key); i++)
+		regmap_write(priv->gswip, GSWIP_PCE_TBL_KEY(i), key[i]);
+
+	regmap_write(priv->gswip, GSWIP_PCE_TBL_MASK, 0);
+
+	for (i = 0; i < ARRAY_SIZE(val); i++) {
+		unsigned int reg = i < 5 ? GSWIP_PCE_TBL_VAL(i) :
+					   GSWIP_XRX500_PCE_FLOW_VAL_HI(i);
+
+		regmap_write(priv->gswip, reg, val[i]);
+	}
+
+	regmap_write(priv->gswip, GSWIP_PCE_TBL_CTRL,
+		     GSWIP_PCE_TBL_CTRL_BAS | GSWIP_PCE_TBL_CTRL_VLD |
+		     GSWIP_PCE_TBL_CTRL_OPMOD_ADWR |
+		     GSWIP_XRX500_PCE_TBL_FLOW);
+
+	err = regmap_read_poll_timeout(priv->gswip, GSWIP_PCE_TBL_CTRL, ctrl,
+				       !(ctrl & GSWIP_PCE_TBL_CTRL_BAS),
+				       20, 50000);
+
+out_unlock:
+	mutex_unlock(&priv->pce_table_lock);
+
+	return err;
+}
+
+/* Each user port owns the rule in the slot of its own number, so a port's
+ * domain can be rewritten on its own without disturbing any other, and the
+ * rules a model does not use stay empty. The processor port gets none: the
+ * frames it sends carry the ports they are for.
+ */
+static int gswip_xrx500_port_set_fid(struct dsa_switch *ds, int port, u16 fid)
+{
+	struct gswip_priv *priv = ds->priv;
+
+	if (dsa_is_cpu_port(ds, port))
+		return 0;
+
+	return gswip_xrx500_flow_rule_write(priv, port, port, fid);
+}
+
 /* Every one of these PHYs faces a switch port, so it should carry the
  * master clock of a gigabit link rather than take it from the far end. The
  * preference survives an autonegotiation restart, which only rewrites the
@@ -1023,6 +1184,7 @@ static const struct gswip_xrx500_model gswip_xrx500 = {
 		.pce_microcode = &gswip_xrx500_pce_microcode,
 		.pce_microcode_size = ARRAY_SIZE(gswip_xrx500_pce_microcode),
 		.setup = gswip_xrx500_setup,
+		.port_set_fid = gswip_xrx500_port_set_fid,
 		.phylink_get_caps = gswip_xrx500_phylink_get_caps,
 		.tag_protocol = DSA_TAG_PROTO_GSWIP3,
 	},
@@ -1048,6 +1210,7 @@ static const struct gswip_xrx500_model gswip_xrx500_r = {
 		.pce_microcode = &gswip_xrx500_pce_microcode,
 		.pce_microcode_size = ARRAY_SIZE(gswip_xrx500_pce_microcode),
 		.setup = gswip_xrx500_setup,
+		.port_set_fid = gswip_xrx500_port_set_fid,
 		.phylink_get_caps = gswip_xrx500_r_phylink_get_caps,
 		.tag_protocol = DSA_TAG_PROTO_GSWIP3,
 	},

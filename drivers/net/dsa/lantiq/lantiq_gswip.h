@@ -3,6 +3,7 @@
 #define __LANTIQ_GSWIP_H
 
 #include <linux/bitfield.h>
+#include <linux/build_bug.h>
 #include <linux/clk.h>
 #include <linux/mutex.h>
 #include <linux/phylink.h>
@@ -257,6 +258,24 @@
  */
 #define GSWIP_2X_MAX_PORTS	7
 
+/* Forwarding-domain numbering for a model that implements port_set_fid().
+ * A bridge takes the number the DSA core hands out for it, which starts at
+ * one, and a port outside every bridge takes one of its own from the block
+ * above the port numbers, so that a standalone port is separated from every
+ * bridge and from every other standalone port rather than sharing a domain
+ * with them.
+ *
+ * Domain 0 is deliberately left unused. A port the driver has not given a
+ * domain to falls into it, and since nothing is ever learned there, a frame
+ * from such a port misses the lookup and reaches the processor instead of
+ * crossing the fabric.
+ */
+#define GSWIP_FID_STANDALONE_BASE	0x20
+#define GSWIP_FID_MAX			64
+
+static_assert(GSWIP_MAX_PORTS <= GSWIP_FID_STANDALONE_BASE);
+static_assert(GSWIP_FID_STANDALONE_BASE + GSWIP_MAX_PORTS <= GSWIP_FID_MAX);
+
 /**
  * struct gswip_mdio_layout - placement of the MDIO master registers
  * @glob: global control register, carrying the switch macro enable
@@ -325,6 +344,13 @@ struct gswip_hw_info {
 	 * setup() returns to their defaults.
 	 */
 	int (*setup)(struct dsa_switch *ds);
+	/* Confine the port's destination lookup to the forwarding domain
+	 * named by @fid. A model whose lookup can be scoped this way
+	 * implements it and gets one domain per bridge plus one per
+	 * standalone port; NULL leaves the switch forwarding between all of
+	 * its ports, and the common VLAN-table model is all there is.
+	 */
+	int (*port_set_fid)(struct dsa_switch *ds, int port, u16 fid);
 };
 
 struct gswip_gphy_fw {

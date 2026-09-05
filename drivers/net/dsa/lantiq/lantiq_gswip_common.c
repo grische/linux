@@ -491,6 +491,31 @@ static int gswip_port_set_learning(struct gswip_priv *priv, int port,
 				  enable ? 0 : GSWIP_PCE_PCTRL_3_LNDIS);
 }
 
+/* The forwarding domain a port belongs to follows its bridge membership, and
+ * the DSA core has already updated that by the time a join or a leave reaches
+ * this driver. Deriving the domain here rather than taking it from the caller
+ * gives port setup, a join, a leave and any later path that re-initialises the
+ * switch one entry point that always writes the state the port should have.
+ */
+static u16 gswip_port_fid(struct gswip_priv *priv, int port)
+{
+	struct dsa_bridge *bridge = dsa_to_port(priv->ds, port)->bridge;
+
+	if (bridge)
+		return bridge->num;
+
+	return GSWIP_FID_STANDALONE_BASE + port;
+}
+
+static int gswip_port_apply_fid(struct gswip_priv *priv, int port)
+{
+	if (!priv->hw_info->port_set_fid)
+		return 0;
+
+	return priv->hw_info->port_set_fid(priv->ds, port,
+					   gswip_port_fid(priv, port));
+}
+
 static int gswip_port_pre_bridge_flags(struct dsa_switch *ds, int port,
 				       struct switchdev_brport_flags flags,
 				       struct netlink_ext_ack *extack)
@@ -533,6 +558,15 @@ static int gswip_port_setup(struct dsa_switch *ds, int port)
 
 	if (!dsa_is_cpu_port(ds, port)) {
 		err = gswip_add_single_port_br(priv, port, true);
+		if (err)
+			return err;
+
+		/* A port the device tree does not describe gets no domain of
+		 * its own here, which leaves it in domain 0 where nothing is
+		 * ever learned, so its frames reach the processor rather than
+		 * the fabric.
+		 */
+		err = gswip_port_apply_fid(priv, port);
 		if (err)
 			return err;
 	}
@@ -665,6 +699,19 @@ static void gswip_port_commit_pvid(struct gswip_priv *priv, int port)
 	regmap_write(priv->gswip, GSWIP_PCE_DEFPVID(port), idx);
 }
 
+/* A model that confines the destination lookup to a forwarding domain gets one
+ * domain per bridge, not one per VLAN: the identifier the VLAN tables carry
+ * takes no part in that lookup. So a VLAN-aware bridge is fenced off from every
+ * other bridge and from every standalone port, but two of its own VLANs share a
+ * domain and a unicast between them is forwarded in hardware where the bridge
+ * would not have forwarded it.
+ *
+ * Refusing the attribute would not close that: the core turns the refusal into
+ * a no-op when a port joins an already-filtering bridge, and the port would
+ * then keep port-based VLAN mode while the bridge tagged its frames, which
+ * breaks more than it fences. The tagging behaviour below is therefore kept and
+ * the limit is documented instead; separating VLANs needs a domain per VLAN.
+ */
 static int gswip_port_vlan_filtering(struct dsa_switch *ds, int port,
 				     bool vlan_filtering,
 				     struct netlink_ext_ack *extack)
@@ -1061,6 +1108,11 @@ static int gswip_vlan_remove(struct gswip_priv *priv,
 	return 0;
 }
 
+/* Defined below, and called from both sides of a bridge membership change to
+ * drop the addresses the port learned in the domain it is leaving.
+ */
+static void gswip_port_fast_age(struct dsa_switch *ds, int port);
+
 static int gswip_port_bridge_join(struct dsa_switch *ds, int port,
 				  struct dsa_bridge bridge,
 				  bool *tx_fwd_offload,
@@ -1079,7 +1131,28 @@ static int gswip_port_bridge_join(struct dsa_switch *ds, int port,
 	if (err)
 		return err;
 
-	return gswip_add_single_port_br(priv, port, false);
+	err = gswip_add_single_port_br(priv, port, false);
+	if (err)
+		goto err_vlan;
+
+	/* Move the port into the bridge's forwarding domain. Addresses it
+	 * learned in the domain it just left name a domain it is no longer
+	 * part of, so they are dropped and the port learns again.
+	 */
+	err = gswip_port_apply_fid(priv, port);
+	if (err)
+		goto err_single;
+
+	gswip_port_fast_age(ds, port);
+
+	return 0;
+
+err_single:
+	gswip_add_single_port_br(priv, port, true);
+err_vlan:
+	gswip_vlan_remove(priv, br, port, GSWIP_VLAN_UNAWARE_PVID);
+
+	return err;
 }
 
 static void gswip_port_bridge_leave(struct dsa_switch *ds, int port,
@@ -1087,12 +1160,26 @@ static void gswip_port_bridge_leave(struct dsa_switch *ds, int port,
 {
 	struct net_device *br = bridge.dev;
 	struct gswip_priv *priv = ds->priv;
+	int err;
 
 	/* Add the port back to the "single-port bridge", and remove it from
 	 * the VLAN-unaware PVID created for this bridge.
 	 */
 	gswip_add_single_port_br(priv, port, true);
 	gswip_vlan_remove(priv, br, port, GSWIP_VLAN_UNAWARE_PVID);
+
+	/* Back to a domain of the port's own, and rid of the addresses it
+	 * learned in the bridge's. There is no way to refuse a leave, so a
+	 * failure here leaves the port in the domain of a bridge it is no
+	 * longer in and has to be said out loud.
+	 */
+	err = gswip_port_apply_fid(priv, port);
+	if (err)
+		dev_err(priv->dev,
+			"port %d failed to leave its forwarding domain: %d\n",
+			port, err);
+
+	gswip_port_fast_age(ds, port);
 }
 
 static int gswip_port_vlan_prepare(struct dsa_switch *ds, int port,
@@ -1271,10 +1358,20 @@ static int gswip_port_fdb(struct dsa_switch *ds, int port,
 	int i;
 	int err;
 
-	for (i = max_ports; i < ARRAY_SIZE(priv->vlans); i++) {
-		if (priv->vlans[i].bridge == bridge) {
-			fid = priv->vlans[i].fid;
-			break;
+	/* Where the model confines the destination lookup to a forwarding
+	 * domain, the entry has to be planted in the domain that lookup runs
+	 * in - the port's own - rather than in the one the VLAN tables carry,
+	 * or it is never found. The port is in @bridge here, so the two ways
+	 * of naming the domain agree.
+	 */
+	if (priv->hw_info->port_set_fid) {
+		fid = gswip_port_fid(priv, port);
+	} else {
+		for (i = max_ports; i < ARRAY_SIZE(priv->vlans); i++) {
+			if (priv->vlans[i].bridge == bridge) {
+				fid = priv->vlans[i].fid;
+				break;
+			}
 		}
 	}
 
@@ -1996,6 +2093,14 @@ int gswip_probe_common(struct gswip_priv *priv, u32 version)
 	priv->ds->ops = &gswip_switch_ops;
 	priv->ds->phylink_mac_ops = &gswip_phylink_mac_ops;
 	priv->ds->priv = priv;
+
+	/* One forwarding domain per bridge needs one number per bridge, which
+	 * the core only hands out once it knows how many the switch can hold.
+	 * The bound is the port count: every domain is anchored on a port, so
+	 * there can be no more bridges than there are ports to put in them.
+	 */
+	if (priv->hw_info->port_set_fid)
+		priv->ds->max_num_bridges = priv->hw_info->max_ports;
 
 	/* The hardware has the 'major/minor' version bytes in the wrong order
 	 * preventing numerical comparisons. Construct a 16-bit unsigned integer
