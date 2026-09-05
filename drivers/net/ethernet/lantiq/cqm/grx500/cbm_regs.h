@@ -81,9 +81,8 @@
 #define CPU_DQM_PORT_NUM          4
 
 /*
- * CPU_EQM_PORT_NUM — number of CPU EQM (enqueue) ingress ports. Bounds
- * cbm_dequeue()'s pid and the eqm_intr_ctrl / dqm_intr_ctrl sweeps, which
- * both walk this count.
+ * CPU_EQM_PORT_NUM — number of CPU EQM (enqueue) ingress ports. Bounds the
+ * eqm_intr_ctrl / dqm_intr_ctrl sweeps, which both walk this count.
  */
 #define CPU_EQM_PORT_NUM          4
 

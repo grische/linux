@@ -850,8 +850,8 @@ int init_cbm_basic(void)
 
 	/* (1)-(4) Buffer pool base addresses. ORDER IS LOAD-BEARING:
 	 * SBA_0 / JBA_0 first (physical), then SBA_1 / JBA_1 (IOCU
-	 * alias). cbm_dp_enable and the silicon descriptor engine read
-	 * all four during DMA setup; any reorder against the jsel write
+	 * alias). The silicon descriptor engine reads all four during
+	 * DMA setup; any reorder against the jsel write
 	 * below would expose a window where the engine could observe
 	 * inconsistent (SBA_*, JSEL) state.
 	 */

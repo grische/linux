@@ -11,7 +11,6 @@ obj-$(CONFIG_INTEL_XRX500_BM) += intel-xrx500-bm.o
 
 intel-xrx500-bm-y := cqm/grx500/cbm.o cqm/grx500/cbm_basic.o cqm/grx500/cbm_buf.o
 intel-xrx500-bm-y += cqm/grx500/cbm_intr.o cqm/grx500/fsqm.o cqm/grx500/cbm_dma.o
-intel-xrx500-bm-y += cqm/grx500/cbm_dp.o
 intel-xrx500-bm-y += cqm/grx500/cbm_ports.o
 intel-xrx500-bm-y += dma/hdma.o
 intel-xrx500-bm-y += tmu/tmu_init.o tmu/drv_tmu_ll.o
