@@ -154,44 +154,6 @@
 #define RCNT                  0x80000
 #define RAM                   0xC0000
 
-/* IRNCR_LS — Load Spreader IRN Capture Register. */
-#define IRNCR_LS              0x910
-
-/*
- * All values are byte-distances within the LS ioremap'd window
- * (g_cbm_ls_base), NOT absolute MIPS physical addresses.
- *
- *   IRNICR_LS (0x914) / IRNEN_LS (0x918) — the LS IRN interrupt
- *     capture-ICR / enable registers, immediately after IRNCR_LS (0x910):
- *     the standard IRN 0x10/0x14/0x18 triplet at the LS aggregator base
- *     0x900. AVM cqm/grx500/reg/cbm_ls.h.
- *
- * IRNEN_LS MUST equal the pre-existing literal CBM_LS_IRNEN (0x918u) in
- * cbm.c:543 (used at cbm.c:570: __raw_writel(..., g_cbm_ls_base +
- * CBM_LS_IRNEN)).
- *
- *   CBM_LS_PORT_STRIDE / CBM_LS_PORT_STATUS / CBM_LS_PORT_DESC — per-LS
- *     -output-port window geometry, from AVM cqm/cqm_common.h:28-63
- *     (struct cbm_ls_reg + CBM_LS_PORT macro): each port is a 0x100 stride
- *     from LS_DESC_DW0_PORT0 (0x0); within a port the four descriptor words
- *     desc0..desc3 sit at +0x0/+0x4/+0x8/+0xC and the status register at
- *     +0x14 (desc[4 words]=0x10, ctrl@0x10, status@0x14).
- *
- *   CBM_LS_QUEUE_LEN_POS / _MASK — AVM cbm_ls.h LS_STATUS_PORT0_QUEUE_LEN_*:
- *     bits 7..10 (0x780) carry the 4-bit queued-descriptor count, read as
- *     (status >> 7) & 0xF.
- *   CBM_LS_QUEUE_EMPTY — status BIT(13), the LS-ring-drained flag the
- *     do_cbm_tasklet re-arm gate tests (AVM cbm.c:2650).
- */
-#define IRNICR_LS             0x914
-#define IRNEN_LS              0x918
-#define CBM_LS_PORT_STRIDE    0x100
-#define CBM_LS_PORT_STATUS(i)  ((i) * CBM_LS_PORT_STRIDE + 0x14)
-#define CBM_LS_PORT_DESC(i, n) ((i) * CBM_LS_PORT_STRIDE + (n) * 4)
-#define CBM_LS_QUEUE_LEN_POS  7
-#define CBM_LS_QUEUE_LEN_MASK 0x780
-#define CBM_LS_QUEUE_EMPTY    BIT(13)
-
 /*
  * FSQM_IRNEN bit-field decomposition — derived from AVM
  * cqm/grx500/reg/fsqm.h:451-530. The AVM register-doc naming

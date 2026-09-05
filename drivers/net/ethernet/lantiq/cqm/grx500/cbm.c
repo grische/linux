@@ -50,10 +50,6 @@ extern phys_addr_t cbm_buf_pool_phys_base(int which);
 #define CBM_POOL_JBO  1
 
 irqreturn_t cbm_isr_0(int irq, void *dev_id);
-irqreturn_t cbm_isr_4(int irq, void *dev_id);
-irqreturn_t cbm_isr_5(int irq, void *dev_id);
-irqreturn_t cbm_isr_6(int irq, void *dev_id);
-irqreturn_t cbm_isr_7(int irq, void *dev_id);
 
 
 /*
@@ -65,7 +61,6 @@ void __iomem *g_cbm_base;
 void __iomem *g_cbm_qidt_base;
 void __iomem *g_cbm_qeqcnt_base;
 void __iomem *g_cbm_qdqcnt_base;
-void __iomem *g_cbm_ls_base;
 void __iomem *g_cbm_eqm_base;
 void __iomem *g_cbm_dqm_base;
 void __iomem *g_cbm_fsqm_base[2];
@@ -76,7 +71,6 @@ EXPORT_SYMBOL_GPL(g_cbm_base);
 EXPORT_SYMBOL_GPL(g_cbm_qidt_base);
 EXPORT_SYMBOL_GPL(g_cbm_qeqcnt_base);
 EXPORT_SYMBOL_GPL(g_cbm_qdqcnt_base);
-EXPORT_SYMBOL_GPL(g_cbm_ls_base);
 EXPORT_SYMBOL_GPL(g_cbm_eqm_base);
 EXPORT_SYMBOL_GPL(g_cbm_dqm_base);
 EXPORT_SYMBOL_GPL(g_cbm_fsqm_base);
@@ -94,7 +88,7 @@ EXPORT_SYMBOL_GPL(g_cbm_dma_desc_base);
 static atomic_t cbm_probe_count = ATOMIC_INIT(0);
 
 static struct platform_device *cbm_pdev_cache;
-static int cbm_irqs[5];
+static int cbm_irqs[1];
 static struct clk *cbm_clk;
 
 /*
@@ -113,7 +107,6 @@ static const struct cbm_ioremap_slot cbm_ioremap_table[] = {
 	{ "qidt",     &g_cbm_qidt_base },
 	{ "qeqcnt",   &g_cbm_qeqcnt_base },
 	{ "qdqcnt",   &g_cbm_qdqcnt_base },
-	{ "ls",       &g_cbm_ls_base },
 	{ "eqm",      &g_cbm_eqm_base },
 	{ "dqm",      &g_cbm_dqm_base },
 	{ "fsqm0",    &g_cbm_fsqm_base[0] },
@@ -312,43 +305,6 @@ static int cbm_dt_dp_ports(u32 *out, int max)
 extern int hdma_port_enable(int port_id);
 extern int hdma_ig192_toe_dma3_reset(void); /* TOE/DMA3 reset parity */
 
-#define CBM_LS_GLBL_CTRL    0x900u
-#define CBM_LS_SPR_CTRL     0x904u
-#define CBM_LS_IRNEN        0x918u
-#define CBM_LS_PORT_CTRL(i) ((u32)(i) * 0x100u + 0x10u)
-#define CBM_LS_PORT_NUM     4
-#define CBM_LS_PORT_ACTIVE   0x2000070Fu  /* 0xF | (7<<8) | (0x2000<<16) */
-#define CBM_LS_PORT_INACTIVE 0x2000070Du  /* 0xD | (7<<8) | (0x2000<<16) */
-
-static void cbm_init_load_spreader(void)
-{
-	u32 spr = 0;          /* SPR_SEL = SPREAD_WRR(0) in bit0 */
-	int i;
-
-	if (!g_cbm_ls_base) {
-		pr_warn("cbm: LS base not mapped; skipping load-spreader init\n");
-		return;
-	}
-
-	/* Per-port control: only port 0 active on this nosmp / no
-	 * CONFIG_CBM_LS_ENABLE build (AVM init_cbm_ls_port: active iff idx==0). */
-	for (i = 0; i < CBM_LS_PORT_NUM; i++)
-		__raw_writel((i == 0) ? CBM_LS_PORT_ACTIVE : CBM_LS_PORT_INACTIVE,
-			     g_cbm_ls_base + CBM_LS_PORT_CTRL(i));
-
-	/* Spread alg = WRR, per-port weight 2 (WP[n] = bits [17+2n:16+2n]). */
-	for (i = 0; i < CBM_LS_PORT_NUM; i++)
-		spr |= (2u & 0x3u) << (16 + 2 * i);
-	__raw_writel(spr, g_cbm_ls_base + CBM_LS_SPR_CTRL);
-
-	__raw_writel(0xFF0000u, g_cbm_ls_base + CBM_LS_IRNEN);
-	__raw_writel(0x1u, g_cbm_ls_base + CBM_LS_GLBL_CTRL);   /* EN */
-	wmb();
-	pr_info("cbm: load spreader init (SPR_CTRL=0x%08x GLBL=0x%08x)\n",
-		__raw_readl(g_cbm_ls_base + CBM_LS_SPR_CTRL),
-		__raw_readl(g_cbm_ls_base + CBM_LS_GLBL_CTRL));
-}
-
 void cbm_program_cpu_qidt(u8 qid_val)
 {
 	unsigned int fl, cls, mpe1, mpe2, enc, dec;
@@ -432,9 +388,6 @@ static void cbm_program_ep_qidt(u8 ep, u8 qid_val)
 static void cbm_enable_controllers(void)
 {
 	cbm_dqm_w32(CBM_DQM_CTRL, 0x11);  /* DQM_EN | DQM_QEN */
-
-	cbm_init_load_spreader();
-
 	cbm_eqm_w32(CBM_EQM_CTRL, 0x11);  /* EQM_EN | EQM_QEN */
 	wmb();
 	pr_info("cbm: controllers enabled (EQM_CTRL=0x%08x DQM_CTRL=0x%08x)\n",
@@ -461,7 +414,7 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct resource *res;
 	void __iomem *base;
-	int irqs[5];
+	int irqs[1];
 	int i;
 	int irq;
 	int ret;
@@ -495,19 +448,15 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 		*cbm_ioremap_table[i].store = base;
 	}
 
-	/* (c) Collect 5 IRQs. */
-	for (i = 0; i < 5; i++) {
-		irq = platform_get_irq(pdev, i);
-		if (irq < 0) {
-			dev_err(dev,
-				"cbm: platform_get_irq %d failed: %d\n",
-				i, irq);
-			ret = -EINVAL;
-			goto err;
-		}
-		irqs[i] = irq;
-		cbm_irqs[i] = irq;
+	/* (c) Collect the interrupt line the manager raises on. */
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0) {
+		dev_err(dev, "cbm: platform_get_irq 0 failed: %d\n", irq);
+		ret = -EINVAL;
+		goto err;
 	}
+	irqs[0] = irq;
+	cbm_irqs[0] = irq;
 
 	/*
 	 * (d) The gate. Without it the common clock framework switches the
@@ -548,8 +497,7 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 		goto err_clk;
 	}
 
-	dev_dbg(dev, "cbm: IRQs collected [%d,%d,%d,%d,%d]\n",
-		irqs[0], irqs[1], irqs[2], irqs[3], irqs[4]);
+	dev_dbg(dev, "cbm: interrupt line %d collected\n", irqs[0]);
 
 	/*
 	 * Failure here unwinds through err_clk because the carve allocator's
@@ -609,8 +557,6 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 		init_cbm_dqm_cpu_port(i);
 
 	cbm_program_ep_qidt(7, 35);
-
-	cbm_rx_engine_init();
 
 	/*
 	 * AVM's configure_ports() walks all 17 compiled-in rows at probe
@@ -774,11 +720,11 @@ module_platform_driver(cbm_xrx500_driver);
  */
 int cbm_intr_mapping_init(void)
 {
+	/* Lines 4 to 7 carried the load spreader; nothing raises on them now. */
+	static const u8 masked_lines[] = { 4, 5, 6, 7 };
 	/* egp_irnen-zero target lines per 0, 4, 5, 6. */
 	static const u8 egp_zero_lines[] = { 0, 4, 5, 6 };
-	int n;
 	size_t i;
-	u32 expected;
 	u32 actual;
 
 	if (!g_cbm_base) {
@@ -786,22 +732,24 @@ int cbm_intr_mapping_init(void)
 		return -ENODEV;
 	}
 
-	/* (a) cbm_irnen writes — AVM cbm.c:1208/1212/1215/1219. */
-	for (n = 4; n <= 7; n++) {
-		expected = 0x100U << (n - 4);
-		__raw_writel(expected, g_cbm_base + CBM_INT_LINE(n, cbm_irnen));
-	}
+	/*
+	 * These lines are level-sourced. Masking them at the source is what
+	 * makes it safe for no handler to be registered for them.
+	 */
+	for (i = 0; i < ARRAY_SIZE(masked_lines); i++)
+		__raw_writel(0U, g_cbm_base + CBM_INT_LINE(masked_lines[i],
+							   cbm_irnen));
 
 	for (i = 0; i < ARRAY_SIZE(egp_zero_lines); i++)
 		__raw_writel(0U, g_cbm_base + CBM_INT_LINE(egp_zero_lines[i],
 							    egp_irnen));
 
-	for (n = 4; n <= 7; n++) {
-		expected = 0x100U << (n - 4);
-		actual = __raw_readl(g_cbm_base + CBM_INT_LINE(n, cbm_irnen));
-		WARN_ONCE(actual != expected,
-			  "cbm: CBM_INT_LINE(%d, cbm_irnen) readback 0x%08x != expected 0x%08x\n",
-			  n, actual, expected);
+	for (i = 0; i < ARRAY_SIZE(masked_lines); i++) {
+		actual = __raw_readl(g_cbm_base +
+				     CBM_INT_LINE(masked_lines[i], cbm_irnen));
+		WARN_ONCE(actual != 0U,
+			  "cbm: CBM_INT_LINE(%u, cbm_irnen) readback 0x%08x != expected 0x00000000\n",
+			  (unsigned int)masked_lines[i], actual);
 	}
 	for (i = 0; i < ARRAY_SIZE(egp_zero_lines); i++) {
 		actual = __raw_readl(g_cbm_base +
@@ -815,90 +763,23 @@ int cbm_intr_mapping_init(void)
 }
 
 /*
- * cbm_interrupt_init — port of AVM cqm/grx500/cbm.c:2810-2870
- *                      adapted for linux-6.18.y devm semantics.
+ * cbm_interrupt_init — claim the manager's interrupt line.
  *
- * That is the same identity the rest of the driver is built on (HRM 3.6): DQM
- * CPU egress port n <-> LS port n <-> CBM interrupt line 4+n, so line 4+n
- * belongs to VPE n — and the bottom half draining LS port n then runs on the
- * CPU whose own DQM port it returns segments through (cbm_intr.c
- * cbm_rx_return_port).
- *
- * This does NOT by itself spread RX over the four CPUs, and should not be
- * read as doing so. The build is the !CONFIG_CBM_LS_ENABLE arm, where
- * cbm_init_load_spreader() above marks LS port 0 active and 1..3 inactive
- * (AVM cqm_common.c:84-98, `if (!idx)`), and host RX reaches LS port 2 by the
- * device tree's DQ2 redirect rather than through the spreader. What the
- * pinning settles is which CPU each line lands on, which the IRQ core was
- * otherwise free to choose.
- *
- * A CPU that is not online has no line pinned to it — AVM expresses the same
- * thing by only recording g_cbm_irq[i + 1] for online CPUs (AVM cbm.c:5726-
- * 5731) and guarding each affinity call with `if (g_cbm_irq[n])`. A failure is
- * warned about and the line is left wherever the IRQ core put it, again as in
- * AVM; nothing in the datapath depends on the pinning for correctness.
- *
- * Handler names: AVM uses "cbm_eqm" (line 0) and "cbm_dqm" (lines 1..4).
- *
- * Failure path: devm_request_irq returns the linux errno.
- *
- * Returns 0 on full success; negative errno (propagated from
- * devm_request_irq) on the first failing line.
+ * The device tree lists five. Four of them belonged to the load spreader,
+ * which this datapath does not run and whose enables are masked in
+ * cbm_intr_mapping_init, so only the first is claimed. A failure is
+ * propagated as the errno devm_request_irq returned.
  */
 int cbm_interrupt_init(struct platform_device *pdev, int *irqs)
 {
-	static const irq_handler_t cbm_isr_table[5] = {
-		cbm_isr_0,
-		cbm_isr_4,
-		cbm_isr_5,
-		cbm_isr_6,
-		cbm_isr_7,
-	};
-	static const char * const cbm_isr_names[5] = {
-		"cbm_isr_0", "cbm_isr_4", "cbm_isr_5", "cbm_isr_6", "cbm_isr_7",
-	};
-	int n;
-	int ret;
-
 	if (!pdev || !irqs) {
 		pr_err("cbm: cbm_interrupt_init: pdev=%p irqs=%p\n",
 		       pdev, irqs);
 		return -EINVAL;
 	}
 
-	for (n = 0; n < 5; n++) {
-		ret = devm_request_irq(&pdev->dev, irqs[n], cbm_isr_table[n],
-				       IRQF_SHARED, cbm_isr_names[n], pdev);
-		if (ret) {
-			dev_err(&pdev->dev,
-				"cbm: devm_request_irq %s (irq=%d) failed: %d\n",
-				cbm_isr_names[n], irqs[n], ret);
-			return ret;
-		}
-	}
-
-	/*
-	 * Pin LS line 4+k (table index k+1) to VPE k — see the affinity note in
-	 * the comment above. AVM does this immediately after each request_irq;
-	 * doing it in a second pass keeps the registration loop as it was.
-	 */
-	for (n = 1; n < 5; n++) {
-		unsigned int cpu = n - 1;
-
-		if (!cpu_online(cpu))
-			continue;
-		ret = irq_set_affinity(irqs[n], cpumask_of(cpu));
-		if (ret)
-			dev_warn(&pdev->dev,
-				 "cbm: irq_set_affinity %s (irq=%d) -> cpu%u failed: %d\n",
-				 cbm_isr_names[n], irqs[n], cpu, ret);
-		else
-			dev_info(&pdev->dev,
-				 "cbm: %s (irq=%d) pinned to cpu%u\n",
-				 cbm_isr_names[n], irqs[n], cpu);
-	}
-
-	return 0;
+	return devm_request_irq(&pdev->dev, irqs[0], cbm_isr_0, IRQF_SHARED,
+				"cbm_isr_0", pdev);
 }
 
 /*
@@ -913,7 +794,7 @@ int cbm_interrupt_init(struct platform_device *pdev, int *irqs)
  *   (7) QEQCNT 256 u32 = 0                             // cbm_dw_memset 0x400 B
  *   (8) QDQCNT 256 u32 = 0                             // cbm_dw_memset 0x400 B
  *   (9) cbm_intr_mapping_init()                        // per-line masks
- *  (10) cbm_interrupt_init(pdev, irqs)                 // 5x devm_request_irq
+ *  (10) cbm_interrupt_init(pdev, irqs)                 // devm_request_irq
  *
  * Step (7)/(8) cbm_dw_memset target: QEQCNT and QDQCNT live in their OWN
  * ioremap'd windows (g_cbm_qeqcnt_base / g_cbm_qdqcnt_base) — NOT within
