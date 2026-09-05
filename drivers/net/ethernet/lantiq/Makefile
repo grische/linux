@@ -34,14 +34,6 @@ intel-xrx500-mdio-y := xrx500_phy_fw.o
 intel-xrx500-mdio-y += switch-api/mdio_xrx500.o
 
 #
-# The netdev/phylink driver consumes gsw_w32() and gsw_get_swcore_ops()
-# from switch-api/, so it ships in the same module as gsw_init.o and
-# gsw_flow_core.o. It binds "intel,xrx500-net" and instantiates one
-# netdev per LAN port.
-#
-intel-xrx500-gswip-y += intel_xrx500.o
-
-#
 # The buffer-manager conduit netdev. Built in, never a module: its transmit
 # path calls MIPS cache maintenance which is not exported to modules.
 #

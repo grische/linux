@@ -707,11 +707,9 @@ static int cbm_xrx500_probe(struct platform_device *pdev)
 	 *    entry"
 	 *
 	 * The config table walked above covers ports 2/1/3 only, so port 0 was
-	 * never configured at all — yet it is a buffer-return port on both ends
-	 * of the datapath: the TX enqueue-failure rollback in intel_xrx500.c
-	 * writes ptr_rtn on raw_smp_processor_id()'s port, and the RX tasklet
-	 * (cbm_intr.c) now returns every consumed segment on the running CPU's
-	 * port. A ptr_rtn write into an unconfigured port does not fault and
+	 * never configured at all — yet it is a buffer-return port: the RX
+	 * tasklet (cbm_intr.c) returns every consumed segment on the running
+	 * CPU's port. A ptr_rtn write into an unconfigured port does not fault and
 	 * does not log — it silently drops the segment, so the FSQM free-list
 	 * count (fsqm0 OFSC) walks down one per event until the std pool runs
 	 * dry and RX starves. That misfires even under nosmp, where every

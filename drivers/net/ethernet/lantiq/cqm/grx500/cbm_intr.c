@@ -75,10 +75,7 @@ irqreturn_t cbm_isr_7(int irq, void *dev_id);
  * smp_processor_id() is legitimate and stable here: every caller runs in
  * softirq (tasklet) context, where preempt_count carries SOFTIRQ_OFFSET, so
  * the task cannot be preempted or migrated between this read and the ptr_rtn
- * write. The one caller of cbm_fsqm_buf_free() outside softirq — the TX
- * enqueue-failure rollback in intel_xrx500.c — is pinned for the same window
- * by port->tx_lock taken with IRQs disabled, and passes its own
- * raw_smp_processor_id().
+ * write.
  */
 static u32 cbm_rx_return_port(void)
 {

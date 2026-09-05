@@ -425,9 +425,7 @@ int cbm_dp_egress_res_get(u32 dp_port_id, struct cbm_dp_egress_res *res)
 
 /*
  * cbm_dp_deq_port_get — @deq_port only, for callers that have no reason to
- * see the rest and would otherwise need a duplicate struct definition
- * (intel_xrx500.c declares its CQM entry points locally rather than including
- * cbm.h).
+ * see the rest and would otherwise need a duplicate struct definition.
  */
 int cbm_dp_deq_port_get(u32 dp_port_id, u32 *deq_port)
 {
