@@ -710,7 +710,7 @@ static int gswip_xrx500_setup(struct dsa_switch *ds)
 {
 	struct gswip_priv *priv = ds->priv;
 	const struct gswip_xrx500_model *model = gswip_xrx500_model(priv);
-	struct dsa_port *cpu_dp;
+	struct dsa_port *cpu_dp, *dp;
 	int err;
 
 	/* The queue manager's drop-policy selector is two bits wide here, and
@@ -742,6 +742,25 @@ static int gswip_xrx500_setup(struct dsa_switch *ds)
 	dsa_switch_for_each_cpu_port(cpu_dp, ds)
 		regmap_set_bits(priv->gswip,
 				GSWIP_PCE_PCTRL_3p(cpu_dp->index),
+				GSWIP_PCE_PCTRL_3_LNDIS);
+
+	/* A user port starts standalone, and a standalone port does not learn:
+	 * the core clears the learning flag on every port that leaves a
+	 * bridge, and inherits the bridge port's own flag on every port that
+	 * joins one. What it does not do is set either on a port that has
+	 * never been in a bridge, so without this a port standalone since
+	 * reset would learn while an identical port that had been bridged and
+	 * left would not, and which of the two a port is would depend on its
+	 * history rather than on its configuration.
+	 *
+	 * The distinction is not cosmetic on this switch. An address table
+	 * entry is the only thing that makes the fabric deliver a frame to a
+	 * port, and it does so whether or not the ingress port shares a
+	 * forwarding domain with it, so a standalone port that learns is a
+	 * standalone port that can be reached.
+	 */
+	dsa_switch_for_each_user_port(dp, ds)
+		regmap_set_bits(priv->gswip, GSWIP_PCE_PCTRL_3p(dp->index),
 				GSWIP_PCE_PCTRL_3_LNDIS);
 
 	/* Address the egress table by traffic class rather than by the
