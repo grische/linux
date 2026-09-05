@@ -1,6 +1,7 @@
 config NET_DSA_LANTIQ_COMMON
 	tristate
 	select REGMAP
+	select REGMAP_MMIO
 
 config NET_DSA_LANTIQ_GSWIP
 	tristate "Lantiq / Intel GSWIP"
@@ -13,10 +14,22 @@ config NET_DSA_LANTIQ_GSWIP
 
 config NET_DSA_LANTIQ_GSWIP_XRX500
 	tristate "Lantiq / Intel GSWIP 3.0"
+	depends on INTEL_MIPS || COMPILE_TEST
 	depends on HAS_IOMEM
 	depends on RESET_CONTROLLER
+	select FW_LOADER
 	select NET_DSA_TAG_GSWIP3
 	select NET_DSA_LANTIQ_COMMON
+	#
+	# The reset lines of the integrated PHYs come from the SoC's own
+	# reset controller, whose driver has no prompt of its own and
+	# defaults to a system type this family is not. Without it every
+	# reset lookup defers forever and the switch never probes, so the
+	# one driver that needs it asks for it, along with the register
+	# window it reads its status through.
+	#
+	select MFD_SYSCON if INTEL_MIPS
+	select RESET_LANTIQ if INTEL_MIPS
 	help
 	  This enables support for the two Lantiq / Intel GSWIP 3.0 switch
 	  macros found in the xRX500 SoC family.

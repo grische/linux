@@ -59,12 +59,11 @@
  * its deassert status register (it writes only to +0x10). That does not make
  * the reading ambiguous: the status register is a remap of the request
  * register rather than a mirror of it, and bit 31 is one of the positions
- * where the two part company. The bit xrx500_phy_fw.c takes for the GPHYF
- * reset line is bit 31 of RCU_RST_REQ, which is a different register; that
- * line reports its status in bit 30, and bit 31 of the status word is a reset
- * cause with no request counterpart at all. Bit 29 beside it is the other
- * cause, the status of the global software reset a reboot goes through, and
- * the two are mutually exclusive.
+ * where the two part company. RCU_RST_REQ bit 31 is the GPHY firmware reset
+ * line, whose status is reported in bit 30; bit 31 of the status word is a
+ * reset cause with no request counterpart at all. Bit 29 beside it is the
+ * other cause, the status of the global software reset a reboot goes through,
+ * and the two are mutually exclusive.
  *
  * Whether the bit is write-1-to-clear or plain read/write is unresolved, and
  * a blind write-back would clobber the reset line statuses that share the
