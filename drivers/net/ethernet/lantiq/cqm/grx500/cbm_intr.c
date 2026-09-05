@@ -25,9 +25,6 @@
 
 #include "cbm.h"
 #include "cbm_regs.h"
-#include "../../datapath/datapath_api_gswip30.h"
-
-#include "../../include/intel_xrx500.h"
 
 /* FSQM_IRNCR - local register-offset literal. */
 #define FSQM_IRNCR 0x10
@@ -112,9 +109,8 @@ static u32 cbm_rx_return_port(void)
 #define CBM_RX_DRAIN_BUDGET 50
 
 /*
- * datapath_api_gswip30.h:292 — the 8-byte PMAC RX header the GSWIP/PMAC
- * prepends; skb_pull'd before eth_type_trans so the Ethernet header is at
- * skb->data.
+ * The 8-byte header the packet MAC prepends to a received frame; skb_pull'd
+ * before eth_type_trans so the Ethernet header is at skb->data.
  */
 #define CBM_PMAC_RX_HDR_LEN 8
 
@@ -135,11 +131,14 @@ static u32 g_cbm_resched_cnt[CPU_DQM_PORT_NUM];
 
 static DEFINE_RAW_SPINLOCK(g_cbm_irnen_ls_lock);
 
+/*
+ * The source port is the high nibble of byte 2 of the header the packet MAC
+ * prepends to a received frame. Read as a byte rather than through a
+ * bitfield overlay: the header is network data at an arbitrary alignment.
+ */
 static u32 cbm_rx_pmac_sppid(const void *hdr)
 {
-	const struct pmac_rx_hdr *pmac = hdr;
-
-	return pmac->sppid;
+	return ((const u8 *)hdr)[2] >> 4;
 }
 
 /* Any netdev bound at all? One test to skip the whole delivery path. */
@@ -768,11 +767,11 @@ static void do_cbm_tasklet(unsigned long cpu)
 					rx_len = skb->len;
 					skb->dev = ndev;
 					skb->protocol = eth_type_trans(skb, ndev);
-					intel_xrx500_rx_account(ndev, rx_len);
+					dev_sw_netstats_rx_add(ndev, rx_len);
 					netif_receive_skb(skb);
 				} else {
 					pr_err_ratelimited("cbm: do_cbm_tasklet: skb alloc failed; dropping frame (segment recycled)\n");
-					intel_xrx500_rx_drop_account(ndev);
+					dev_core_stats_rx_dropped_inc(ndev);
 				}
 			}
 
@@ -834,6 +833,9 @@ static void do_cbm_tasklet(unsigned long cpu)
 /*
  * cbm_rx_set_netdev - bind (@dev) or unbind (NULL) the netdev the RX engine
  * delivers frames whose PMAC sppid is @sppid to.
+ *
+ * A bound netdev must have been allocated with NETDEV_PCPU_STAT_TSTATS: the
+ * delivery path counts received frames on its per-CPU software statistics.
  */
 void cbm_rx_set_netdev(u32 sppid, struct net_device *dev)
 {

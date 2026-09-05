@@ -15,7 +15,6 @@
 #include <linux/errno.h>
 
 #include "cbm.h"
-#include "../../datapath/lantiq_cbm_api.h"
 #include "../../dma/lantiq_dmax.h"
 
 #include "../../tmu/drv_tmu_ll.h"
@@ -304,7 +303,7 @@ EXPORT_SYMBOL_GPL(cbm_dp_port_dealloc);
  * success the caller must kfree(*res_pp).
  */
 s32 cbm_dp_port_resources_get(u32 *dp_port, u32 *num_tmu_ports,
-			      cbm_tmu_res_t **res_pp, u32 flags)
+			      struct cbm_tmu_res **res_pp, u32 flags)
 {
 	return dp_port_resources_get(dp_port, num_tmu_ports, res_pp, flags);
 }
