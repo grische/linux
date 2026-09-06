@@ -274,10 +274,17 @@
 	 * dma-noncoherent is not decoration. The PHY cores fetch their
 	 * firmware without taking part in the platform's cache coherence, so
 	 * the staged image has to be written back before they are released.
+	 *
+	 * Each macro is fed by a divider off the second PLL and a gate of its
+	 * own, and neither is shared with anything else on the die. The two
+	 * macros sit on different branches of that PLL, which is why the pair
+	 * differs between them.
 	 */
 	gswl: switch@1c000000 {
 		compatible = "lantiq,xrx500-gswip";
 		reg = <0x1c000000 0x4000>;
+		clocks = <&cgu CLK_GSWIP>, <&cgu GCLK_GSWIP>;
+		clock-names = "freq", "gate";
 		dsa,member = <0 0>;
 		dma-noncoherent;
 		status = "disabled";
@@ -307,6 +314,8 @@
 	gswr: switch@1a000000 {
 		compatible = "lantiq,xrx500-gswip-r";
 		reg = <0x1a000000 0x4000>;
+		clocks = <&cgu CLK_PAE>, <&cgu GCLK_PAE>;
+		clock-names = "freq", "gate";
 		dsa,member = <1 0>;
 		dma-noncoherent;
 		status = "disabled";
