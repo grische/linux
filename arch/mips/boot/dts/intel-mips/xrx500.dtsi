@@ -279,10 +279,17 @@
 	 * own, and neither is shared with anything else on the die. The two
 	 * macros sit on different branches of that PLL, which is why the pair
 	 * differs between them.
+	 *
+	 * One line each aggregates everything the macro can report: the buffer
+	 * manager, the parser and classification engine, the MAC block and the
+	 * store and fetch DMA blocks. Nothing takes it yet; the driver reaches
+	 * the same state by polling.
 	 */
 	gswl: switch@1c000000 {
 		compatible = "lantiq,xrx500-gswip";
 		reg = <0x1c000000 0x4000>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 48 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&cgu CLK_GSWIP>, <&cgu GCLK_GSWIP>;
 		clock-names = "freq", "gate";
 		dsa,member = <0 0>;
@@ -314,6 +321,8 @@
 	gswr: switch@1a000000 {
 		compatible = "lantiq,xrx500-gswip-r";
 		reg = <0x1a000000 0x4000>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 45 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&cgu CLK_PAE>, <&cgu GCLK_PAE>;
 		clock-names = "freq", "gate";
 		dsa,member = <1 0>;
