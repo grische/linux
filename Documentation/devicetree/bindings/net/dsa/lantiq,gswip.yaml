@@ -38,6 +38,16 @@ properties:
 
   dma-noncoherent: true
 
+  clocks:
+    items:
+      - description: switch core clock
+      - description: switch core gate
+
+  clock-names:
+    items:
+      - const: freq
+      - const: gate
+
   mdio:
     $ref: /schemas/net/mdio.yaml#
     unevaluatedProperties: false
@@ -178,6 +188,8 @@ allOf:
 
       required:
         - dma-noncoherent
+        - clocks
+        - clock-names
 
   - if:
       not:
@@ -308,6 +320,8 @@ examples:
     switch@1c000000 {
             compatible = "lantiq,xrx500-gswip";
             reg = <0x1c000000 0x4000>;
+            clocks = <&cgu 22>, <&cgu 125>;
+            clock-names = "freq", "gate";
             dsa,member = <0 0>;
             dma-noncoherent;
 
