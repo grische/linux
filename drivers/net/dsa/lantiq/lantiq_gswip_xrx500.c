@@ -116,6 +116,32 @@
  */
 #define GSWIP_XRX500_PCE_FLOW_VAL2_FID		GENMASK(15, 8)
 
+/* A field of a rule's key is told not to compare by writing all ones into it,
+ * truncated to the width the field is implemented at, so a field left at zero
+ * is not an unused field but a live compare against the value zero. A field's
+ * own mask is therefore the value that switches it off.
+ *
+ * The key word that carries the ingress port holds two fields. The port field
+ * is five bits wide on this generation, where the earlier one gives it four,
+ * so it is one value wider than any port number either macro uses and a rule
+ * always names one port rather than all of them. Above the port sits an index
+ * into the active-VLAN table, and that one has to be switched off rather than
+ * left at zero: this rule may not depend on that table, whose entry zero the
+ * driver neither writes nor owns, because a compare against an entry somebody
+ * else validates would stop the rule matching part of the traffic while every
+ * register still read back as intended.
+ */
+#define GSWIP_XRX500_PCE_FLOW_KEY0_PORT		GENMASK(4, 0)
+#define GSWIP_XRX500_PCE_FLOW_KEY0_VLAN_ANY	GENMASK(14, 8)
+
+/* The key word above the payload words carries a sub-interface id below the
+ * flags that invert a compare field by field. Switching the id off the same
+ * way leaves no enabled compare for an invert flag to apply to, so all of
+ * them stay clear and the marker stops at the top of the id rather than
+ * filling the word.
+ */
+#define GSWIP_XRX500_PCE_FLOW_KEY14_SUBIF_ANY	GENMASK(4, 0)
+
 /* Key words above the ingress port, for a rule that selects on the ingress
  * port alone: every field they can express, switched off, and the
  * sub-interface word above as the last of them.
@@ -138,7 +164,8 @@
  */
 static const u16 gswip_xrx500_pce_flow_key[GSWIP_XRX500_PCE_FLOW_KEYS - 1] = {
 	0x3f3f, 0x7f7f, 0x7f7f, 0x7f7f, 0x7f7f, 0x7f0f, 0x1f1f, 0x7f1f,
-	0x7f3f, 0x7f7f, 0x7f7f, 0x3f3f, 0x0000, 0x0100, 0x0000,
+	0x7f3f, 0x7f7f, 0x7f7f, 0x3f3f, 0x7f7f,
+	GSWIP_XRX500_PCE_FLOW_KEY14_SUBIF_ANY, 0x0000,
 };
 
 /* Action words, likewise, for a rule that assigns a forwarding domain. Only
@@ -957,7 +984,10 @@ static void gswip_xrx500_r_phylink_get_caps(struct dsa_switch *ds, int port,
 static int gswip_xrx500_flow_rule_write(struct gswip_priv *priv,
 					unsigned int slot, u16 port, u16 fid)
 {
-	u16 key[GSWIP_XRX500_PCE_FLOW_KEYS] = { port };
+	u16 key[GSWIP_XRX500_PCE_FLOW_KEYS] = {
+		FIELD_PREP(GSWIP_XRX500_PCE_FLOW_KEY0_PORT, port) |
+		GSWIP_XRX500_PCE_FLOW_KEY0_VLAN_ANY,
+	};
 	u16 val[GSWIP_XRX500_PCE_FLOW_VALS] = { };
 	unsigned int i;
 	u32 ctrl;
