@@ -19,6 +19,7 @@
 #include "lantiq_gswip.h"
 #include "lantiq_pce_xrx500.h"
 
+#include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/firmware.h>
@@ -1081,6 +1082,7 @@ static const struct regmap_config gswip_xrx500_regmap_config = {
 static int gswip_xrx500_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
+	struct clk_bulk_data *clks;
 	struct gswip_xrx500 *chip;
 	struct gswip_priv *priv;
 	void __iomem *base;
@@ -1108,6 +1110,15 @@ static int gswip_xrx500_probe(struct platform_device *pdev)
 	if (of_dma_is_coherent(dev->of_node))
 		return dev_err_probe(dev, -EINVAL,
 				     "the switch node needs dma-noncoherent\n");
+
+	/* The macro's divider and its gate. Both are already running when
+	 * the driver binds, so claiming them changes nothing at run time;
+	 * what it adds is that the block needing them is the one holding
+	 * them, and that they are let go again when it is not.
+	 */
+	err = devm_clk_bulk_get_all_enabled(dev, &clks);
+	if (err < 0)
+		return dev_err_probe(dev, err, "cannot enable the clocks\n");
 
 	base = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(base))
