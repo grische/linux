@@ -56,13 +56,20 @@
  * from the watchdog" indication (grx500_wdt.c:36 and :338-344).
  *
  * The same word is RCU_RST_STAT, which drivers/reset/reset-lantiq.c polls as
- * its deassert status register (it writes only to +0x10) and whose bit 31
- * xrx500_phy_fw.c takes for the GPHYF reset line. Those two readings cannot
- * both be right, and whether the bit is write-1-to-clear or plain read/write
- * is unresolved -- a blind write-back would clobber GPHY reset status if it
- * is the latter. So the value is reported and left alone; it may therefore be
- * stale rather than a true boot cause. Probe logs the raw word, which is what
- * settles it on hardware.
+ * its deassert status register (it writes only to +0x10). That does not make
+ * the reading ambiguous: the status register is a remap of the request
+ * register rather than a mirror of it, and bit 31 is one of the positions
+ * where the two part company. The bit xrx500_phy_fw.c takes for the GPHYF
+ * reset line is bit 31 of RCU_RST_REQ, which is a different register; that
+ * line reports its status in bit 30, and bit 31 of the status word is a reset
+ * cause with no request counterpart at all. Bit 29 beside it is the other
+ * cause, the status of the global software reset a reboot goes through, and
+ * the two are mutually exclusive.
+ *
+ * Whether the bit is write-1-to-clear or plain read/write is unresolved, and
+ * a blind write-back would clobber the reset line statuses that share the
+ * word if it is the latter, so the value is reported and left alone. Probe
+ * logs the raw word.
  */
 #define GRX500_WDT_RCU_RST_STAT		0x14
 #define GRX500_WDT_RCU_RST_STAT_WDT	BIT(31)
