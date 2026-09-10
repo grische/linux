@@ -124,6 +124,12 @@ static struct intel_clk_branch grx500_branch_clks[] __initdata = {
 	 * PAE, GSWIP and both USB controllers; the packet datapath does not
 	 * survive losing them.
 	 */
+	INTEL_GATE(GCLK_CBM, "g_cbm", NULL, CLK_IGNORE_UNUSED, GRX500_CLK_GSR1,
+		   G_CBM_SHIFT, GATE_CLK_HW, 0),
+	INTEL_GATE(GCLK_PAE, "g_pae", NULL, CLK_IGNORE_UNUSED, GRX500_CLK_GSR1,
+		   G_PAE_SHIFT, GATE_CLK_HW, 0),
+	INTEL_GATE(GCLK_GSWIP, "g_gswip", NULL, CLK_IGNORE_UNUSED,
+		   GRX500_CLK_GSR1, G_SWITCH_SHIFT, GATE_CLK_HW, 0),
 	INTEL_GATE(GCLK_DMA0, "g_dma0", NULL, CLK_IGNORE_UNUSED, GRX500_CLK_GSR1,
 		   G_DMA0_SHIFT, GATE_CLK_HW, 0),
 	INTEL_GATE(GCLK_USB0, "g_usb0", NULL, CLK_IGNORE_UNUSED, GRX500_CLK_GSR1,
