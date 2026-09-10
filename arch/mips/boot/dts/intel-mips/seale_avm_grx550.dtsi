@@ -98,17 +98,21 @@
 
 /*
  * All five GPHYs. The reset bit list is not contiguous, so every entry is
- * spelled out; on this die bit 31 is the fifth PHY's own reset line and not a
- * group master reset, which is how the vendor device tree names it. A PHY
- * without firmware never answers MDIO and probe is all-or-nothing.
+ * spelled out; on this die request bit 31 is the fifth PHY's own reset line
+ * and not a group master reset, which is how the vendor device tree names it.
+ * That PHY reports its status in bit 30, and bit 31 of the status register
+ * belongs to the watchdog instead -- the request bit and the status bit are
+ * different numbers on four of these five lines, see the map on the reset
+ * controller in xrx500.dtsi. A PHY without firmware never answers MDIO and
+ * probe is all-or-nothing.
  */
 &gphy_fw {
 	phy_id = <0x02 0x03 0x04 0x05 0x0F>;
-	resets = <&rcu_reset0 29 29>,
-		 <&rcu_reset0 28 28>,
-		 <&rcu_reset0 26 26>,
+	resets = <&rcu_reset0 29 28>,
+		 <&rcu_reset0 28 23>,
+		 <&rcu_reset0 26 22>,
 		 <&rcu_reset0 25 25>,
-		 <&rcu_reset0 31 31>;
+		 <&rcu_reset0 31 30>;
 	reset-names = "phy2", "phy3", "phy4", "phy5", "phyF";
 };
 

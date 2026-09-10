@@ -242,14 +242,15 @@
 
 /*
  * The four LAN GPHYs this board populates. The reset bit list is not
- * contiguous, so every entry is spelled out; the set bit and the status bit
- * are the same number here, hence the doubled cell.
+ * contiguous, so every entry is spelled out, and the status bit each request
+ * bit reports through is a different number again on three of the four -- see
+ * the map on the reset controller in xrx500.dtsi.
  */
 &gphy_fw {
 	phy_id = <0x02 0x03 0x04 0x05>;
-	resets = <&rcu_reset0 29 29>,
-		 <&rcu_reset0 28 28>,
-		 <&rcu_reset0 26 26>,
+	resets = <&rcu_reset0 29 28>,
+		 <&rcu_reset0 28 23>,
+		 <&rcu_reset0 26 22>,
 		 <&rcu_reset0 25 25>;
 	reset-names = "phy2", "phy3", "phy4", "phy5";
 };
