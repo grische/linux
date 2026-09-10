@@ -210,8 +210,25 @@ static void intel_pciephy_ssc_disable(struct intel_pciephy *priv)
 
 static void intel_pciephy_reset(struct intel_pciephy *priv)
 {
-	reset_control_assert(priv->rst);
-	reset_control_deassert(priv->rst);
+	int ret;
+
+	/*
+	 * Neither caller can do anything about a reset that will not complete,
+	 * and the PHY has kept working in practice even when the poll timed
+	 * out. But the reset controller polls a status bit the device tree
+	 * names, so a timeout here means that bit is the wrong one and the
+	 * line's real state is unknown. Say so instead of discarding it.
+	 */
+	ret = reset_control_assert(priv->rst);
+	if (ret)
+		dev_warn(priv->dev, "failed to assert the PHY reset: %d\n",
+			 ret);
+
+	ret = reset_control_deassert(priv->rst);
+	if (ret)
+		dev_warn(priv->dev, "failed to release the PHY reset: %d\n",
+			 ret);
+
 	udelay(1);
 }
 
