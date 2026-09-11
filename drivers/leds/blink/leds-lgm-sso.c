@@ -24,6 +24,12 @@
 
 #define LED_BLINK_H8_0			0x0
 #define LED_BLINK_H8_1			0x4
+/*
+ * A LED_BLINK_H8_* register gives every blink slot six bits, as three two-bit
+ * fields: the FPID rank, then the GPTC rank, then the select that says which
+ * of the two the hardware reads. Pins 24..31 get a slot each; pins 0..23 share
+ * the one sso_led_pin_blink_off() calls the "led 32 location".
+ */
 #define GET_FREQ_OFFSET(pin, src)	(((pin) * 6) + ((src) * 2))
 #define GET_SRC_OFFSET(pinc)		(((pinc) * 6) + 4)
 
@@ -206,7 +212,7 @@ static struct sso_led
 static void sso_led_freq_set(struct sso_led_priv *priv, u32 pin, int freq_idx)
 {
 	u32 reg, off, freq_src, val_freq;
-	u32 low, high, val;
+	u32 low, val;
 	unsigned int group;
 
 	if (!freq_idx)
@@ -231,16 +237,14 @@ static void sso_led_freq_set(struct sso_led_priv *priv, u32 pin, int freq_idx)
 	/* set blink rate idx */
 	if (freq_src != CLK_SRC_GPTC_HS) {
 		low = GET_FREQ_OFFSET(off, freq_src);
-		high = low + 2;
-		val = val_freq << high;
-		regmap_update_bits(priv->mmap, reg, GENMASK(high, low), val);
+		val = val_freq << low;
+		regmap_update_bits(priv->mmap, reg, GENMASK(low + 1, low), val);
 	}
 
 	/* select clock source */
 	low = GET_SRC_OFFSET(off);
-	high = low + 2;
-	val = freq_src << high;
-	regmap_update_bits(priv->mmap, reg, GENMASK(high, low), val);
+	val = freq_src << low;
+	regmap_update_bits(priv->mmap, reg, GENMASK(low + 1, low), val);
 }
 
 /*
