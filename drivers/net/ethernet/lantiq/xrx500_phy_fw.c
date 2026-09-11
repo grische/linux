@@ -176,7 +176,6 @@ static int xrx500_gphy_boot(struct device *dev, struct reset_control *phy_rst,
 			    u32 silicon_id, dma_addr_t dev_addr)
 {
 	int idx;
-	int ret;
 
 	if (!of_machine_is_compatible("intel,xrx500"))
 		return 0;
@@ -235,7 +234,6 @@ static int xrx500_gphy_boot(struct device *dev, struct reset_control *phy_rst,
 		writel(readl(rcu_rst_base) & ~rd, rcu_rst_base);
 		udelay(100);
 	}
-	ret = 0;
 
 	return 0;
 }
