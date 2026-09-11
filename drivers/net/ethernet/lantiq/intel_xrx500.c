@@ -1019,25 +1019,6 @@ void intel_xrx500_rx_drop_account(struct net_device *dev)
 }
 
 /**
- * intel_xrx500_ndo_change_mtu() - MTU change handler.
- *
- * @dev:     the source netdev.
- *
- * @new_mtu: the requested new MTU value.
- */
-static int intel_xrx500_ndo_change_mtu(struct net_device *dev, int new_mtu)
-{
-	/*
-	 * Range check is redundant (netdev core already enforced via
-	 * dev->min_mtu / dev->max_mtu) but kept as a defensive belt-and-
-	 * braces guard so an out-of-band caller cannot bypass it.
-	 */
-	if (new_mtu < ETH_MIN_MTU || new_mtu > 9216)
-		return -EINVAL;
-	return 0;
-}
-
-/**
  * intel_xrx500_ndo_get_stats64() - ndo_get_stats64 implementation.
  *
  * @dev:     the source netdev.
@@ -1063,7 +1044,6 @@ static const struct net_device_ops intel_xrx500_netdev_ops = {
 	.ndo_stop        = intel_xrx500_ndo_stop,
 	.ndo_start_xmit  = intel_xrx500_ndo_start_xmit,
 	.ndo_get_stats64 = intel_xrx500_ndo_get_stats64,
-	.ndo_change_mtu  = intel_xrx500_ndo_change_mtu,
 	.ndo_validate_addr = eth_validate_addr,
 	.ndo_set_mac_address = eth_mac_addr,
 };
@@ -1323,7 +1303,14 @@ static int intel_xrx500_port_setup(struct intel_xrx500_priv *priv,
 	netdev->ethtool_ops = &intel_xrx500_ethtool_ops;
 
 	netdev->min_mtu = ETH_MIN_MTU;
-	netdev->max_mtu = 9216;
+	/*
+	 * The switch core these ports sit behind is initialised to discard
+	 * anything longer than a standard Ethernet frame (gsw_flow_pce.c
+	 * writes a frame length of 1518) and intel_xrx500_ndo_start_xmit()
+	 * only ever checks out a standard 2 KiB CBM segment, so a standard
+	 * MTU is the most a port can carry.
+	 */
+	netdev->max_mtu = ETH_DATA_LEN;
 
 	phylink = phylink_create(&port->phylink_config,
 				 of_fwnode_handle(port_node),
