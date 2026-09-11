@@ -67,7 +67,7 @@ int cbm_counter_mode_set(int idx, int mode)
 {
 	u32 val;
 	u32 curr_mode;
-	u32 qen_mask, qen_pos, msel_mask, msel_pos;
+	u32 qen_mask, msel_mask, msel_pos;
 
 	if (!g_cbm_eqm_base || !g_cbm_dqm_base) {
 		pr_warn_once("cbm: counter_mode_set(idx=%d) before CBM probe, skipping\n",
@@ -78,7 +78,6 @@ int cbm_counter_mode_set(int idx, int mode)
 	switch (idx) {
 	case 0:
 		qen_mask  = EQM_QEN_MASK;
-		qen_pos   = EQM_QEN_POS;
 		msel_mask = EQM_MSEL_MASK;
 		msel_pos  = EQM_MSEL_POS;
 		val = cbm_eqm_r32(CBM_EQM_CTRL);
@@ -98,7 +97,6 @@ int cbm_counter_mode_set(int idx, int mode)
 
 	case 1:
 		qen_mask  = DQM_QEN_MASK;
-		qen_pos   = DQM_QEN_POS;
 		msel_mask = DQM_MSEL_MASK;
 		msel_pos  = DQM_MSEL_POS;
 		val = cbm_dqm_r32(CBM_DQM_CTRL);
