@@ -715,7 +715,7 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 				imm = ilog2(imm);
 				EMIT(PPC_RAW_RLWINM(dst_reg, src2_reg, 32 - imm, imm, 31));
 				EMIT(PPC_RAW_RLWIMI(dst_reg, src2_reg_h, 32 - imm, 0, imm - 1));
-				EMIT(PPC_RAW_SRAWI(dst_reg_h, src2_reg_h, imm));
+				EMIT(PPC_RAW_SRWI(dst_reg_h, src2_reg_h, imm));
 			}
 			break;
 		case BPF_ALU | BPF_NEG: /* (u32) dst = -dst */
