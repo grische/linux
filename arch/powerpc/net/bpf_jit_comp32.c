@@ -509,7 +509,7 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 			} else if (imm > 0 && is_power_of_2(imm)) {
 				imm = ilog2(imm);
 				EMIT(PPC_RAW_RLWINM(dst_reg_h, src2_reg_h, imm, 0, 31 - imm));
-				EMIT(PPC_RAW_RLWIMI(dst_reg_h, dst_reg, imm, 32 - imm, 31));
+				EMIT(PPC_RAW_RLWIMI(dst_reg_h, src2_reg, imm, 32 - imm, 31));
 				EMIT(PPC_RAW_SLWI(dst_reg, src2_reg, imm));
 			} else {
 				bpf_set_seen_register(ctx, tmp_reg);
@@ -617,6 +617,7 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 				EMIT(PPC_RAW_SUBFZE(dst_reg_h, src2_reg_h));
 				imm = -imm;
 				src2_reg = dst_reg;
+				src2_reg_h = dst_reg_h;
 			}
 			if (imm == 1) {
 				EMIT(PPC_RAW_MR(dst_reg, src2_reg));
@@ -649,6 +650,8 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 		case BPF_ALU64 | BPF_AND | BPF_K: /* dst = dst & imm */
 			if (imm >= 0)
 				EMIT(PPC_RAW_LI(dst_reg_h, 0));
+			else if (src2_reg_h != dst_reg_h)
+				EMIT(PPC_RAW_MR(dst_reg_h, src2_reg_h));
 			fallthrough;
 		case BPF_ALU | BPF_AND | BPF_K: /* (u32) dst = dst & imm */
 			if (!IMM_H(imm)) {
@@ -674,6 +677,8 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 			/* Sign-extended */
 			if (imm < 0)
 				EMIT(PPC_RAW_LI(dst_reg_h, -1));
+			else if (src2_reg_h != dst_reg_h)
+				EMIT(PPC_RAW_MR(dst_reg_h, src2_reg_h));
 			fallthrough;
 		case BPF_ALU | BPF_OR | BPF_K:/* dst = (u32) dst | (u32) imm */
 			if (IMM_L(imm)) {
@@ -682,6 +687,8 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 			}
 			if (IMM_H(imm))
 				EMIT(PPC_RAW_ORIS(dst_reg, src2_reg, IMM_H(imm)));
+			else if (src2_reg != dst_reg)
+				EMIT(PPC_RAW_MR(dst_reg, src2_reg));
 			break;
 		case BPF_ALU64 | BPF_XOR | BPF_X: /* dst ^= src */
 			if (dst_reg == src_reg) {
@@ -701,6 +708,8 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 		case BPF_ALU64 | BPF_XOR | BPF_K: /* dst ^= imm */
 			if (imm < 0)
 				EMIT(PPC_RAW_NOR(dst_reg_h, src2_reg_h, src2_reg_h));
+			else if (src2_reg_h != dst_reg_h)
+				EMIT(PPC_RAW_MR(dst_reg_h, src2_reg_h));
 			fallthrough;
 		case BPF_ALU | BPF_XOR | BPF_K: /* (u32) dst ^= (u32) imm */
 			if (IMM_L(imm)) {
@@ -709,6 +718,8 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 			}
 			if (IMM_H(imm))
 				EMIT(PPC_RAW_XORIS(dst_reg, src2_reg, IMM_H(imm)));
+			else if (src2_reg != dst_reg)
+				EMIT(PPC_RAW_MR(dst_reg, src2_reg));
 			break;
 		case BPF_ALU | BPF_LSH | BPF_X: /* (u32) dst <<= (u32) src */
 			EMIT(PPC_RAW_SLW(dst_reg, src2_reg, src_reg));
@@ -735,6 +746,7 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 				return -EINVAL;
 			if (!imm) {
 				EMIT(PPC_RAW_MR(dst_reg, src2_reg));
+				EMIT(PPC_RAW_MR(dst_reg_h, src2_reg_h));
 			} else if (imm < 32) {
 				EMIT(PPC_RAW_RLWINM(dst_reg_h, src2_reg_h, imm, 0, 31 - imm));
 				EMIT(PPC_RAW_RLWIMI(dst_reg_h, src2_reg, imm, 32 - imm, 31));
@@ -756,7 +768,7 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 			EMIT(PPC_RAW_SRW(dst_reg, src2_reg, src_reg));
 			EMIT(PPC_RAW_ADDI(tmp_reg, src_reg, 32));
 			EMIT(PPC_RAW_SLW(_R0, src2_reg_h, _R0));
-			EMIT(PPC_RAW_SRW(tmp_reg, dst_reg_h, tmp_reg));
+			EMIT(PPC_RAW_SRW(tmp_reg, src2_reg_h, tmp_reg));
 			EMIT(PPC_RAW_OR(dst_reg, dst_reg, _R0));
 			EMIT(PPC_RAW_SRW(dst_reg_h, src2_reg_h, src_reg));
 			EMIT(PPC_RAW_OR(dst_reg, dst_reg, tmp_reg));
