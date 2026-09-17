@@ -370,6 +370,12 @@ static unsigned long *bpf_jit_find_jmp_targets(const struct bpf_prog *fp)
 	return targets;
 }
 
+/* Tell whether imm is a non-zero, uninterrupted run of set bits */
+static bool bpf_jit_is_contiguous_mask(u32 imm)
+{
+	return imm && !((imm + (imm & -imm)) & imm);
+}
+
 /*
  * Tell whether insn[i] can use the source of the preceding MOV as its first
  * operand (src2_reg) so that the MOV itself doesn't have to be emitted.
@@ -770,7 +776,7 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 				EMIT(PPC_RAW_ANDI(dst_reg, src2_reg, IMM_L(imm)));
 			} else if (!IMM_L(imm)) {
 				EMIT(PPC_RAW_ANDIS(dst_reg, src2_reg, IMM_H(imm)));
-			} else if (imm == (((1 << fls(imm)) - 1) ^ ((1 << (ffs(i) - 1)) - 1))) {
+			} else if (bpf_jit_is_contiguous_mask(imm)) {
 				EMIT(PPC_RAW_RLWINM(dst_reg, src2_reg, 0,
 						    32 - fls(imm), 32 - ffs(imm)));
 			} else {
