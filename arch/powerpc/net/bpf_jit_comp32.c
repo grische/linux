@@ -203,6 +203,14 @@ void bpf_jit_build_prologue(u32 *image, struct codegen_context *ctx)
 		if (bpf_is_seen_register(ctx, i))
 			EMIT(PPC_RAW_STW(i, _R1, bpf_jit_stack_offsetof(ctx, i)));
 
+	/* Subprogs get BPF_REG_5 in the caller's parameter area, like helpers */
+	if (ctx->is_subprog && bpf_is_seen_register(ctx, bpf_to_ppc(BPF_REG_5))) {
+		int off = bpf_has_stack_frame(ctx) ? BPF_PPC_STACKFRAME(ctx) : 0;
+
+		EMIT(PPC_RAW_LWZ(bpf_to_ppc(BPF_REG_5) - 1, _R1, off + 8));
+		EMIT(PPC_RAW_LWZ(bpf_to_ppc(BPF_REG_5), _R1, off + 12));
+	}
+
 	/* Setup frame pointer to point to the bpf stack area */
 	if (bpf_is_seen_register(ctx, bpf_to_ppc(BPF_REG_FP))) {
 		EMIT(PPC_RAW_LI(bpf_to_ppc(BPF_REG_FP) - 1, 0));
@@ -1260,6 +1268,17 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 		 */
 		case BPF_JMP | BPF_CALL:
 			ctx->seen |= SEEN_FUNC;
+
+			/*
+			 * A subprog may pass its own arguments on without using
+			 * them: keep them where they are and load BPF_REG_5.
+			 */
+			if (ctx->is_subprog && insn[i].src_reg == BPF_PSEUDO_CALL) {
+				for (int r = BPF_REG_1; r <= BPF_REG_5; r++) {
+					bpf_set_seen_register(ctx, bpf_to_ppc(r));
+					bpf_set_seen_register(ctx, bpf_to_ppc(r) - 1);
+				}
+			}
 
 			ret = bpf_jit_get_func_addr(fp, &insn[i], extra_pass,
 						    &func_addr, &func_addr_fixed);
