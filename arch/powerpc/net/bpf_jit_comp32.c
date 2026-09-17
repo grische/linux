@@ -607,11 +607,12 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 				return -EINVAL;
 			if (imm == 1) {
 				EMIT(PPC_RAW_MR(dst_reg, src2_reg));
-			} else if (is_power_of_2((u32)imm)) {
-				if (off)
-					EMIT(PPC_RAW_SRAWI(dst_reg, src2_reg, ilog2(imm)));
-				else
-					EMIT(PPC_RAW_SRWI(dst_reg, src2_reg, ilog2(imm)));
+			} else if (off && imm > 0 && is_power_of_2(imm)) {
+				/* Truncate towards zero */
+				EMIT(PPC_RAW_SRAWI(dst_reg, src2_reg, ilog2(imm)));
+				EMIT(PPC_RAW_ADDZE(dst_reg, dst_reg));
+			} else if (!off && is_power_of_2((u32)imm)) {
+				EMIT(PPC_RAW_SRWI(dst_reg, src2_reg, ilog2((u32)imm)));
 			} else {
 				PPC_LI32(_R0, imm);
 				if (off)
