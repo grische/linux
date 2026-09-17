@@ -671,6 +671,19 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 		case BPF_ALU64 | BPF_DIV | BPF_K: /* dst /= imm */
 			if (!imm)
 				return -EINVAL;
+			if (!off && imm < 0) {
+				/*
+				 * The divisor is (u64)(s64)imm, which is at
+				 * least 2^63, so the quotient is 0 or 1.
+				 */
+				PPC_LI32(_R0, imm);
+				EMIT(PPC_RAW_SUBFC(_R0, _R0, src2_reg));
+				EMIT(PPC_RAW_ADDZE(_R0, src2_reg_h));
+				EMIT(PPC_RAW_LI(dst_reg, 0));
+				EMIT(PPC_RAW_ADDZE(dst_reg, dst_reg));
+				EMIT(PPC_RAW_LI(dst_reg_h, 0));
+				break;
+			}
 			if (!is_power_of_2(abs(imm)))
 				return -EOPNOTSUPP;
 
@@ -701,13 +714,6 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 				break;
 			}
 
-			if (imm < 0) {
-				EMIT(PPC_RAW_SUBFIC(dst_reg, src2_reg, 0));
-				EMIT(PPC_RAW_SUBFZE(dst_reg_h, src2_reg_h));
-				imm = -imm;
-				src2_reg = dst_reg;
-				src2_reg_h = dst_reg_h;
-			}
 			if (imm == 1) {
 				EMIT(PPC_RAW_MR(dst_reg, src2_reg));
 				EMIT(PPC_RAW_MR(dst_reg_h, src2_reg_h));
