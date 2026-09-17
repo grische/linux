@@ -7,6 +7,7 @@
  *
  * Based on PPC64 eBPF JIT compiler by Naveen N. Rao
  */
+#include <linux/bitmap.h>
 #include <linux/moduleloader.h>
 #include <asm/cacheflush.h>
 #include <asm/asm-compat.h>
@@ -318,16 +319,53 @@ static int bpf_jit_emit_tail_call(u32 *image, struct codegen_context *ctx, u32 o
 	return 0;
 }
 
+static unsigned long *bpf_jit_find_jmp_targets(const struct bpf_prog *fp)
+{
+	const struct bpf_insn *insn = fp->insnsi;
+	unsigned long *targets;
+	int i;
+
+	targets = bitmap_zalloc(fp->len, GFP_KERNEL);
+	if (!targets)
+		return NULL;
+
+	for (i = 0; i < fp->len; i++) {
+		u8 class = BPF_CLASS(insn[i].code);
+		u8 op = BPF_OP(insn[i].code);
+		int target;
+
+		if (class != BPF_JMP && class != BPF_JMP32)
+			continue;
+		if (op == BPF_CALL || op == BPF_EXIT || op == BPF_TAIL_CALL)
+			continue;
+
+		if (class == BPF_JMP32 && op == BPF_JA)
+			target = i + 1 + insn[i].imm;
+		else
+			target = i + 1 + insn[i].off;
+
+		if (target >= 0 && target < fp->len)
+			__set_bit(target, targets);
+	}
+
+	return targets;
+}
+
 /*
  * Tell whether insn[i] can use the source of the preceding MOV as its first
  * operand (src2_reg) so that the MOV itself doesn't have to be emitted.
  */
-static bool bpf_jit_fuse_with_mov(const struct bpf_insn *insn, int i)
+static bool bpf_jit_fuse_with_mov(const struct bpf_insn *insn, int i,
+				  const unsigned long *jmp_targets)
 {
 	const struct bpf_insn *mov = &insn[i - 1];
 	u8 code = insn[i].code;
 
 	if (BPF_CLASS(code) != BPF_ALU && BPF_CLASS(code) != BPF_ALU64)
+		return false;
+
+	/* A branch to insn[i] doesn't execute the MOV */
+	if (test_bit(i, jmp_targets))
 		return false;
 
 	if (mov->code != (BPF_ALU64 | BPF_MOV | BPF_X) &&
@@ -356,9 +394,9 @@ static bool bpf_jit_fuse_with_mov(const struct bpf_insn *insn, int i)
 	return true;
 }
 
-/* Assemble the body code between the prologue & epilogue */
-int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct codegen_context *ctx,
-		       u32 *addrs, int pass, bool extra_pass)
+static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
+				struct codegen_context *ctx, u32 *addrs, int pass,
+				bool extra_pass, const unsigned long *jmp_targets)
 {
 	const struct bpf_insn *insn = fp->insnsi;
 	int flen = fp->len;
@@ -386,7 +424,7 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 		u32 true_cond;
 		u32 tmp_idx;
 
-		if (i && bpf_jit_fuse_with_mov(insn, i)) {
+		if (i && bpf_jit_fuse_with_mov(insn, i, jmp_targets)) {
 			src2_reg = bpf_to_ppc(insn[i - 1].src_reg);
 			src2_reg_h = src2_reg - 1;
 			ctx->idx = addrs[i - 1] / 4;
@@ -1466,4 +1504,22 @@ cond_branch:
 	addrs[i] = ctx->idx * 4;
 
 	return 0;
+}
+
+/* Assemble the body code between the prologue & epilogue */
+int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct codegen_context *ctx,
+		       u32 *addrs, int pass, bool extra_pass)
+{
+	unsigned long *jmp_targets;
+	int ret;
+
+	jmp_targets = bpf_jit_find_jmp_targets(fp);
+	if (!jmp_targets)
+		return -ENOMEM;
+
+	ret = __bpf_jit_build_body(fp, image, fimage, ctx, addrs, pass, extra_pass,
+				   jmp_targets);
+	bitmap_free(jmp_targets);
+
+	return ret;
 }
