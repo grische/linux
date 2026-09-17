@@ -446,6 +446,7 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 		u64 func_addr;
 		u32 true_cond;
 		u32 tmp_idx;
+		u32 shift;
 
 		if (i && bpf_jit_fuse_with_mov(insn, i, jmp_targets)) {
 			src2_reg = bpf_to_ppc(insn[i - 1].src_reg);
@@ -672,6 +673,33 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 				return -EINVAL;
 			if (!is_power_of_2(abs(imm)))
 				return -EOPNOTSUPP;
+
+			shift = ilog2((u32)abs(imm));
+			if (off && shift) {
+				/*
+				 * Signed division truncates towards zero, so add
+				 * 2^n - 1 before shifting a negative dividend.
+				 */
+				EMIT(PPC_RAW_SRAWI(_R0, src2_reg_h, 31));
+				EMIT(PPC_RAW_RLWINM(_R0, _R0, 0, 32 - shift, 31));
+				EMIT(PPC_RAW_ADDC(dst_reg, src2_reg, _R0));
+				EMIT(PPC_RAW_ADDZE(dst_reg_h, src2_reg_h));
+				EMIT(PPC_RAW_RLWINM(dst_reg, dst_reg, 32 - shift, shift, 31));
+				EMIT(PPC_RAW_RLWIMI(dst_reg, dst_reg_h, 32 - shift, 0, shift - 1));
+				EMIT(PPC_RAW_SRAWI(dst_reg_h, dst_reg_h, shift));
+				src2_reg = dst_reg;
+				src2_reg_h = dst_reg_h;
+			}
+			if (off) {
+				if (imm < 0) {
+					EMIT(PPC_RAW_SUBFIC(dst_reg, src2_reg, 0));
+					EMIT(PPC_RAW_SUBFZE(dst_reg_h, src2_reg_h));
+				} else if (src2_reg != dst_reg) {
+					EMIT(PPC_RAW_MR(dst_reg, src2_reg));
+					EMIT(PPC_RAW_MR(dst_reg_h, src2_reg_h));
+				}
+				break;
+			}
 
 			if (imm < 0) {
 				EMIT(PPC_RAW_SUBFIC(dst_reg, src2_reg, 0));
