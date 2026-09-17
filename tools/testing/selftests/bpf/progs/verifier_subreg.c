@@ -466,6 +466,29 @@ __naked void mov32_reg_zero_extend_check(void)
 }
 
 SEC("socket")
+__description("mov32 reg zero extend check, lower half")
+__success __success_unpriv __retval(0)
+__naked void mov32_reg_zero_extend_lower_half(void)
+{
+	asm volatile (
+	"call %[bpf_get_prandom_u32];"
+	"r6 = r0;"
+	"r1 = 0x100000000 ll;"
+	"r0 |= r1;"
+	"r1 = r6;"
+	"r1 ^= -1;"
+	"w1 = w0;"
+	"r1 ^= r6;"
+	"r0 = r1;"
+	"r0 >>= 32;"
+	"r0 |= r1;"
+	"exit;"
+	:
+	: __imm(bpf_get_prandom_u32)
+	: __clobber_all);
+}
+
+SEC("socket")
 __description("mov32 imm zero extend check")
 __success __success_unpriv __retval(0)
 __naked void mov32_imm_zero_extend_check(void)
