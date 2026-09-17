@@ -180,9 +180,14 @@ void bpf_jit_build_prologue(u32 *image, struct codegen_context *ctx)
 	if (ctx->seen & SEEN_TAILCALL)
 		EMIT(PPC_RAW_STW(_R4, _R1, bpf_jit_stack_offsetof(ctx, BPF_PPC_TC)));
 
-	/* First arg comes in as a 32 bits pointer. */
-	EMIT(PPC_RAW_MR(bpf_to_ppc(BPF_REG_1), _R3));
-	EMIT(PPC_RAW_LI(bpf_to_ppc(BPF_REG_1) - 1, 0));
+	/*
+	 * First arg comes in as a 32 bits pointer. Subprogs are called like
+	 * helpers and get BPF_REG_1 in r3:r4 already.
+	 */
+	if (!ctx->is_subprog) {
+		EMIT(PPC_RAW_MR(bpf_to_ppc(BPF_REG_1), _R3));
+		EMIT(PPC_RAW_LI(bpf_to_ppc(BPF_REG_1) - 1, 0));
+	}
 
 	/*
 	 * We need a stack frame, but we don't necessarily need to
@@ -232,7 +237,13 @@ static void bpf_jit_emit_common_epilogue(u32 *image, struct codegen_context *ctx
 
 void bpf_jit_build_epilogue(u32 *image, struct codegen_context *ctx)
 {
-	EMIT(PPC_RAW_MR(_R3, bpf_to_ppc(BPF_REG_0)));
+	/* Subprogs return all of BPF_REG_0 in r3:r4, like helpers */
+	if (ctx->is_subprog) {
+		EMIT(PPC_RAW_MR(_R3, bpf_to_ppc(BPF_REG_0) - 1));
+		EMIT(PPC_RAW_MR(_R4, bpf_to_ppc(BPF_REG_0)));
+	} else {
+		EMIT(PPC_RAW_MR(_R3, bpf_to_ppc(BPF_REG_0)));
+	}
 
 	bpf_jit_emit_common_epilogue(image, ctx);
 
