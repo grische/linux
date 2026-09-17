@@ -376,6 +376,10 @@ static bool bpf_jit_fuse_with_mov(const struct bpf_insn *insn, int i,
 	if (mov->imm == 1)
 		return false;
 
+	/* Neither is a sign extension */
+	if (mov->off)
+		return false;
+
 	if (mov->dst_reg != insn[i].dst_reg)
 		return false;
 
