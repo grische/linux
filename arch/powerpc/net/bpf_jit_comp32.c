@@ -877,12 +877,12 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 		case BPF_ALU64 | BPF_RSH | BPF_X: /* dst >>= src */
 			bpf_set_seen_register(ctx, tmp_reg);
 			EMIT(PPC_RAW_SUBFIC(_R0, src_reg, 32));
-			EMIT(PPC_RAW_SRW(dst_reg, src2_reg, src_reg));
 			EMIT(PPC_RAW_ADDI(tmp_reg, src_reg, 32));
 			EMIT(PPC_RAW_SLW(_R0, src2_reg_h, _R0));
 			EMIT(PPC_RAW_SRW(tmp_reg, src2_reg_h, tmp_reg));
-			EMIT(PPC_RAW_OR(dst_reg, dst_reg, _R0));
+			EMIT(PPC_RAW_OR(tmp_reg, tmp_reg, _R0));
 			EMIT(PPC_RAW_SRW(dst_reg_h, src2_reg_h, src_reg));
+			EMIT(PPC_RAW_SRW(dst_reg, src2_reg, src_reg));
 			EMIT(PPC_RAW_OR(dst_reg, dst_reg, tmp_reg));
 			break;
 		case BPF_ALU | BPF_RSH | BPF_K: /* (u32) dst >>= (u32) imm */
@@ -914,15 +914,15 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 			break;
 		case BPF_ALU64 | BPF_ARSH | BPF_X: /* (s64) dst >>= src */
 			bpf_set_seen_register(ctx, tmp_reg);
-			EMIT(PPC_RAW_SUBFIC(_R0, src_reg, 32));
-			EMIT(PPC_RAW_SRW(dst_reg, src2_reg, src_reg));
-			EMIT(PPC_RAW_SLW(_R0, src2_reg_h, _R0));
-			EMIT(PPC_RAW_ADDI(tmp_reg, src_reg, 32));
-			EMIT(PPC_RAW_OR(dst_reg, dst_reg, _R0));
-			EMIT(PPC_RAW_RLWINM(_R0, tmp_reg, 0, 26, 26));
-			EMIT(PPC_RAW_SRAW(tmp_reg, src2_reg_h, tmp_reg));
-			EMIT(PPC_RAW_SRAW(dst_reg_h, src2_reg_h, src_reg));
+			EMIT(PPC_RAW_ADDI(_R0, src_reg, 32));
+			EMIT(PPC_RAW_SRAW(tmp_reg, src2_reg_h, _R0));
+			EMIT(PPC_RAW_RLWINM(_R0, _R0, 0, 26, 26));
 			EMIT(PPC_RAW_SLW(tmp_reg, tmp_reg, _R0));
+			EMIT(PPC_RAW_SUBFIC(_R0, src_reg, 32));
+			EMIT(PPC_RAW_SLW(_R0, src2_reg_h, _R0));
+			EMIT(PPC_RAW_OR(tmp_reg, tmp_reg, _R0));
+			EMIT(PPC_RAW_SRAW(dst_reg_h, src2_reg_h, src_reg));
+			EMIT(PPC_RAW_SRW(dst_reg, src2_reg, src_reg));
 			EMIT(PPC_RAW_OR(dst_reg, dst_reg, tmp_reg));
 			break;
 		case BPF_ALU | BPF_ARSH | BPF_K: /* (s32) dst >>= imm */
