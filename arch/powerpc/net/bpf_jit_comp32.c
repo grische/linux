@@ -840,7 +840,8 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 				EMIT(PPC_RAW_MR(dst_reg, src2_reg));
 			break;
 		case BPF_ALU | BPF_LSH | BPF_X: /* (u32) dst <<= (u32) src */
-			EMIT(PPC_RAW_SLW(dst_reg, src2_reg, src_reg));
+			EMIT(PPC_RAW_RLWINM(_R0, src_reg, 0, 27, 31));
+			EMIT(PPC_RAW_SLW(dst_reg, src2_reg, _R0));
 			break;
 		case BPF_ALU64 | BPF_LSH | BPF_X: /* dst <<= src; */
 			bpf_set_seen_register(ctx, tmp_reg);
@@ -878,7 +879,8 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 			}
 			break;
 		case BPF_ALU | BPF_RSH | BPF_X: /* (u32) dst >>= (u32) src */
-			EMIT(PPC_RAW_SRW(dst_reg, src2_reg, src_reg));
+			EMIT(PPC_RAW_RLWINM(_R0, src_reg, 0, 27, 31));
+			EMIT(PPC_RAW_SRW(dst_reg, src2_reg, _R0));
 			break;
 		case BPF_ALU64 | BPF_RSH | BPF_X: /* dst >>= src */
 			bpf_set_seen_register(ctx, tmp_reg);
@@ -916,7 +918,8 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 			}
 			break;
 		case BPF_ALU | BPF_ARSH | BPF_X: /* (s32) dst >>= src */
-			EMIT(PPC_RAW_SRAW(dst_reg, src2_reg, src_reg));
+			EMIT(PPC_RAW_RLWINM(_R0, src_reg, 0, 27, 31));
+			EMIT(PPC_RAW_SRAW(dst_reg, src2_reg, _R0));
 			break;
 		case BPF_ALU64 | BPF_ARSH | BPF_X: /* (s64) dst >>= src */
 			bpf_set_seen_register(ctx, tmp_reg);
