@@ -318,6 +318,44 @@ static int bpf_jit_emit_tail_call(u32 *image, struct codegen_context *ctx, u32 o
 	return 0;
 }
 
+/*
+ * Tell whether insn[i] can use the source of the preceding MOV as its first
+ * operand (src2_reg) so that the MOV itself doesn't have to be emitted.
+ */
+static bool bpf_jit_fuse_with_mov(const struct bpf_insn *insn, int i)
+{
+	const struct bpf_insn *mov = &insn[i - 1];
+	u8 code = insn[i].code;
+
+	if (BPF_CLASS(code) != BPF_ALU && BPF_CLASS(code) != BPF_ALU64)
+		return false;
+
+	if (mov->code != (BPF_ALU64 | BPF_MOV | BPF_X) &&
+	    mov->code != (BPF_ALU | BPF_MOV | BPF_X))
+		return false;
+
+	/* The verifier's zero-extension is not a move */
+	if (mov->imm == 1)
+		return false;
+
+	if (mov->dst_reg != insn[i].dst_reg)
+		return false;
+
+	/* A 32-bit MOV clears the upper half, src2_reg_h doesn't */
+	if (BPF_CLASS(code) == BPF_ALU64 && BPF_CLASS(mov->code) == BPF_ALU)
+		return false;
+
+	/* These don't take their input from src2_reg */
+	if (BPF_OP(code) == BPF_MOV || BPF_OP(code) == BPF_END)
+		return false;
+
+	/* The source register holds the moved value too */
+	if (BPF_SRC(code) == BPF_X && insn[i].src_reg == insn[i].dst_reg)
+		return false;
+
+	return true;
+}
+
 /* Assemble the body code between the prologue & epilogue */
 int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct codegen_context *ctx,
 		       u32 *addrs, int pass, bool extra_pass)
@@ -331,7 +369,6 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 
 	for (i = 0; i < flen; i++) {
 		u32 code = insn[i].code;
-		u32 prevcode = i ? insn[i - 1].code : 0;
 		u32 dst_reg = bpf_to_ppc(insn[i].dst_reg);
 		u32 dst_reg_h = dst_reg - 1;
 		u32 src_reg = bpf_to_ppc(insn[i].src_reg);
@@ -349,10 +386,7 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage, struct code
 		u32 true_cond;
 		u32 tmp_idx;
 
-		if (i && (BPF_CLASS(code) == BPF_ALU64 || BPF_CLASS(code) == BPF_ALU) &&
-		    (BPF_CLASS(prevcode) == BPF_ALU64 || BPF_CLASS(prevcode) == BPF_ALU) &&
-		    BPF_OP(prevcode) == BPF_MOV && BPF_SRC(prevcode) == BPF_X &&
-		    insn[i - 1].dst_reg == insn[i].dst_reg && insn[i - 1].imm != 1) {
+		if (i && bpf_jit_fuse_with_mov(insn, i)) {
 			src2_reg = bpf_to_ppc(insn[i - 1].src_reg);
 			src2_reg_h = src2_reg - 1;
 			ctx->idx = addrs[i - 1] / 4;
