@@ -648,6 +648,22 @@ static int __bpf_jit_build_body(struct bpf_prog *fp, u32 *image, u32 *fimage,
 		case BPF_ALU64 | BPF_MOD | BPF_K: /* dst %= imm */
 			if (!imm)
 				return -EINVAL;
+			if (!off && imm < 0) {
+				/*
+				 * The divisor is (u64)(s64)imm, which is at
+				 * least 2^63, so the remainder is the dividend
+				 * itself or the dividend minus the divisor.
+				 */
+				bpf_set_seen_register(ctx, tmp_reg);
+				PPC_LI32(_R0, imm);
+				EMIT(PPC_RAW_SUBFC(dst_reg, _R0, src2_reg));
+				EMIT(PPC_RAW_ADDZE(dst_reg_h, src2_reg_h));
+				EMIT(PPC_RAW_SUBFE(tmp_reg, tmp_reg, tmp_reg));
+				EMIT(PPC_RAW_AND(_R0, _R0, tmp_reg));
+				EMIT(PPC_RAW_ADDC(dst_reg, dst_reg, _R0));
+				EMIT(PPC_RAW_ADDE(dst_reg_h, dst_reg_h, tmp_reg));
+				break;
+			}
 			if (imm < 0)
 				imm = -imm;
 			if (!is_power_of_2(imm))
