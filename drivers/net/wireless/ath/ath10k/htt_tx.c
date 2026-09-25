@@ -79,8 +79,8 @@ static void __ath10k_htt_tx_txq_recalc(struct ieee80211_hw *hw,
 	}
 
 	ar->htt.tx_q_state.vaddr->count[tid][peer_id] = count;
-	ar->htt.tx_q_state.vaddr->map[tid][idx] &= ~bit;
-	ar->htt.tx_q_state.vaddr->map[tid][idx] |= count ? bit : 0;
+	ar->htt.tx_q_state.vaddr->map[tid][idx] &= ~cpu_to_le32(bit);
+	ar->htt.tx_q_state.vaddr->map[tid][idx] |= count ? cpu_to_le32(bit) : 0;
 
 	ath10k_dbg(ar, ATH10K_DBG_HTT, "htt tx txq state update peer_id %u tid %u count %u\n",
 		   peer_id, tid, count);

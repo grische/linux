@@ -1536,7 +1536,8 @@ struct htt_frag_desc_bank_cfg64 {
  *	HTT_Q_DEPTH_TYPE_MSDUS the number of packets is scaled by 2 **
  *	record_multiplier (see htt_q_state_conf).
  * @map: Used by firmware to quickly check which host queues are not empty. It
- *	is a bitmap simply saying.
+ *	is a bitmap simply saying. The firmware reads each word as little
+ *	endian, so peer n is bit n % 32 of word n / 32 in that byte order.
  * @seq: Used by firmware to quickly check if the host queues were updated
  *	since it last checked.
  *
@@ -1544,7 +1545,7 @@ struct htt_frag_desc_bank_cfg64 {
  */
 struct htt_q_state {
 	u8 count[HTT_TX_Q_STATE_NUM_TIDS][HTT_TX_Q_STATE_NUM_PEERS];
-	u32 map[HTT_TX_Q_STATE_NUM_TIDS][(HTT_TX_Q_STATE_NUM_PEERS + 31) / 32];
+	__le32 map[HTT_TX_Q_STATE_NUM_TIDS][(HTT_TX_Q_STATE_NUM_PEERS + 31) / 32];
 	__le32 seq;
 } __packed;
 
