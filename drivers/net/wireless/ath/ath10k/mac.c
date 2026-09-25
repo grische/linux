@@ -6031,6 +6031,7 @@ static void ath10k_remove_interface(struct ieee80211_hw *hw,
 	spin_unlock_bh(&ar->htt.tx_lock);
 
 	ath10k_mac_txq_unref(ar, vif->txq);
+	ath10k_htt_tx_txq_clear_peer(ar, arvif->peer_id);
 
 out:
 	mutex_unlock(&ar->conf_mutex);
@@ -7678,6 +7679,8 @@ static int ath10k_sta_state(struct ieee80211_hw *hw,
 
 		for (i = 0; i < ARRAY_SIZE(sta->txq); i++)
 			ath10k_mac_txq_unref(ar, sta->txq[i]);
+
+		ath10k_htt_tx_txq_clear_peer(ar, arsta->peer_id);
 
 		if (!sta->tdls)
 			goto exit;

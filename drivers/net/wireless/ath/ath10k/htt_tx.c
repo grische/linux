@@ -141,6 +141,31 @@ void ath10k_htt_tx_txq_update(struct ieee80211_hw *hw,
 	spin_unlock_bh(&ar->htt.tx_lock);
 }
 
+void ath10k_htt_tx_txq_clear_peer(struct ath10k *ar, u16 peer_id)
+{
+	__le32 bit = cpu_to_le32(BIT(peer_id % 32));
+	int idx = peer_id / 32;
+	u8 tid;
+
+	spin_lock_bh(&ar->htt.tx_lock);
+
+	if (!ar->htt.tx_q_state.enabled ||
+	    peer_id >= ar->htt.tx_q_state.num_peers)
+		goto unlock;
+
+	for (tid = 0; tid < ar->htt.tx_q_state.num_tids; tid++) {
+		ar->htt.tx_q_state.vaddr->count[tid][peer_id] = 0;
+		ar->htt.tx_q_state.vaddr->map[tid][idx] &= ~bit;
+	}
+
+	ath10k_dbg(ar, ATH10K_DBG_HTT, "htt tx txq state clear peer_id %u\n",
+		   peer_id);
+
+	__ath10k_htt_tx_txq_sync(ar);
+unlock:
+	spin_unlock_bh(&ar->htt.tx_lock);
+}
+
 void ath10k_htt_tx_dec_pending(struct ath10k_htt *htt)
 {
 	lockdep_assert_held(&htt->tx_lock);

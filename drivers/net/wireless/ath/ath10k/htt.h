@@ -2448,6 +2448,7 @@ void ath10k_htt_tx_txq_update(struct ieee80211_hw *hw,
 void ath10k_htt_tx_txq_recalc(struct ieee80211_hw *hw,
 			      struct ieee80211_txq *txq);
 void ath10k_htt_tx_txq_sync(struct ath10k *ar);
+void ath10k_htt_tx_txq_clear_peer(struct ath10k *ar, u16 peer_id);
 void ath10k_htt_tx_dec_pending(struct ath10k_htt *htt);
 int ath10k_htt_tx_inc_pending(struct ath10k_htt *htt);
 void ath10k_htt_tx_mgmt_dec_pending(struct ath10k_htt *htt);
