@@ -64,6 +64,10 @@ static void __ath10k_htt_tx_txq_recalc(struct ieee80211_hw *hw,
 		peer_id = arvif->peer_id;
 	}
 
+	/* The peer was removed, or the vif has no peer of its own */
+	if (peer_id == HTT_INVALID_PEERID)
+		return;
+
 	tid = txq->tid;
 	bit = BIT(peer_id % 32);
 	idx = peer_id / 32;
@@ -138,6 +142,43 @@ void ath10k_htt_tx_txq_update(struct ieee80211_hw *hw,
 	spin_lock_bh(&ar->htt.tx_lock);
 	__ath10k_htt_tx_txq_recalc(hw, txq);
 	__ath10k_htt_tx_txq_sync(ar);
+	spin_unlock_bh(&ar->htt.tx_lock);
+}
+
+/* Clear the queue state of a peer that goes away and invalidate the peer id
+ * that __ath10k_htt_tx_txq_recalc() uses for its queues. mac80211 can still
+ * queue frames for a removed station, and a recalc must not set the entries
+ * again.
+ */
+void ath10k_htt_tx_txq_clear_peer(struct ath10k *ar, u16 *peer_id)
+{
+	__le32 bit;
+	int idx;
+	u16 id;
+	u8 tid;
+
+	spin_lock_bh(&ar->htt.tx_lock);
+
+	id = *peer_id;
+	*peer_id = HTT_INVALID_PEERID;
+
+	if (!ar->htt.tx_q_state.enabled ||
+	    id >= ar->htt.tx_q_state.num_peers)
+		goto unlock;
+
+	bit = cpu_to_le32(BIT(id % 32));
+	idx = id / 32;
+
+	for (tid = 0; tid < ar->htt.tx_q_state.num_tids; tid++) {
+		ar->htt.tx_q_state.vaddr->count[tid][id] = 0;
+		ar->htt.tx_q_state.vaddr->map[tid][idx] &= ~bit;
+	}
+
+	ath10k_dbg(ar, ATH10K_DBG_HTT, "htt tx txq state clear peer_id %u\n",
+		   id);
+
+	__ath10k_htt_tx_txq_sync(ar);
+unlock:
 	spin_unlock_bh(&ar->htt.tx_lock);
 }
 
