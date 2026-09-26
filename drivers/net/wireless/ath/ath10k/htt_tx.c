@@ -459,6 +459,26 @@ static int ath10k_htt_tx_alloc_txq(struct ath10k_htt *htt)
 	return 0;
 }
 
+static void ath10k_htt_tx_txq_reset(struct ath10k_htt *htt)
+{
+	struct ath10k *ar = htt->ar;
+	size_t size = sizeof(*htt->tx_q_state.vaddr);
+
+	spin_lock_bh(&htt->tx_lock);
+
+	htt->tx_q_state.enabled = false;
+	htt->tx_q_state.mode = HTT_TX_MODE_SWITCH_PUSH;
+	htt->tx_q_state.num_push_allowed = 0;
+
+	if (htt->tx_q_state.vaddr) {
+		memset(htt->tx_q_state.vaddr, 0, size);
+		dma_sync_single_for_device(ar->dev, htt->tx_q_state.paddr,
+					   size, DMA_TO_DEVICE);
+	}
+
+	spin_unlock_bh(&htt->tx_lock);
+}
+
 static void ath10k_htt_tx_free_txdone_fifo(struct ath10k_htt *htt)
 {
 	WARN_ON(!kfifo_is_empty(&htt->txdone_fifo));
@@ -528,6 +548,12 @@ int ath10k_htt_tx_start(struct ath10k_htt *htt)
 
 	spin_lock_init(&htt->tx_lock);
 	idr_init(&htt->pending_tx);
+
+	/* The queue state buffer and the push-pull mode outlive the
+	 * firmware. Reset them, so a new firmware does not inherit those
+	 * of the old one.
+	 */
+	ath10k_htt_tx_txq_reset(htt);
 
 	if (htt->tx_mem_allocated) {
 		/* The tx memory can come from the start of a firmware that
