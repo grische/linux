@@ -726,6 +726,7 @@ EXPORT_SYMBOL(rtw_tx_ac_to_hwq);
 enum rtw_tx_queue_type rtw_tx_queue_mapping(struct sk_buff *skb)
 {
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	__le16 fc = hdr->frame_control;
 	u8 q_mapping = skb_get_queue_mapping(skb);
 	enum rtw_tx_queue_type queue;
@@ -734,8 +735,9 @@ enum rtw_tx_queue_type rtw_tx_queue_mapping(struct sk_buff *skb)
 		queue = RTW_TX_QUEUE_BCN;
 	else if (unlikely(ieee80211_is_mgmt(fc) || ieee80211_is_ctl(fc)))
 		queue = RTW_TX_QUEUE_MGMT;
-	else if (is_broadcast_ether_addr(hdr->addr1) ||
-		 is_multicast_ether_addr(hdr->addr1))
+	else if ((is_broadcast_ether_addr(hdr->addr1) ||
+		  is_multicast_ether_addr(hdr->addr1)) &&
+		 (info->flags & IEEE80211_TX_CTL_SEND_AFTER_DTIM))
 		queue = RTW_TX_QUEUE_HI0;
 	else if (WARN_ON_ONCE(q_mapping >= ARRAY_SIZE(ac_to_hwq)))
 		queue = ac_to_hwq[IEEE80211_AC_BE];
