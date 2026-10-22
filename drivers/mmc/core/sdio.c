@@ -665,6 +665,7 @@ static int mmc_sdio_init_card(struct mmc_host *host, u32 ocr,
 	int retries = 10;
 	u32 rocr = 0;
 	u32 ocr_card = ocr;
+	bool cmd11_failed_at_1v8 = false;
 
 	WARN_ON(!host->claimed);
 
@@ -738,12 +739,24 @@ try_again:
 	 * fails to check rocr & R4_18V_PRESENT,  but we still need to
 	 * try to init uhs card. sdio_read_cccr will take over this task
 	 * to make sure which speed mode should work.
+	 *
+	 * Some cards set S18A even if the signal voltage is already 1.8V.
+	 * Per SD spec v3.01, section 4.2.4.4, such a card treats CMD11 as
+	 * an illegal command and does not respond to it. If CMD11 fails
+	 * and the host still signals at 1.8V, there is nothing to switch.
+	 * Restart the init sequence without CMD11 but with R4_18V_PRESENT,
+	 * so that sdio_read_cccr decides about UHS-I as described above.
 	 */
-	if (rocr & ocr & R4_18V_PRESENT) {
+	if (rocr & ocr & R4_18V_PRESENT && !cmd11_failed_at_1v8) {
 		err = mmc_set_uhs_voltage(host, ocr_card);
 		if (err == -EAGAIN) {
 			mmc_sdio_pre_init(host, ocr_card, card);
 			retries--;
+			goto try_again;
+		} else if (err &&
+			   host->ios.signal_voltage == MMC_SIGNAL_VOLTAGE_180) {
+			cmd11_failed_at_1v8 = true;
+			mmc_sdio_pre_init(host, ocr_card, card);
 			goto try_again;
 		} else if (err) {
 			ocr &= ~R4_18V_PRESENT;
@@ -833,6 +846,19 @@ try_again:
 	if (oldcard) {
 		if (card->cis.vendor == oldcard->cis.vendor &&
 		    card->cis.device == oldcard->cis.device) {
+			/*
+			 * In the high speed retry after a failed UHS-I init,
+			 * see below, oldcard may still describe UHS-I, with
+			 * cccr.high_speed unset. Take over what
+			 * sdio_read_cccr() has just read. Of the SCR it only
+			 * sets sda_spec3. The rest of the SCR of a combo card
+			 * is read on the first init only, so keep it.
+			 */
+			if (cmd11_failed_at_1v8 && !(ocr & R4_18V_PRESENT)) {
+				oldcard->cccr = card->cccr;
+				oldcard->sw_caps = card->sw_caps;
+				oldcard->scr.sda_spec3 = card->scr.sda_spec3;
+			}
 			mmc_remove_card(card);
 			card = oldcard;
 		} else {
@@ -867,6 +893,23 @@ try_again:
 	/* Only if card supports 1.8v and UHS signaling */
 	if ((ocr & R4_18V_PRESENT) && card->sw_caps.sd3_bus_mode) {
 		err = mmc_sdio_init_uhs_card(card);
+		if (err && cmd11_failed_at_1v8) {
+			/*
+			 * UHS-I was selected without CMD11, see above. Power
+			 * cycle to reset the bus timing and clock, and retry
+			 * the init sequence without R4_18V_PRESENT, that is
+			 * in high speed mode. The retry neither sends CMD11
+			 * nor gets here again.
+			 */
+			pr_warn("%s: UHS-I init failed (%d), retrying in high speed mode\n",
+				mmc_hostname(host), err);
+			if (oldcard != card)
+				mmc_remove_card(card);
+			mmc_power_cycle(host, ocr_card);
+			mmc_sdio_pre_init(host, ocr_card, NULL);
+			ocr &= ~R4_18V_PRESENT;
+			goto try_again;
+		}
 		if (err)
 			goto remove;
 	} else {
