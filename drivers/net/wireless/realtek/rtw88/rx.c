@@ -110,17 +110,25 @@ static void rtw_rx_addr_match_iter(void *data, u8 *mac,
 	struct rtw_sta_info *si;
 	struct rtw_rx_pkt_stat *pkt_stat = iter_data->pkt_stat;
 	u8 *bssid = iter_data->bssid;
+	bool mesh = vif->type == NL80211_IFTYPE_MESH_POINT;
 
-	if (!ether_addr_equal(vif->bss_conf.bssid, bssid))
+	/* A mesh interface has no BSSID to match. Mesh peers put their
+	 * own address into the BSSID field of their beacons. For a mesh
+	 * interface, use only the frames of known peers.
+	 */
+	if (!mesh && !ether_addr_equal(vif->bss_conf.bssid, bssid))
 		return;
 
 	if (!(ether_addr_equal(vif->addr, hdr->addr1) ||
 	      ieee80211_is_beacon(hdr->frame_control)))
 		return;
 
-	rtw_rx_phy_stat(rtwdev, pkt_stat, hdr);
 	sta = ieee80211_find_sta_by_ifaddr(rtwdev->hw, hdr->addr2,
 					   vif->addr);
+	if (mesh && !sta)
+		return;
+
+	rtw_rx_phy_stat(rtwdev, pkt_stat, hdr);
 	if (!sta)
 		return;
 

@@ -687,11 +687,20 @@ static void rtw_phy_parsing_cfo_iter(void *data, u8 *mac,
 	struct rtw_rx_pkt_stat *pkt_stat = iter_data->pkt_stat;
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	struct rtw_cfo_track *cfo = &dm_info->cfo_track;
+	struct ieee80211_hdr *hdr = iter_data->hdr;
 	u8 *bssid = iter_data->bssid;
 	u8 i;
 
-	if (!ether_addr_equal(vif->bss_conf.bssid, bssid))
+	/* A mesh interface has no BSSID to match. Use the frames of its
+	 * known peers instead.
+	 */
+	if (vif->type == NL80211_IFTYPE_MESH_POINT) {
+		if (!ieee80211_find_sta_by_ifaddr(rtwdev->hw, hdr->addr2,
+						  vif->addr))
+			return;
+	} else if (!ether_addr_equal(vif->bss_conf.bssid, bssid)) {
 		return;
+	}
 
 	for (i = 0; i < rtwdev->hal.rf_path_num; i++) {
 		cfo->cfo_tail[i] += pkt_stat->cfo_tail[i];

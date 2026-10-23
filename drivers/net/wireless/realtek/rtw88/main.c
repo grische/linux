@@ -104,6 +104,11 @@ static struct ieee80211_rate rtw_ratetable[] = {
 	{.bitrate = 540, .hw_value = 0x0b,},
 };
 
+/* Mesh point is left out on purpose, so that cfg80211 allows a mesh
+ * interface only as the single interface on the radio. The security CAM
+ * finds group keys by key index only and would apply the group key of a
+ * station interface to the group frames of the mesh peers.
+ */
 static const struct ieee80211_iface_limit rtw_iface_limits[] = {
 	{
 		.max = 1,
@@ -2302,6 +2307,8 @@ int rtw_register_hw(struct rtw_dev *rtwdev, struct ieee80211_hw *hw)
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8822C) {
 		hw->wiphy->iface_combinations = rtw_iface_combs;
 		hw->wiphy->n_iface_combinations = ARRAY_SIZE(rtw_iface_combs);
+		/* Mesh point was tested on this chip only. */
+		hw->wiphy->interface_modes |= BIT(NL80211_IFTYPE_MESH_POINT);
 	}
 
 	wiphy_ext_feature_set(hw->wiphy, NL80211_EXT_FEATURE_CAN_REPLACE_PTK0);
@@ -2434,7 +2441,9 @@ void rtw_core_port_switch(struct rtw_dev *rtwdev, struct ieee80211_vif *vif)
 	struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
 	struct rtw_iter_port_switch_data iter_data;
 
-	if (vif->type != NL80211_IFTYPE_AP || rtwvif->port == RTW_PORT_0)
+	if ((vif->type != NL80211_IFTYPE_AP &&
+	     vif->type != NL80211_IFTYPE_MESH_POINT) ||
+	    rtwvif->port == RTW_PORT_0)
 		return;
 
 	iter_data.rtwdev = rtwdev;

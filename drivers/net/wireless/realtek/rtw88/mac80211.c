@@ -56,6 +56,11 @@ static int rtw_ops_start(struct ieee80211_hw *hw)
 	int ret;
 
 	mutex_lock(&rtwdev->mutex);
+	/* Powering off the chip resets the AP setup. After a restart or a
+	 * resume, mac80211 calls start_ap again for an AP interface, and a
+	 * mesh interface repeats the setup when its beacon is enabled.
+	 */
+	rtwdev->ap_active = false;
 	ret = rtw_core_start(rtwdev);
 	mutex_unlock(&rtwdev->mutex);
 
@@ -311,8 +316,13 @@ static void rtw_ops_configure_filter(struct ieee80211_hw *hw,
 		else
 			rtwdev->hal.rcr &= ~(BIT_AAP);
 	}
-	if (changed_flags & FIF_BCN_PRBRESP_PROMISC) {
-		if (*new_flags & FIF_BCN_PRBRESP_PROMISC)
+	/* mac80211 sets FIF_OTHER_BSS while a mesh interface is joined.
+	 * Mesh peers put their own address into the BSSID field, so do
+	 * not filter by BSSID then. Check the BSSID of beacons again once
+	 * neither flag is set.
+	 */
+	if (changed_flags & (FIF_BCN_PRBRESP_PROMISC | FIF_OTHER_BSS)) {
+		if (*new_flags & (FIF_BCN_PRBRESP_PROMISC | FIF_OTHER_BSS))
 			rtwdev->hal.rcr &= ~(BIT_CBSSID_BCN | BIT_CBSSID_DATA);
 		else
 			rtwdev->hal.rcr |= BIT_CBSSID_BCN;
@@ -375,6 +385,26 @@ static void rtw_conf_tx(struct rtw_dev *rtwdev,
 		__rtw_conf_tx(rtwdev, rtwvif, ac);
 }
 
+static void __rtw_start_ap(struct rtw_dev *rtwdev)
+{
+	const struct rtw_chip_info *chip = rtwdev->chip;
+
+	rtw_write32_set(rtwdev, REG_TCR, BIT_TCR_UPDATE_HGQMD);
+	rtw_write16(rtwdev, REG_ATIMWND, ATIMWND_AP);
+	rtwdev->ap_active = true;
+	rtw_store_op_chan(rtwdev, true);
+	chip->ops->phy_calibration(rtwdev);
+}
+
+static void __rtw_stop_ap(struct rtw_dev *rtwdev)
+{
+	rtw_write32_clr(rtwdev, REG_TCR, BIT_TCR_UPDATE_HGQMD);
+	rtw_write16(rtwdev, REG_ATIMWND, ATIMWND_DEFAULT);
+	rtwdev->ap_active = false;
+	if (!rtw_core_check_sta_active(rtwdev))
+		rtw_clear_op_chan(rtwdev);
+}
+
 static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 				     struct ieee80211_vif *vif,
 				     struct ieee80211_bss_conf *conf,
@@ -389,6 +419,38 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 	mutex_lock(&rtwdev->mutex);
 
 	rtw_leave_lps_deep(rtwdev);
+
+	/* mac80211 does not call start_ap and stop_ap for mesh.
+	 *
+	 * Joining a mesh enables the beacon together with
+	 * BSS_CHANGED_BEACON, and so does a restart of the hardware. Do
+	 * the AP setup then, before the beacon is downloaded below.
+	 *
+	 * Off-channel work, such as a software scan or a remain-on-channel,
+	 * disables the beacon and enables it again without
+	 * BSS_CHANGED_BEACON. Keep the AP setup, like for an AP interface,
+	 * for which only BIT_EN_BCNQ_DL is toggled below. Download the
+	 * beacon again on return. If the hardware was restarted in the
+	 * meantime, rtw_ops_start() has cleared ap_active, and the AP
+	 * setup is done again as well.
+	 *
+	 * Leaving the mesh disables the beacon and then releases the
+	 * channel. Mesh is the only interface on the radio, so the
+	 * interface becomes idle then. Undo the AP setup at that point,
+	 * if it was done. Until then ap_active stays set, although
+	 * mac80211 has already dropped the beacon. An AP interface has
+	 * the same short window, because mac80211 drops and disables its
+	 * beacon before it calls stop_ap.
+	 */
+	if (vif->type == NL80211_IFTYPE_MESH_POINT &&
+	    changed & BSS_CHANGED_BEACON_ENABLED && conf->enable_beacon) {
+		if (!rtwdev->ap_active || changed & BSS_CHANGED_BEACON)
+			__rtw_start_ap(rtwdev);
+		changed |= BSS_CHANGED_BEACON;
+	}
+	if (vif->type == NL80211_IFTYPE_MESH_POINT &&
+	    changed & BSS_CHANGED_IDLE && vif->cfg.idle && rtwdev->ap_active)
+		__rtw_stop_ap(rtwdev);
 
 	if (changed & BSS_CHANGED_ASSOC) {
 		rtw_vif_assoc_changed(rtwvif, conf);
@@ -470,14 +532,9 @@ static int rtw_ops_start_ap(struct ieee80211_hw *hw,
 			    struct ieee80211_bss_conf *link_conf)
 {
 	struct rtw_dev *rtwdev = hw->priv;
-	const struct rtw_chip_info *chip = rtwdev->chip;
 
 	mutex_lock(&rtwdev->mutex);
-	rtw_write32_set(rtwdev, REG_TCR, BIT_TCR_UPDATE_HGQMD);
-	rtw_write16(rtwdev, REG_ATIMWND, ATIMWND_AP);
-	rtwdev->ap_active = true;
-	rtw_store_op_chan(rtwdev, true);
-	chip->ops->phy_calibration(rtwdev);
+	__rtw_start_ap(rtwdev);
 	mutex_unlock(&rtwdev->mutex);
 
 	return 0;
@@ -490,11 +547,7 @@ static void rtw_ops_stop_ap(struct ieee80211_hw *hw,
 	struct rtw_dev *rtwdev = hw->priv;
 
 	mutex_lock(&rtwdev->mutex);
-	rtw_write32_clr(rtwdev, REG_TCR, BIT_TCR_UPDATE_HGQMD);
-	rtw_write16(rtwdev, REG_ATIMWND, ATIMWND_DEFAULT);
-	rtwdev->ap_active = false;
-	if (!rtw_core_check_sta_active(rtwdev))
-		rtw_clear_op_chan(rtwdev);
+	__rtw_stop_ap(rtwdev);
 	mutex_unlock(&rtwdev->mutex);
 }
 
@@ -565,6 +618,14 @@ static int rtw_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	u8 hw_key_type;
 	u8 hw_key_idx;
 	int ret = 0;
+
+	/* The CAM finds group keys by key index only. On a mesh
+	 * interface our own group key would be used to decrypt the
+	 * group frames of the peers, which use their own group keys.
+	 * Leave all mesh keys to software crypto.
+	 */
+	if (vif->type == NL80211_IFTYPE_MESH_POINT)
+		return -EOPNOTSUPP;
 
 	switch (key->cipher) {
 	case WLAN_CIPHER_SUITE_WEP40:

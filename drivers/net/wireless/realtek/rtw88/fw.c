@@ -1576,8 +1576,9 @@ static void rtw_build_rsvd_page_iter(void *data, u8 *mac,
 	struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
 	struct rtw_rsvd_page *rsvd_pkt;
 
-	/* AP not yet started, don't gather its rsvd pages */
-	if (vif->type == NL80211_IFTYPE_AP && !rtwdev->ap_active)
+	/* AP or mesh not yet started, don't gather its rsvd pages */
+	if ((vif->type == NL80211_IFTYPE_AP ||
+	     vif->type == NL80211_IFTYPE_MESH_POINT) && !rtwdev->ap_active)
 		return;
 
 	list_for_each_entry(rsvd_pkt, &rtwvif->rsvd_page_list, vif_list) {
@@ -2278,7 +2279,11 @@ void rtw_hw_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	if (!vif)
 		return;
 
-	rtwdev->hal.rcr |= BIT_CBSSID_BCN;
+	/* BIT_AAP is set while mac80211 asks for FIF_OTHER_BSS, which
+	 * a mesh interface does to receive the beacons of its peers.
+	 */
+	if (!(rtwdev->hal.rcr & BIT_AAP))
+		rtwdev->hal.rcr |= BIT_CBSSID_BCN;
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
 	rtw_core_scan_complete(rtwdev, vif, true);
