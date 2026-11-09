@@ -1,0 +1,690 @@
+/*****************************************************************
+** Include a chip configuration file
+*****************************************************************/
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/interrupt-controller/mips-gic.h>
+#include <dt-bindings/clock/intel,grx500-clk.h>
+#include <dt-bindings/pinctrl/intel,equilibrium.h>
+#include "../xrx500.dtsi"
+
+#include "../../../../include/linux/avm_hw_config_def.h"  /* DTC_EXTRA_INCLUDE_PATH not working */
+
+/ {
+	aliases {
+		lan1 = &lan1;
+		lan2 = &lan2;
+		lan3 = &lan3;
+		lan4 = &lan4;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		shm_rng_seed_mem: shm-rng-seed-mem@3dfb0000 {
+			compatible = "avm,shm-rng-seed-early";
+			reg = <0x3dfb0000 0x1000>;
+		};
+
+		cpunet_mempool: cpunet-mempool@2dfc0000 {
+			reg = <0x2dfc0000 0x00040000>;
+		};
+
+		ramoops@20500000 {
+			compatible = "ramoops";
+			reg = <0x20100000 0x00400000>;
+			record-size = <0x80000>;
+			unbuffered;
+			no-dump-oops;
+		};
+	};
+
+	shm-rng-seed@3dfb0000 {
+		compatible = "avm,shm-rng-seed";
+		memory-region = <&shm_rng_seed_mem>;
+	};
+
+	ssx0@1E000000 {
+		cpunet {
+			compatible = "avm,cpunet";
+			reg = <0x1107400 0x400>;
+			mailbox-rx = <&mps2mbx 0x0 0x100>;
+			mailbox-tx = <&mps2mbx 0x100 0x100>;
+			mempool-rx = <&cpunet_mempool 0x0 0x20000>;
+			mempool-tx = <&cpunet_mempool 0x20000 0x20000>;
+			interrupt-parent = <&gic>;
+			// MPS2_IR0
+			interrupts = <GIC_SHARED 215 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		eip123@0 {
+			compatible = "verimatrix,eip123";
+			reg = <0x0 0xfffff>;
+			intel,syscon = <&sysconf>;
+			interrupts =
+				<GIC_SHARED 114 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SHARED 115 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SHARED 116 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SHARED 117 IRQ_TYPE_EDGE_RISING>;
+		};
+
+		eip97@100000 {
+			interrupts = <GIC_SHARED 90 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SHARED 91 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SHARED 92 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SHARED 93 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SHARED 89 IRQ_TYPE_LEVEL_HIGH>;
+			clock-names = "cryp";
+		};
+	};
+
+	ssx4@16000000 {
+		localbus@0 {
+			ranges = <0 0 0x1c00000 0xfffff>;
+			nand-parts {
+				compatible = "gen_nand","lantiq,nand-xway";
+				lantiq,cs = <1>;
+				bank-width = <2>;
+				reg = <0 0x0 0x100000>;
+				#address-cells = <1>;
+				#size-cells = <1>;
+				nand-ecc-mode = "on-die";
+
+				/* Do NOT remove or rename the node nand-parts. The bootload will search this node and enter the mtd information */
+				/*
+				mtd_dummy {
+				label = "mtd_dummy";
+				reg = <0x0 0x1000>;
+				};
+				 */
+			};
+		};
+	};
+};
+
+&phy6 {
+	status = "disabled";
+};
+
+&ssc0 {
+	status = "disabled";
+};
+
+&ssc1 {
+	/delete-property/ pinctrl-0;
+	/delete-property/ pinctrl-names;
+};
+
+/*
+&pinctrl_nand {
+	status = "ok";
+};
+*/
+
+/******************************************************************************
+** Board configuration: Configure LAN/WAN interfaces
+******************************************************************************/
+&eth {
+	status = "ok";
+
+	lan4: interface@1 {
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <1>;
+		intel,dp-dev-port = <2>;
+		intel,dp-port-id = <2>;
+
+		avm,name = "eth3";
+		avm,macname = "maca";
+		avm,eee-adv = <0x28>; /* (ADVERTISED_100baseT_Full|ADVERTISED_1000baseT_Full) */
+
+		ethernet@1 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <2>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SHARED 112 IRQ_TYPE_LEVEL_HIGH>;
+			phy-mode = "rgmii";
+			phy-handle = <&phy2>;
+		};
+	};
+
+	lan3: interface@2 {
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <2>;
+		intel,dp-dev-port = <3>;
+		intel,dp-port-id = <3>;
+
+		avm,name = "eth2";
+		avm,macname = "maca";
+		avm,eee-adv = <0x28>; /* (ADVERTISED_100baseT_Full|ADVERTISED_1000baseT_Full) */
+
+		ethernet@2 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <3>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SHARED 113 IRQ_TYPE_LEVEL_HIGH>;
+			phy-mode = "rgmii";
+			phy-handle = <&phy3>;
+		};
+	};
+
+	lan2: interface@3 {
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <3>;
+		intel,dp-dev-port = <4>;
+		intel,dp-port-id = <4>;
+
+		avm,name = "eth1";
+		avm,macname = "maca";
+		avm,eee-adv = <0x28>; /* (ADVERTISED_100baseT_Full|ADVERTISED_1000baseT_Full) */
+
+		ethernet@3 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <4>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SHARED 126 IRQ_TYPE_LEVEL_HIGH>;
+			phy-mode = "rgmii";
+			phy-handle = <&phy4>;
+		};
+	};
+
+	lan1: interface@4 {
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <4>;
+		intel,dp-dev-port = <5>;
+		intel,dp-port-id = <5>;
+
+		avm,name = "eth0";
+		avm,macname = "maca";
+		avm,eee-adv = <0x28>; /* (ADVERTISED_100baseT_Full|ADVERTISED_1000baseT_Full) */
+
+		ethernet@4 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <5>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SHARED 127 IRQ_TYPE_LEVEL_HIGH>;
+			phy-mode = "rgmii";
+			phy-handle = <&phy5>;
+		};
+	};
+};
+
+/{
+       avm_netdev_map: avm_netdev_map {
+               compatible = "avm,port_netdev";
+               lan1 {
+                       netdev = "eth0";
+               };
+               lan2 {
+                       netdev = "eth1";
+               };
+               lan3 {
+                       netdev = "eth2";
+               };
+               lan4 {
+                       netdev = "eth3";
+               };
+       };
+};
+
+/******************************************************************************
+** Model configuration: CBM sub-system feature configuration, the cbm node is
+** defined in Soc level.
+** <Port> <Queue> <DMA_Ctrl> <DMA_chnl> <EN/DIS/TYPE> <number of desc>
+** <DIS 0> <EN 1> <TYPE DP_F_DEQ_CPU 0x2> <TYPE DP_F_DEQ_CPU1 0x3>
+** <TYPE DP_F_DEQ_MPE 0x4>
+******************************************************************************/
+&cbm {
+	status = "ok";
+
+	port1: ltq_dqm_ports {
+		DQ0 {
+			/* IRQ 186 "cbm_dqm4 */
+			lantiq,cbm-config = <0 33 255 255 9 1>;
+		};
+		DQ1 {
+			/* IRQ 187 "cbm_dqm5 */
+			lantiq,cbm-config = <1 34 255 255 8 1>;
+		};
+		DQ2 {
+			/* IRQ 188 "cbm_dqm6 */
+			lantiq,cbm-config = <2 35 255 255 7 1>;
+		};
+		DQ3 {
+			/* IRQ 189 "cbm_dqm7 */
+			lantiq,cbm-config = <3 36 255 255 6 1>;
+		};
+		DQ4 {
+			lantiq,cbm-config = <4 32 255 255 1 2>;
+		};
+		DQ5 {
+			lantiq,cbm-config = <5 37 255 255 1 2>;
+		};
+		DQ6 {
+			lantiq,cbm-config = <6 16 2 1 1 2>;
+		};
+		DQ7 {
+			lantiq,cbm-config = <7 17 2 2 1 2>;
+		};
+		DQ8 {
+			lantiq,cbm-config = <8 18 2 3 1 2>;
+		};
+		DQ9 {
+			lantiq,cbm-config = <9 19 2 4 1 2>;
+		};
+		DQ10 {
+			lantiq,cbm-config = <10 20 2 5 1 2>;
+		};
+		DQ11 {
+			lantiq,cbm-config = <11 21 2 6 1 2>;
+		};
+		DQ12 {
+			lantiq,cbm-config = <12 22 2 9 1 2>;
+		};
+		DQ13 {
+			lantiq,cbm-config = <13 23 2 10 1 2>;
+		};
+		DQ14 {
+			lantiq,cbm-config = <14 24 2 11 1 2>;
+		};
+		DQ15 {
+			lantiq,cbm-config = <15 25 2 12 1 2>;
+		};
+		DQ16 {
+			lantiq,cbm-config = <16 26 2 13 1 2>;
+		};
+		DQ17 {
+			lantiq,cbm-config = <17 27 2 14 1 2>;
+		};
+		DQ18 {
+			lantiq,cbm-config = <18 0 1 13 1 2>;
+		};
+		DQ19 {
+			lantiq,cbm-config = <19 28 1 15 1 2>;
+		};
+		DQ20 {
+			lantiq,cbm-config = <20 29 1 5 1 2>;
+		};
+		DQ21 {
+			lantiq,cbm-config = <21 30 1 6 1 2>;
+		};
+		DQ22 {
+			lantiq,cbm-config = <22 41 1 11 1 2>;
+		};
+		DQ23 {
+			lantiq,cbm-config = <23 31 255 255 1 2>;
+		};
+	};
+	/*<Port> <Queue> <DMA_Ctrl> <DMA_chnl> <EN/DIS/TYPE> <number of desc>*/
+	/*<DIS 0>
+	 <EN 1>
+	 <TYPE DP_F_ENQ_CPU_0 0x2>
+	 <TYPE DP_F_ENQ_CPU_1 0x3>
+	 <TYPE DP_F_ENQ_CPU_2 0x4>
+	 <TYPE DP_F_ENQ_CPU_3 0x5>
+	 <TYPE DP_F_ENQ_WAVE  0x6>
+	 <TYPE DP_F_ENQ_GSWIPL 0x7>
+	 <TYPE DP_F_ENQ_PAE 0x8>
+	 <TYPE DP_F_ENQ_TSO 0x9>
+	 <TYPE DP_F_ENQ_VRX318 0xa>*/
+	port2: ltq_eqm_ports {
+		EQ1 {
+			lantiq,cbm-config = <0 255 255 255 2 2>;
+		};
+		EQ2 {
+			lantiq,cbm-config = <1 255 255 255 3 2>;
+		};
+		EQ3 {
+			lantiq,cbm-config = <2 255 255 255 4 2>;
+		};
+		EQ4 {
+			lantiq,cbm-config = <3 255 255 255 5 2>;
+		};
+		EQ5 {
+			lantiq,cbm-config = <5 2 14 0 7 2>;
+		};
+		EQ5_1 {
+			lantiq,cbm-config = <5 2 30 1 7 2>;
+		};
+		EQ6 {
+			lantiq,cbm-config = <6 2 15 0 7 2>;
+		};
+		EQ6_1 {
+			lantiq,cbm-config = <6 2 31 1 7 2>;
+		};
+		EQ7 {
+			lantiq,cbm-config = <7 1 0 0 8 2>;
+		};
+		EQ7_1 {
+			lantiq,cbm-config = <7 1 16 1 8 2>;
+		};
+		EQ8 {
+			lantiq,cbm-config = <8 1 15 0 8 2>;
+		};
+		EQ8_1 {
+			lantiq,cbm-config = <8 1 31 1 8 2>;
+		};
+		EQ9 {
+			lantiq,cbm-config = <9 255 255 255 9 2>;
+		};
+		EQ15 {
+			lantiq,cbm-config = <15 255 255 255 10 32>;
+		};
+	};
+};
+/******************************************************************************/
+
+/ {
+	i2c_gpio0: i2c {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "i2c-gpio";
+		gpios = <
+			&gpio0 21 0 /* sda */
+			&gpio0 22 0 /* scl */
+			>;
+		i2c-gpio,delay-us = <2>;	/* ~100 kHz */
+		status = "ok";
+
+		mp8864: mp8864@68 {
+			status = "ok";
+			compatible = "mps,mp8864";
+			reg = <0x68>;
+			voltage_index = <55>; /*  1,15 V */
+			vout_enable = <1>; /* Enabled */
+			vout_vboot = <0>; /* 1 = Regulator controlled by FB loop , 0 = I2C Loop */
+			pfm_mode = <1>; /* PFM Disable */
+			vout_slew_rate = <4>; /* 4 mV/us */
+			vout_switching_freq = <2>;  /* 1,1 MHz */
+
+			mp8864-supply = <&mp8864_dcdc1_reg>;
+
+			regulators {
+				mp8864_dcdc1_reg: core {
+					regulator-name = "vdd-core";
+					regulator-boot-on;
+					regulator-always-on;
+				};
+			};
+		};
+	};
+};
+
+/******************************************************************************
+** PCIe PHY board configuration
+******************************************************************************/
+&pcie_phy0 {
+	status = "ok";
+	intel,ssc_enable = <1>;
+};
+
+&pcie_phy1 {
+	status = "ok";
+	intel,ssc_enable = <1>;
+};
+
+&pcie_phy2 {
+	status = "ok";
+	intel,ssc_enable = <1>;
+};
+
+/******************************************************************************
+** Board configuration: Enable PCIe board configuration.
+** PCIE sub-system feature configuration, the pcie0/1/2 are defined in Soc level
+******************************************************************************/
+&pcie0 {
+	status = "okay";
+	intel,rst-interval = <100>;
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpio = <&gpio0 9 GPIO_ACTIVE_LOW>;
+};
+
+&pcie1 {
+	status = "okay";
+	intel,rst-interval = <100>;
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpio = <&gpio0 8 GPIO_ACTIVE_LOW>;
+};
+
+&pcie2 {
+	status = "okay";
+	intel,rst-interval = <100>;
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	reset-gpio = <&gpio0 16 GPIO_ACTIVE_LOW>;
+};
+
+
+/ {
+	aliases {
+		timer2 = &gptc2;
+	};
+
+	ssx4@16000000 {
+		gptc2: gptc@400000 {
+			compatible = "intel,gptc", "lantiq,gptc";
+			reg = <0x400000 0x400>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SHARED 166 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SHARED 168 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SHARED 170 IRQ_TYPE_EDGE_RISING>;
+			interrupt-names = "tc1a", "tc2a", "tc3a";
+			// timer 0: gptc_event3 (Linux on 4th core)
+			// timer 1,2: unused
+			intel,clk = <&clocksource 1 0 3>;
+			clocks =<&pll0aclk SSX4_CLK>, <&clkgate1 GATE_GPTC2_CLK>;
+			clock-names = "freq", "gptc";
+		};
+
+	};
+};
+
+/ {
+	tdm {
+		compatible = "avm,ltq_tdm";
+
+		clocks = <&clkgate1 GATE_TDM_CLK>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 52 IRQ_TYPE_LEVEL_HIGH>,
+			<GIC_SHARED 51 IRQ_TYPE_EDGE_RISING>;
+	};
+
+	yield {
+		compatible = "avm,yield";
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 0 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 1 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 2 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 3 IRQ_TYPE_EDGE_RISING>;
+	};
+
+	irq_hack {
+		compatible = "avm,irq_hack";
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 137 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 138 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 139 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 10 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 11 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 12 IRQ_TYPE_EDGE_RISING>;
+			/* TODO: 156..158 belong to PCIe/VRX.
+			 *       Add them here if free and needed.
+			 */
+	};
+
+	bthelper0 {
+		compatible = "avm,bthelper";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 20 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 21 IRQ_TYPE_EDGE_RISING>;
+	};
+};
+
+/delete-node/ &i2c;
+
+/delete-node/ &pinctrl_25MHz;
+/delete-node/ &pinctrl_i2c0;
+/delete-node/ &pinctrl_mdio_l;
+/delete-node/ &pinctrl_mdio_r;
+/delete-node/ &pinctrl_spi0;
+/delete-node/ &pinctrl_tdm;
+/delete-node/ &pinctrl_usb0_default;
+/delete-node/ &pinctrl_usb0_idle;
+/delete-node/ &pinctrl_usb1_default;
+/delete-node/ &pinctrl_usb1_idle;
+
+&gswr {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+};
+&usb0_phy {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	/delete-property/ pinctrl-1;
+};
+&usb1_phy {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	/delete-property/ pinctrl-1;
+};
+
+/ {
+	ssx0@1E000000 {
+		/delete-node/ mps@1107000;
+		/delete-node/ mpsmbx@1200000;
+		/delete-node/ mps2@1107400;
+	};
+};
+
+/ {
+	avm_gpio: avm-gpio {
+		compatible = "simple-bus";
+
+		gpio_avm_dect_rd {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio1 3 GPIO_ACTIVE_HIGH>;
+			avm,output;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_dect_rd>;
+		};
+		gpio_avm_pcmlink_fsc {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 28 GPIO_ACTIVE_HIGH>;
+			avm,output;
+			pinctrl-names = "mux3";
+			pinctrl-0 = <&pinctrl_tdm_fsc>;
+		};
+		gpio_avm_pcmlink_dcl {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 31 GPIO_ACTIVE_HIGH>;
+			avm,output;
+			pinctrl-names = "mux3";
+			pinctrl-0 = <&pinctrl_tdm_dcl>;
+		};
+	};
+};
+
+&pinctrl {
+	pinctrl_clkout1: clkout1 {
+		intel,pins = <7>;
+		intel,function = "clkout1";
+		intel,mux = <EQBR_MUX_1>;
+		intel,groups = "clkout1";
+	};
+
+	pinctrl_dect_rd: dect_rd {
+		intel,pins = <35>;
+		intel,function = "dectrd";
+		intel,mux = <EQBR_MUX_0>;
+		intel,groups = "dectrd";
+		intel,pullup = <1>;
+	};
+
+	pinctrl_tdm_di: tdm_di {
+		intel,pins = <30>;
+		intel,function = "tdmdi";
+		intel,mux = <EQBR_MUX_3>;
+		intel,groups = "tdmdi";
+		intel,pullup = <1>;
+	};
+
+	pinctrl_tdm_fsc: tdm_fsc {
+		intel,pins = <28>;
+		intel,function = "tdmfsc";
+		intel,mux = <EQBR_MUX_3>;
+		intel,groups = "tdmfsc";
+		intel,pullup = <1>;
+	};
+
+	pinctrl_tdm_fscgpio: tdm_fscgpio {
+		intel,pins = <28>;
+		intel,function = "tdmfsc";
+		intel,mux = <EQBR_MUX_0>;
+		intel,groups = "tdmfsc";
+		intel,pullup = <1>;
+	};
+
+	pinctrl_tdm_dcl: tdm_dcl {
+		intel,pins = <31>;
+		intel,function = "tdmdcl";
+		intel,mux = <EQBR_MUX_3>;
+		intel,groups = "tdmdcl";
+		intel,pullup = <1>;
+	};
+
+	pinctrl_tdm_dclgpio: tdm_dclgpio {
+		intel,pins = <31>;
+		intel,function = "tdmdcl";
+		intel,mux = <EQBR_MUX_0>;
+		intel,groups = "tdmdcl";
+		intel,pullup = <1>;
+	};
+
+	pinctrl_tdm_do: tdm_do {
+		intel,pins =  <29>;
+		intel,function = "tdmdo";
+		intel,mux = <EQBR_MUX_3>;
+		intel,groups = "tdmdo";
+		intel,pullup = <1>;
+		intel,output = <1>;
+		intel,drive-current = <3>;
+	};
+};
+
+&cpu_crit {
+	temperature = <120000>; /* millicelsius */
+};
+
+&cpu_thermal {
+	trips {
+		cpu_alert1: cpu-alert1 {
+			temperature = <110000>; /* millicelsius */
+			hysteresis = <5000>; /* millicelsius */
+			type = "passive";
+		};
+	};
+
+// TODO: Anpassen!
+	cooling-maps {
+		map0 {
+			cooling-device = <&cpu0 2 THERMAL_NO_LIMIT>;
+		};
+
+		map1 {
+			trip = <&cpu_alert1>;
+			cooling-device = <&cpu0 1 THERMAL_NO_LIMIT>;
+		};
+	};
+};

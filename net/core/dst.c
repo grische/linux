@@ -251,7 +251,6 @@ struct dst_entry *dst_destroy(struct dst_entry * dst)
 
 	smp_rmb();
 
-again:
 	child = dst->child;
 
 	if (!(dst->flags & DST_NOCOUNT))
@@ -270,20 +269,8 @@ again:
 		kmem_cache_free(dst->ops->kmem_cachep, dst);
 
 	dst = child;
-	if (dst) {
-		int nohash = dst->flags & DST_NOHASH;
-
-		if (atomic_dec_and_test(&dst->__refcnt)) {
-			/* We were real parent of this dst, so kill child. */
-			if (nohash)
-				goto again;
-		} else {
-			/* Child is still referenced, return it for freeing. */
-			if (nohash)
-				return dst;
-			/* Child is still in his hash table */
-		}
-	}
+	if (dst)
+		dst_release(dst);
 	return NULL;
 }
 EXPORT_SYMBOL(dst_destroy);
@@ -293,25 +280,39 @@ static void dst_destroy_rcu(struct rcu_head *head)
 	struct dst_entry *dst = container_of(head, struct dst_entry, rcu_head);
 
 	dst = dst_destroy(dst);
-	if (dst)
-		__dst_free(dst);
 }
 
 void dst_release(struct dst_entry *dst)
 {
 	if (dst) {
 		int newrefcnt;
-		unsigned short nocache = dst->flags & DST_NOCACHE;
+		unsigned short destroy_after_rcu = dst->flags &
+						   (DST_NOCACHE | DST_NOGC);
 
 		newrefcnt = atomic_dec_return(&dst->__refcnt);
 		if (unlikely(newrefcnt < 0))
 			net_warn_ratelimited("%s: dst:%p refcnt:%d\n",
 					     __func__, dst, newrefcnt);
-		if (!newrefcnt && unlikely(nocache))
+		if (!newrefcnt && unlikely(destroy_after_rcu))
 			call_rcu(&dst->rcu_head, dst_destroy_rcu);
 	}
 }
 EXPORT_SYMBOL(dst_release);
+
+void dst_release_immediate(struct dst_entry *dst)
+{
+	if (dst) {
+		int newrefcnt;
+
+		newrefcnt = atomic_dec_return(&dst->__refcnt);
+		if (unlikely(newrefcnt < 0))
+			net_warn_ratelimited("%s: dst:%p refcnt:%d\n",
+					     __func__, dst, newrefcnt);
+		if (!newrefcnt)
+			dst_destroy(dst);
+	}
+}
+EXPORT_SYMBOL(dst_release_immediate);
 
 u32 *dst_cow_metrics_generic(struct dst_entry *dst, unsigned long old)
 {

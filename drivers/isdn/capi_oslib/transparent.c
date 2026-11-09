@@ -1,0 +1,440 @@
+// SPDX-License-Identifier: GPL-2.0+
+#pragma GCC push_options
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#pragma GCC diagnostic ignored "-Wsign-compare"
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/sched.h>
+#include <linux/signal.h>
+#include <linux/net.h>
+#include <linux/types.h>
+#include <linux/socket.h>
+#include <net/tcp.h>
+#include <net/ip.h>
+#include <linux/inet.h>
+#include <net/protocol.h>
+#include <net/sock.h>
+#include <linux/sched.h>
+#include <linux/version.h>
+#include <linux/kthread.h>
+#pragma GCC pop_options
+
+#include <avm/rte/rte.h>
+#include <avm/capi_oslib/transparent.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)
+static inline size_t msg_data_left(struct msghdr *msg)
+{
+	size_t count = 0;
+	unsigned long iovlen;
+	struct iovec *iov;
+
+	for (iov = msg->msg_iov, iovlen = msg->msg_iovlen; iovlen > 0; iovlen--, iov++)
+		count += iov->iov_len;
+	return count;
+}
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
+static inline size_t msg_data_left(struct msghdr *msg)
+{
+	return iov_iter_count(&msg->msg_iter);
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
+#	define sock_sendmsg(sock, msg)	\
+		sock_sendmsg(sock, msg, msg_data_left(msg))
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 7, 0)
+#	define sock_recvmsg(sock, msg, flags)	\
+		sock_recvmsg(sock, msg, msg_data_left(msg), flags)
+#endif
+
+/*--- #define TRANSP_DEBUG ---*/
+/*--- #define CA_PRINTF printk ---*/
+
+static struct socket *MainSocket;
+static struct task_struct *thread_pid;
+
+static volatile int txin_count, txout_count;
+static unsigned char txbuffer[2048];
+static volatile int	close_transp = 1;
+static volatile int	exit_transp;
+static int tx_wait_condition;
+static DECLARE_WAIT_QUEUE_HEAD(tx_wait);
+static void (*CAP_DataInd)(const unsigned char *buf, int len);
+
+/**
+ */
+static void Flush(struct socket *sock)
+{
+	struct kvec vec;
+	struct msghdr msg;
+	int len;
+
+	if (sock->sk == NULL)
+		return;
+
+	do {
+		char Buffer[128];
+
+		len = sizeof(Buffer);
+		vec.iov_base = Buffer;
+		vec.iov_len  = len;
+
+		msg.msg_name     = 0;
+		msg.msg_namelen  = 0;
+		msg.msg_control  = NULL;
+		msg.msg_controllen = 0;
+		msg.msg_flags    = MSG_DONTWAIT;
+
+		len = kernel_recvmsg(sock, &msg,
+				     &vec, 1, len, MSG_DONTWAIT);
+	} while (len > 0);
+}
+
+/**
+ */
+static void Read(struct socket *sock, unsigned char *buffer, unsigned int *length, int wait)
+{
+	struct kvec vec;
+	struct msghdr msg;
+
+	if (sock->sk == NULL) {
+		*length = 0;
+		return;
+	}
+	vec.iov_base = (void *)buffer;
+	vec.iov_len = *length;
+
+	msg.msg_name     = 0;
+	msg.msg_namelen  = 0;
+	msg.msg_control  = NULL;
+	msg.msg_controllen = 0;
+	msg.msg_flags    = MSG_DONTWAIT;
+
+	*length = kernel_recvmsg(sock, &msg,
+				 &vec, 1, *length, wait ? 0 : MSG_DONTWAIT);
+}
+
+/**
+ */
+static unsigned int Write(struct socket *sock, unsigned char *buffer, unsigned int length, int wait)
+{
+	struct msghdr msg;
+	struct kvec vec;
+
+	if (sock->sk == NULL) {
+		return 0;
+	}
+	vec.iov_base = (void *)buffer;
+	vec.iov_len = length;
+
+	msg.msg_name = NULL;
+	msg.msg_namelen = 0;
+	msg.msg_control = NULL;
+	msg.msg_controllen = 0;
+	msg.msg_flags    = wait ? 0 : MSG_DONTWAIT;
+
+	length = kernel_sendmsg(sock, &msg, &vec, 1, length);
+	return length;
+}
+
+/**
+ * may block while connecting...
+ */
+int E1Tx_Transparent(void *unused __attribute__((unused)))
+{
+
+	int len;
+	char buf[128];
+	struct sockaddr_in addr;
+	int transp_open;
+
+	transp_open = 0;
+
+	for (; exit_transp == 0;) {
+		if (transp_open == 0) {
+			wait_event_interruptible_timeout(tx_wait, tx_wait_condition, HZ * 10); /*--- Verbindunsaufbau nur alle 10s ---*/
+			tx_wait_condition = 0;
+		} else
+			transp_open = 0;
+
+		if (sock_create(PF_INET, SOCK_STREAM, IPPROTO_TCP, &MainSocket) < 0) {
+#if defined(TRANSP_DEBUG)
+			CA_PRINTF("%s: Error during creation of socket\n", __func__);
+#endif
+			MainSocket = NULL;
+			continue;
+		}
+		/*--- Connect to 127.0.0.1 port 1011 ---*/
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons((unsigned short)1011);
+		addr.sin_addr.s_addr = htonl(0x7F000001);
+
+		if (MainSocket->ops->connect(MainSocket, (struct sockaddr *)&addr, sizeof(addr), O_RDWR)) {
+#if defined(TRANSP_DEBUG)
+			CA_PRINTF("%s: connect error\n", __func__);
+#endif
+			sock_release(MainSocket);
+			MainSocket = NULL;
+			continue;
+		}
+#if defined(TRANSP_DEBUG)
+		CA_PRINTF("%s: connect done\n", __func__);
+#endif
+
+		while (!kthread_should_stop()) {
+#if 0
+			if (signal_pending(current)) {
+				sigset_t these;
+				siginfo_t info;
+				int signr;
+
+				spin_lock_irq(&current->sigmask_lock);
+				signr = dequeue_signal(&these, &info);
+				spin_unlock_irq(&current->sigmask_lock);
+				switch (signr) {
+				case SIGKILL:
+#if defined(TRANSP_DEBUG)
+					CA_PRINTF("%s: SIGKILL\n", __func__);
+#endif
+					pr_info("%s: SIGKILL\n", __func__);
+					exit_transp = 1;
+					break;
+				case SIGTERM:
+#if defined(TRANSP_DEBUG)
+					CA_PRINTF("%s: SIGTERM\n", __func__);
+#endif
+					pr_info("%s: SIGTERM\n", __func__);
+					exit_transp = 1;
+					break;
+				}
+			}
+#endif
+			/* If the connection is lost, remove from queue */
+			if ((MainSocket->sk->sk_state != TCP_ESTABLISHED
+				 /*&& MainSocket->sk->sk_state != TCP_CLOSE_WAIT */) ||
+				(exit_transp) || ((transp_open) && (close_transp))
+				/*--- || signal_pending (current) ---*/
+				) {
+#if defined(TRANSP_DEBUG)
+				CA_PRINTF("%s: socket %s\n", __func__, (transp_open) ? "close" : "lost");
+#endif
+				/* Close the socket ....*/
+				if ((MainSocket != NULL) && (MainSocket->sk != NULL)) {
+#if defined(TRANSP_DEBUG)
+					CA_PRINTF("%s: Flush\n", __func__);
+#endif
+					Flush(MainSocket);
+					sock_release(MainSocket);
+				}
+				MainSocket = NULL;
+				break;
+			}
+
+			if (close_transp) {
+				wait_event_interruptible_timeout(tx_wait, tx_wait_condition, (HZ*10)); /*--- Keepalivetest alle 10s ---*/
+				tx_wait_condition = 0;
+#if defined(TRANSP_DEBUG)
+				/*--- CA_PRINTF("%s: wakup2\n", __func__); ---*/
+#endif
+				continue;
+			}
+
+			transp_open = 1;
+
+			len = (txin_count - txout_count);
+			if (len != 0) {
+				if (len < 0) {
+					len = (sizeof(txbuffer) - txout_count);
+				}
+
+				if (((int)Write(MainSocket, &txbuffer[txout_count], len, 0)) > 0) {
+					if (txout_count >= (int)(sizeof(txbuffer) - len))
+						txout_count = 0;
+					else
+						txout_count += len;
+#if defined(TRANSP_DEBUG)
+					CA_PRINTF("%s: %d bytes sent\n", __func__, len);
+#endif
+				} else {
+#if defined(TRANSP_DEBUG)
+					CA_PRINTF("%s: %d bytes not sent\n", __func__, len);
+#endif
+					wait_event_interruptible_timeout(tx_wait, tx_wait_condition, (HZ/100)); /*--- Aufwachen nach 10ms ---*/
+					tx_wait_condition = 0;
+				}
+			} else {
+				wait_event_interruptible_timeout(tx_wait, tx_wait_condition, (HZ/100)); /*--- Aufwachen nach 10ms ---*/
+				tx_wait_condition = 0;
+			}
+			len = 128;
+			Read(MainSocket, buf, &len, 0);
+			if (len > 0) {
+#if defined(TRANSP_DEBUG)
+				CA_PRINTF("%s: got %d bytes\n", __func__, len);
+#endif
+				if (CAP_DataInd != NULL)
+					CAP_DataInd(buf, len);
+			}
+		}
+	}
+#if defined(TRANSP_DEBUG)
+	CA_PRINTF("%s: Close done!\n");
+#endif
+	return 0;
+}
+EXPORT_SYMBOL(E1Tx_Transparent);
+
+/**
+ */
+unsigned int E1Tx_OpenTransparent(void)
+{
+	if (close_transp == 0) {
+#if defined(TRANSP_DEBUG)
+		CA_PRINTF("%s: Error already open\n", __func__);
+#endif
+		return 1;
+	}
+
+	if ((MainSocket == NULL) || (MainSocket->sk == NULL) || (MainSocket->sk->sk_state != TCP_ESTABLISHED)) {
+#if defined(TRANSP_DEBUG)
+		CA_PRINTF("%s: Error no socket open\n", __func__);
+#endif
+		tx_wait_condition = 1;
+		wake_up_interruptible(&tx_wait);
+		return 1;
+	}
+
+	txin_count = 0;
+	txout_count = 0;
+	close_transp = 0;
+
+#if defined(TRANSP_DEBUG)
+	CA_PRINTF("%s: Open start\n", __func__);
+#endif
+	return 0;
+}
+EXPORT_SYMBOL(E1Tx_OpenTransparent);
+
+/**
+ */
+unsigned int E1Tx_CloseTransparent(void)
+{
+
+	if (close_transp == 0) {
+#if defined(TRANSP_DEBUG)
+		CA_PRINTF("%s: Start close!\n", __func__);
+#endif
+		close_transp = 1;
+		tx_wait_condition = 1;
+		wake_up_interruptible(&tx_wait);
+	}
+#if defined(TRANSP_DEBUG)
+	else
+		CA_PRINTF("%s: Not open!\n", __func__);
+#endif
+	return 0;
+}
+EXPORT_SYMBOL(E1Tx_CloseTransparent);
+
+/**
+ */
+unsigned int E1Tx_SendTransparent(unsigned char *Buffer, unsigned int BufferLength)
+{
+	int len;
+
+	if ((close_transp) || (MainSocket == NULL) || (MainSocket->sk == NULL) || (MainSocket->sk->sk_state != TCP_ESTABLISHED)) {
+#if defined(TRANSP_DEBUG)
+		CA_PRINTF("%s: MainSocket == NULL (%u bytes)\n", __func__, BufferLength);
+#endif
+		tx_wait_condition = 1;
+		wake_up_interruptible(&tx_wait);
+		return 1;
+	}
+	if (BufferLength >= sizeof(txbuffer)) {
+#if defined(TRANSP_DEBUG)
+		CA_PRINTF("%s: too much bytes (%u)\n", __func__, BufferLength);
+#endif
+		return 1;
+	}
+	len = txin_count;
+	if ((len + BufferLength) < sizeof(txbuffer)) {
+		memcpy(&txbuffer[len], Buffer, BufferLength);
+#if defined(TRANSP_DEBUG)
+		if ((txin_count < txout_count) && ((len + BufferLength) >= txout_count))
+			CA_PRINTF("%s: Overrun\n", __func__);
+#endif
+		txin_count = (len + BufferLength);
+	} else {
+		int len1 = sizeof(txbuffer) - len;
+
+		memcpy(&txbuffer[len], Buffer, len1);
+#if defined(TRANSP_DEBUG)
+		if (len < txout_count)
+			CA_PRINTF("%s: Overrun\n", __func__);
+#endif
+		len = BufferLength - len1;
+		memcpy(&txbuffer[0], &Buffer[len1], len);
+#if defined(TRANSP_DEBUG)
+		if (len >= txout_count)
+			CA_PRINTF("%s: Overrun\n", __func__);
+#endif
+		txin_count = len;
+	}
+	tx_wait_condition = 1;
+	wake_up_interruptible(&tx_wait);
+
+	return 0;
+}
+EXPORT_SYMBOL(E1Tx_SendTransparent);
+
+/**
+ */
+int Transparent_Init(void (*DataInd)(const unsigned char *buf, int len))
+{
+
+	txin_count = 0;
+	txout_count = 0;
+	exit_transp = 0;
+
+	CAP_DataInd = DataInd;
+	tx_wait_condition = 0;
+	init_waitqueue_head(&tx_wait);
+
+	thread_pid = kthread_run(E1Tx_Transparent, NULL, "capitransp");
+	if ((thread_pid == NULL) || IS_ERR(thread_pid)) {
+#if defined(TRANSP_DEBUG)
+		CA_PRINTF("%s: Error during kernel thread creation = %d\n", __func__, pid);
+#endif
+		CAP_DataInd = NULL;
+		return 1;
+	}
+	return 0;
+}
+EXPORT_SYMBOL(Transparent_Init);
+
+/**
+ */
+void Transparent_Deinit(void)
+{
+
+#if defined(TRANSP_DEBUG)
+	CA_PRINTF("%s: Start\n", __func__);
+#endif
+	if (CAP_DataInd == NULL) {
+		return;
+	}
+	close_transp = 1;
+	exit_transp = 1;
+	tx_wait_condition = 1;
+	wake_up_interruptible(&tx_wait);
+
+	if (thread_pid) {
+		kthread_stop(thread_pid);
+		thread_pid = NULL;
+	}
+	CAP_DataInd = NULL;
+}
+EXPORT_SYMBOL(Transparent_Deinit);

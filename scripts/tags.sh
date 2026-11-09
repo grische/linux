@@ -28,6 +28,20 @@ fi
 # ignore userspace tools
 ignore="$ignore ( -path ${tree}tools ) -prune -o"
 
+# get all AVM subprojects, with an optional path suffix
+path_for_each_avm_subproject()
+{
+	local relpath="$1"
+	local path
+
+	for subproject in ${AVM_SUBPROJECTS_PATHS}; do
+		path="${tree}${subproject}/${relpath}"
+		if [ -e "${path}" ]; then
+			echo "${path}"
+		fi
+	done
+}
+
 # Find all available archs
 find_all_archs()
 {
@@ -68,8 +82,8 @@ find_arch_include_sources()
 # find sources in include/
 find_include_sources()
 {
-	find ${tree}include $ignore -name config -prune -o -name "$1" \
-		-not -type l -print;
+	find ${tree}include $(path_for_each_avm_subproject include) $ignore \
+		-name config -prune -o -name "$1" -not -type l -print;
 }
 
 # find sources in rest of tree
@@ -345,4 +359,14 @@ esac
 # Remove structure forward declarations.
 if [ -n "$remove_structs" ]; then
     LANG=C sed -i -e '/^\([a-zA-Z_][a-zA-Z0-9_]*\)\t.*\t\/\^struct \1;.*\$\/;"\tx$/d' $1
+fi
+
+if [ "$1" != "cscope" ] ; then
+	LANG=C sed -i -e '
+		# "original" location is now drivers/net/ethernet/avm/avm_cpmac/
+		s,\(drivers\/net\/\)\(avm_cpmac\/\),\1ethernet\/avm\/\2,;
+
+		# filter out some strange files that should not appear in tags
+		/\sdrivers\/char\/avm_new\/test_event.h\s/d;
+	' $1
 fi

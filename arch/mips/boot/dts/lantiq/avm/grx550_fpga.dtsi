@@ -1,0 +1,5 @@
+/ {
+	chosen {
+		bootargs-append = "pcmlink.abmode=0x8103 Piglet_noemif.piglet_dectmode=0x110 Piglet_noemif.piglet_bitfile=bitfile.bit";
+	};
+};

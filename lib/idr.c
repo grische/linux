@@ -543,11 +543,11 @@ static void sub_remove(struct idr *idp, int shift, int id)
 }
 
 /**
- * idr_remove - remove the given id and free its slot
+ * _idr_remove - remove the given id and free its slot
  * @idp: idr handle
  * @id: unique key
  */
-void idr_remove(struct idr *idp, int id)
+static void _idr_remove(struct idr *idp, int id)
 {
 	struct idr_layer *p;
 	struct idr_layer *to_free;
@@ -577,6 +577,27 @@ void idr_remove(struct idr *idp, int id)
 		bitmap_clear(to_free->bitmap, 0, IDR_SIZE);
 		free_layer(idp, to_free);
 	}
+}
+
+/*
+ * idr_remove remove the given id, free its slot and return the deleted entry
+ * @idp: idr handle
+ * @id unique key
+ */
+void *idr_remove(struct idr *idp, int id)
+{
+	void *data = idr_find(idp, id);
+
+	/*
+	 * first check data as if idr_find wouldn't succeed idr_remove wouldn't
+	 * succeed either with the given id! idr_find only fails with an invalid
+	 * id or NULL given.
+	 **/
+
+	if (!data)
+		return NULL;
+	_idr_remove(idp, id);
+	return data;
 }
 EXPORT_SYMBOL(idr_remove);
 

@@ -12,6 +12,9 @@
 #include <linux/linkage.h>
 #include <linux/smp.h>
 #include <linux/irqdomain.h>
+#if defined(CONFIG_AVM_ENHANCED)
+#include <asm/avm_enh/avm_enh.h>
+#endif
 
 #include <asm/mipsmtregs.h>
 

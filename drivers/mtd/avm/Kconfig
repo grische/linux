@@ -1,0 +1,4 @@
+config AVM_MTDRAM_KSEG0
+	bool "Assume that mtdram-adresses are kseg0-adresses instead of physical"
+	help
+	  Select this if the urlader provides KSEG0-addresses in the mtdram1-cmdline argument.

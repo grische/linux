@@ -298,6 +298,7 @@ static int bcm5482_read_status(struct phy_device *phydev)
 			phydev->speed = SPEED_1000;
 			phydev->duplex = DUPLEX_FULL;
 		}
+		phydev->port = PORT_FIBRE;
 	}
 
 	return err;

@@ -1,0 +1,10 @@
+/dts-v1/;
+#include "hw248.dtsi"
+
+/ {
+	avm-hw-revision {
+		compatible = "avm,avm_hw_revision";
+		revision = "248";
+		subrevision = "0";
+	};
+};

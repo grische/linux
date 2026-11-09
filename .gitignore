@@ -52,6 +52,7 @@ Module.symvers
 /vmlinuz
 /System.map
 /Module.markers
+/notags
 
 #
 # Debian directory (make deb-pkg)
@@ -69,6 +70,13 @@ Module.symvers
 !.gitignore
 !.mailmap
 !.cocciconfig
+!.clang-format
+
+#
+# Generated c files
+#
+arch/mips/boot/compressed/ashldi3.c
+arch/mips/boot/compressed/bswapsi.c
 
 #
 # Generated include files
@@ -76,6 +84,9 @@ Module.symvers
 include/config
 include/generated
 arch/*/include/generated
+arch/mips/boot/compressed/ashldi3.c
+arch/mips/boot/compressed/bswapsi.c
+user_headers/
 
 # stgit generated dirs
 patches-*
@@ -87,6 +98,8 @@ series
 # cscope files
 cscope.*
 ncscope.*
+
+compile_commands.json
 
 # gnu global files
 GPATH
@@ -115,3 +128,55 @@ all.config
 
 # Kdevelop4
 *.kdev4
+
+#
+# AVM kernel (sub)projects
+#
+drivers/char/avm_net_trace/
+drivers/char/avm_new/
+drivers/char/avm_power/
+drivers/char/tffs/
+drivers/dsl/
+drivers/isdn/capi_oslib/
+drivers/net/avm_cpmac/
+drivers/net/avm_coredump/
+net/avm_pa/
+
+#
+# AVM header
+#
+include/linux/ar7wdt.h
+include/linux/avm_debug.h
+include/linux/avm_event.h
+include/linux/avm_helpers.h
+include/linux/avm_kpi.h
+include/linux/avm_net_trace.h
+include/linux/avm_net_trace_ioctl.h
+include/linux/avm_pa.h
+include/linux/avm_pa_hw.h
+include/linux/avm_pa_ifx_multiplexer.h
+include/linux/avm_power.h
+include/linux/avm_profile.h
+include/linux/avm_reboot_status.h
+include/linux/capi_oslib.h
+include/linux/codec_dsp.h
+include/linux/import_rtp.h
+include/linux/irq_on.h
+include/linux/new_capi.h
+include/linux/rprot_nettty.h
+include/linux/rtp_fastpath.h
+include/linux/simple_mempool.h
+include/linux/simple_proc.h
+include/linux/tffs.h
+include/uapi/linux/avm_event.h
+include/uapi/linux/avm_net_trace_ioctl.h
+include/uapi/linux/capi_oslib.h
+include/uapi/linux/import_rtp.h
+include/uapi/linux/rprot_nettty.h
+include/uapi/linux/tffs.h
+
+#
+# AVM Header Introduced with New Kernel Wrapper
+#
+/include/avm
+/include/uapi/avm

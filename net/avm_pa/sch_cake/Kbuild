@@ -1,0 +1,1 @@
+obj-$(CONFIG_AVM_PA_SCH_CAKE)	+= sch_cake.o

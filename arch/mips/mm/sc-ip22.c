@@ -33,7 +33,7 @@ static inline void indy_sc_wipe(unsigned long first, unsigned long last)
 	__asm__ __volatile__(
 	"	.set	push			# indy_sc_wipe		\n"
 	"	.set	noreorder					\n"
-	"	.set	mips3						\n"
+	"	.set	mips32r2					\n"
 	"	.set	noat						\n"
 	"	mfc0	%2, $12						\n"
 	"	li	$1, 0x80		# Go 64 bit		\n"

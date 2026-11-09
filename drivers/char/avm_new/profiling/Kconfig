@@ -1,0 +1,24 @@
+config AVM_SIMPLE_PROFILING
+	bool "Simple Kernel-Profiler"
+	depends on AVM_SAMMEL
+	select PERF_EVENTS
+	select AVM_PROM_ENVIRONMENT
+	default y
+	help
+      Use cat cat /proc/avm/profile/help to get more information.
+
+if AVM_SIMPLE_PROFILING
+
+config ENABLE_SKB_PROFILING_HOOKS
+	bool "Enable SKB-Profiling"
+	default n
+
+config ENABLE_SPINLOCK_PROFILING_HOOKS
+	bool "Enable Spinlock-Profiling"
+	default n
+
+config ENABLE_IRQ_PROFILING_HOOKS
+	bool "Enable IrqEnable/Disable-Profiling"
+	default n
+
+endif

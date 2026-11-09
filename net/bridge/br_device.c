@@ -186,14 +186,19 @@ static struct rtnl_link_stats64 *br_get_stats64(struct net_device *dev,
 	return stats;
 }
 
+#define ETH_MIN_MTU 68
+#define ETH_MAX_MTU 0xFFFFU /* 65535, same as IP_MAX_MTU */
+
 static int br_change_mtu(struct net_device *dev, int new_mtu)
 {
 	struct net_bridge *br = netdev_priv(dev);
-	if (new_mtu < 68 || new_mtu > br_min_mtu(br))
+	if (new_mtu < ETH_MIN_MTU || new_mtu > ETH_MAX_MTU)
 		return -EINVAL;
 
 	dev->mtu = new_mtu;
 
+	/* this flag will be cleared if the MTU was automatically adjusted */
+	br->mtu_set_by_user = true;
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	/* remember the MTU in the rtable for PMTU */
 	dst_metric_set(&br->fake_rtable.dst, RTAX_MTU, new_mtu);
@@ -421,7 +426,10 @@ void br_dev_setup(struct net_device *dev)
 	br->bridge_forward_delay = br->forward_delay = 15 * HZ;
 	br->ageing_time = BR_DEFAULT_AGEING_TIME;
 
+	br->fdb_max_learned = CONFIG_BRIDGE_DEFAULT_FDB_MAX_LEARNED;
+
 	br_netfilter_rtable_init(br);
 	br_stp_timer_init(br);
 	br_multicast_init(br);
+	br_flood_rl_setup(br);
 }

@@ -26,6 +26,11 @@
 #include <linux/if_vlan.h>
 #include <net/switchdev.h>
 #include "br_private.h"
+#if IS_ENABLED(CONFIG_PPA_BR_MAC_LEARNING)
+#include <net/ppa/ppa_api.h>
+#endif
+
+#include <avm/pa/avm_pa.h>
 
 static struct kmem_cache *br_fdb_cache __read_mostly;
 static struct net_bridge_fdb_entry *fdb_find(struct hlist_head *head,
@@ -148,6 +153,10 @@ static void fdb_del_external_learn(struct net_bridge_fdb_entry *f)
 
 static void fdb_delete(struct net_bridge *br, struct net_bridge_fdb_entry *f)
 {
+#if IS_ENABLED(CONFIG_PPA_BR_MAC_LEARNING)
+	if (ppa_hook_bridge_entry_delete_fn)
+		ppa_hook_bridge_entry_delete_fn(f->addr.addr, br->dev, 0);
+#endif
 	if (f->is_static)
 		fdb_del_hw_addr(br, f->addr.addr);
 
@@ -155,11 +164,18 @@ static void fdb_delete(struct net_bridge *br, struct net_bridge_fdb_entry *f)
 		fdb_del_external_learn(f);
 
 	hlist_del_rcu(&f->hlist);
+	if (test_and_clear_bit(BR_FDB_DYNAMIC_LEARNED, &f->flags))
+		atomic_dec(&br->fdb_n_learned);
 	fdb_notify(br, f, RTM_DELNEIGH);
 	call_rcu(&f->rcu, fdb_rcu_free);
 }
 
-/* Delete a local entry if no other port had the same address. */
+/* Delete a local entry if no other port had the same address.
+ *
+ * This function should only be called on entries with BR_FDB_LOCAL set,
+ * so even with BR_FDB_ADDED_BY_USER cleared we never need to increase
+ * the accounting for dynamically learned entries again.
+ */
 static void fdb_delete_local(struct net_bridge *br,
 			     const struct net_bridge_port *p,
 			     struct net_bridge_fdb_entry *f)
@@ -304,6 +320,16 @@ void br_fdb_cleanup(unsigned long _data)
 
 		hlist_for_each_entry_safe(f, n, &br->hash[i], hlist) {
 			unsigned long this_timer;
+#if IS_ENABLED(CONFIG_PPA_BR_MAC_LEARNING)
+			if (ppa_hook_bridge_entry_hit_time_fn &&
+			    !f->is_local) {
+				unsigned int last_hit_time;
+				if (ppa_hook_bridge_entry_hit_time_fn(f->addr.addr, br->dev,
+								      &last_hit_time) ==
+				    PPA_HIT)
+					f->updated = last_hit_time * HZ;
+			}
+#endif
 			if (f->is_static)
 				continue;
 			if (f->added_by_external_learn)
@@ -495,14 +521,25 @@ static struct net_bridge_fdb_entry *fdb_find_rcu(struct hlist_head *head,
 	return NULL;
 }
 
-static struct net_bridge_fdb_entry *fdb_create(struct hlist_head *head,
+static struct net_bridge_fdb_entry *fdb_create(struct net_bridge *br,
+					       struct hlist_head *head,
 					       struct net_bridge_port *source,
 					       const unsigned char *addr,
 					       __u16 vid,
 					       unsigned char is_local,
-					       unsigned char is_static)
+					       unsigned char is_static,
+					       unsigned char added_by_user)
 {
+	u32 max_learned = READ_ONCE(br->fdb_max_learned);
+	bool learned = !is_local && !added_by_user;
 	struct net_bridge_fdb_entry *fdb;
+
+	if (likely(learned)) {
+		int n_learned = atomic_read(&br->fdb_n_learned);
+
+		if (unlikely(max_learned && n_learned >= max_learned))
+			return NULL;
+	}
 
 	fdb = kmem_cache_alloc(br_fdb_cache, GFP_ATOMIC);
 	if (fdb) {
@@ -511,9 +548,12 @@ static struct net_bridge_fdb_entry *fdb_create(struct hlist_head *head,
 		fdb->vlan_id = vid;
 		fdb->is_local = is_local;
 		fdb->is_static = is_static;
-		fdb->added_by_user = 0;
+		fdb->added_by_user = added_by_user;
 		fdb->added_by_external_learn = 0;
 		fdb->updated = fdb->used = jiffies;
+		fdb->flags = learned ? BIT(BR_FDB_DYNAMIC_LEARNED) : 0;
+		if (likely(learned))
+			atomic_inc(&br->fdb_n_learned);
 		hlist_add_head_rcu(&fdb->hlist, head);
 	}
 	return fdb;
@@ -541,7 +581,7 @@ static int fdb_insert(struct net_bridge *br, struct net_bridge_port *source,
 		fdb_delete(br, fdb);
 	}
 
-	fdb = fdb_create(head, source, addr, vid, 1, 1);
+	fdb = fdb_create(br, head, source, addr, vid, 1, 1, 0);
 	if (!fdb)
 		return -ENOMEM;
 
@@ -593,24 +633,39 @@ void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
 				fdb_modified = true;
 			}
 			fdb->updated = jiffies;
-			if (unlikely(added_by_user))
+#if IS_ENABLED(CONFIG_PPA_BR_MAC_LEARNING)
+			if (ppa_hook_bridge_entry_add_fn &&
+			    source->dev)
+				ppa_hook_bridge_entry_add_fn(
+					(unsigned char *)addr,
+					br->dev, source->dev,
+					PPA_F_BRIDGE_ACCEL_MODE);
+#endif
+			if (unlikely(added_by_user)) {
 				fdb->added_by_user = 1;
+				if (test_and_clear_bit(BR_FDB_DYNAMIC_LEARNED,
+						       &fdb->flags))
+					atomic_dec(&br->fdb_n_learned);
+			}
 			if (unlikely(fdb_modified))
 				fdb_notify(br, fdb, RTM_NEWNEIGH);
 		}
 	} else {
 		spin_lock(&br->hash_lock);
 		if (likely(!fdb_find(head, addr, vid))) {
-			fdb = fdb_create(head, source, addr, vid, 0, 0);
-			if (fdb) {
-				if (unlikely(added_by_user))
-					fdb->added_by_user = 1;
+			fdb = fdb_create(br, head, source, addr, vid, 0, 0, added_by_user);
+			if (fdb)
 				fdb_notify(br, fdb, RTM_NEWNEIGH);
-			}
 		}
 		/* else  we lose race and someone else inserts
 		 * it first, don't bother updating
 		 */
+#if IS_ENABLED(CONFIG_PPA_BR_MAC_LEARNING)
+		if (ppa_hook_bridge_entry_add_fn && source->dev)
+			ppa_hook_bridge_entry_add_fn(
+				(unsigned char *)addr, br->dev,
+				source->dev, 0);
+#endif
 		spin_unlock(&br->hash_lock);
 	}
 }
@@ -687,6 +742,9 @@ static void fdb_notify(struct net_bridge *br,
 	struct net *net = dev_net(br->dev);
 	struct sk_buff *skb;
 	int err = -ENOBUFS;
+
+	/* fdb changed port or was deleted, must cancel any existing bypass. */
+	avm_pa_flush_sessions_for_mac(fdb->addr.addr);
 
 	skb = nlmsg_new(fdb_nlmsg_size(), GFP_ATOMIC);
 	if (skb == NULL)
@@ -789,7 +847,7 @@ static int fdb_add_entry(struct net_bridge *br, struct net_bridge_port *source,
 		if (!(flags & NLM_F_CREATE))
 			return -ENOENT;
 
-		fdb = fdb_create(head, source, addr, vid, 0, 0);
+		fdb = fdb_create(br, head, source, addr, vid, 0, 0, 1);
 		if (!fdb)
 			return -ENOMEM;
 
@@ -802,6 +860,10 @@ static int fdb_add_entry(struct net_bridge *br, struct net_bridge_port *source,
 			fdb->dst = source;
 			modified = true;
 		}
+
+		fdb->added_by_user = 1;
+		if (test_and_clear_bit(BR_FDB_DYNAMIC_LEARNED, &fdb->flags))
+			atomic_dec(&br->fdb_n_learned);
 	}
 
 	if (fdb_to_nud(br, fdb) != state) {
@@ -827,7 +889,6 @@ static int fdb_add_entry(struct net_bridge *br, struct net_bridge_port *source,
 
 		modified = true;
 	}
-	fdb->added_by_user = 1;
 
 	fdb->used = jiffies;
 	if (modified) {
@@ -1042,6 +1103,33 @@ out:
 	return err;
 }
 
+#if IS_ENABLED(CONFIG_DIRECTCONNECT_DP_API)
+int dc_dp_br_fdb_delete(struct net_device *dev, const unsigned char *addr)
+{
+	struct net_bridge_port *p;
+	int err = 0;
+
+	if (!dev)
+		return -EINVAL;
+
+	if (!br_port_exists(dev))
+		return -EINVAL;
+
+	rcu_read_lock();
+	p = br_port_get_rcu(dev);
+	if (p) {
+		if (addr)
+			err = __br_fdb_delete(p, addr, 0);
+		else
+			br_fdb_delete_by_port(p->br, p, 0, 0);
+	}
+	rcu_read_unlock();
+
+	return err;
+}
+EXPORT_SYMBOL(dc_dp_br_fdb_delete);
+#endif
+
 int br_fdb_sync_static(struct net_bridge *br, struct net_bridge_port *p)
 {
 	struct net_bridge_fdb_entry *fdb, *tmp;
@@ -1111,7 +1199,7 @@ int br_fdb_external_learn_add(struct net_bridge *br, struct net_bridge_port *p,
 	head = &br->hash[br_mac_hash(addr, vid)];
 	fdb = fdb_find(head, addr, vid);
 	if (!fdb) {
-		fdb = fdb_create(head, p, addr, vid, 0, 0);
+		fdb = fdb_create(br, head, p, addr, vid, 0, 0, 0);
 		if (!fdb) {
 			err = -ENOMEM;
 			goto err_unlock;

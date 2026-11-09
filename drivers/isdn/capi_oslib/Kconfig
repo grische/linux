@@ -1,0 +1,23 @@
+#
+# AVM CAPI-OSLIB
+#
+
+menu "AVM CAPI-OSLIB"
+
+config CAPI_AVM
+	bool
+
+config CAPI_OSLIB
+	tristate "split CAPI2.0 oslib"
+	depends on ISDN
+	select CAPI_AVM
+	help
+        split oslib for fbox isdn drivers
+
+config CAPI_OSLIB_DEBUG
+    bool "capi oslib debug version"
+    depends on CAPI_OSLIB
+	help
+        debug version of capi-oslib
+
+endmenu

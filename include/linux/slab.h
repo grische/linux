@@ -26,7 +26,9 @@
 #define SLAB_HWCACHE_ALIGN	0x00002000UL	/* Align objs on cache lines */
 #define SLAB_CACHE_DMA		0x00004000UL	/* Use GFP_DMA memory */
 #define SLAB_STORE_USER		0x00010000UL	/* DEBUG: Store the last owner for bug hunting */
+#define SLAB_STORE_USER_LITE	0x00020000UL	/* AVM: need for slab_allocator usage */
 #define SLAB_PANIC		0x00040000UL	/* Panic if kmem_cache_create() fails */
+#define SLAB_PANIC_CORRUPTION	0x00080000UL	/* Panic if alloc/free consistency check fails */
 /*
  * SLAB_DESTROY_BY_RCU - **WARNING** READ THIS!
  *
@@ -656,6 +658,13 @@ int slab_dead_cpu(unsigned int cpu);
 #else
 #define slab_prepare_cpu	NULL
 #define slab_dead_cpu		NULL
+#endif
+
+#if defined(CONFIG_SLUB_AVM_ALLOC_LIST)
+void kmem_cache_list_all_objects(struct kmem_cache *s, void *ref,
+				 int (*object_pointer)(void *ref, void *p));
+
+unsigned int kmem_cache_active_objects(struct kmem_cache *s);
 #endif
 
 #endif	/* _LINUX_SLAB_H */

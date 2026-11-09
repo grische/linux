@@ -27,6 +27,7 @@
 #include <linux/device.h>
 #include <linux/dma-contiguous.h>
 #include <linux/decompress/generic.h>
+#include <linux/of_fdt.h>
 
 #include <asm/addrspace.h>
 #include <asm/bootinfo.h>
@@ -40,9 +41,17 @@
 #include <asm/smp-ops.h>
 #include <asm/prom.h>
 
+#include <avm/enh/fw_info.h>
+#include <avm/enh/module_mem.h>
+
 #ifdef CONFIG_MIPS_ELF_APPENDED_DTB
 const char __section(.appended_dtb) __appended_dtb[0x100000];
 #endif /* CONFIG_MIPS_ELF_APPENDED_DTB */
+
+#if defined(CONFIG_AVM_ENHANCED)
+#include <asm/avm_enh/avm_enh.h>
+#include <asm/dsp.h>
+#endif
 
 struct cpuinfo_mips cpu_data[NR_CPUS] __read_mostly;
 
@@ -370,7 +379,7 @@ static unsigned long __init bootmap_bytes(unsigned long pages)
 
 static void __init bootmem_init(void)
 {
-	unsigned long reserved_end;
+	unsigned long reserved_start, reserved_end;
 	unsigned long mapstart = ~0UL;
 	unsigned long bootmap_size;
 	bool bootmap_valid = false;
@@ -383,6 +392,7 @@ static void __init bootmem_init(void)
 	 * will reserve the area used for the initrd.
 	 */
 	init_initrd();
+	reserved_start = (unsigned long) PFN_DOWN(__pa_symbol(&_text));
 	reserved_end = (unsigned long) PFN_UP(__pa_symbol(&_end));
 
 	/*
@@ -527,7 +537,10 @@ static void __init bootmem_init(void)
 			continue;
 #endif
 
-		memblock_add_node(PFN_PHYS(start), PFN_PHYS(end - start), 0);
+		if (boot_mem_map.map[i].type != BOOT_MEM_RESERVED)
+			memblock_add_node(PFN_PHYS(start), PFN_PHYS(end - start), 0);
+		else
+			memblock_reserve(PFN_PHYS(start), PFN_PHYS(end - start));
 	}
 
 	/*
@@ -551,7 +564,7 @@ static void __init bootmem_init(void)
 			continue;
 		default:
 			/* Not usable memory */
-			if (start > min_low_pfn && end < max_low_pfn)
+			if (start >= min_low_pfn && end < max_low_pfn)
 				reserve_bootmem(boot_mem_map.map[i].addr,
 						boot_mem_map.map[i].size,
 						BOOTMEM_DEFAULT);
@@ -564,8 +577,6 @@ static void __init bootmem_init(void)
 		 */
 		if (start >= max_low_pfn)
 			continue;
-		if (start < reserved_end)
-			start = reserved_end;
 		if (end > max_low_pfn)
 			end = max_low_pfn;
 
@@ -582,30 +593,26 @@ static void __init bootmem_init(void)
 	}
 
 	/*
+	 * Reserve the kernel
+	 */
+	reserve_bootmem(PFN_PHYS(reserved_start),
+		(reserved_end - reserved_start) << PAGE_SHIFT, BOOTMEM_DEFAULT);
+	memblock_reserve(PFN_PHYS(reserved_start),
+			 PFN_PHYS(reserved_end - reserved_start));
+
+	/*
 	 * Reserve the bootmap memory.
 	 */
 	reserve_bootmem(PFN_PHYS(mapstart), bootmap_size, BOOTMEM_DEFAULT);
 
-#ifdef CONFIG_RELOCATABLE
-	/*
-	 * The kernel reserves all memory below its _end symbol as bootmem,
-	 * but the kernel may now be at a much higher address. The memory
-	 * between the original and new locations may be returned to the system.
-	 */
-	if (__pa_symbol(_text) > __pa_symbol(VMLINUX_LOAD_ADDRESS)) {
-		unsigned long offset;
-		extern void show_kernel_relocation(const char *level);
-
-		offset = __pa_symbol(_text) - __pa_symbol(VMLINUX_LOAD_ADDRESS);
-		free_bootmem(__pa_symbol(VMLINUX_LOAD_ADDRESS), offset);
-
-#if defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_DEBUG_INFO)
+#if defined(CONFIG_RELOCATABLE) && defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_DEBUG_INFO)
+	{
 		/*
 		 * This information is necessary when debugging the kernel
 		 * But is a security vulnerability otherwise!
 		 */
+		extern void show_kernel_relocation(const char *level);
 		show_kernel_relocation(KERN_INFO);
-#endif
 	}
 #endif
 
@@ -769,6 +776,9 @@ static void __init request_crashkernel(struct resource *res)
 
 static void __init arch_mem_init(char **cmdline_p)
 {
+#ifdef CONFIG_CMA_LIMIT_256M
+	phys_addr_t dma_cma_limit;
+#endif
 	struct memblock_region *reg;
 	extern void plat_mem_setup(void);
 
@@ -787,9 +797,6 @@ static void __init arch_mem_init(char **cmdline_p)
 	arch_mem_addpart(PFN_UP(__pa_symbol(&__init_begin)) << PAGE_SHIFT,
 			 PFN_DOWN(__pa_symbol(&__init_end)) << PAGE_SHIFT,
 			 BOOT_MEM_INIT_RAM);
-
-	pr_info("Determined physical RAM map:\n");
-	print_memory_map();
 
 #if defined(CONFIG_CMDLINE_BOOL) && defined(CONFIG_CMDLINE_OVERRIDE)
 	strlcpy(boot_command_line, builtin_cmdline, COMMAND_LINE_SIZE);
@@ -829,6 +836,12 @@ static void __init arch_mem_init(char **cmdline_p)
 		print_memory_map();
 	}
 
+	early_init_fdt_reserve_self();
+	early_init_fdt_scan_reserved_mem();
+
+	pr_info("Determined physical RAM map:\n");
+	print_memory_map();
+
 	bootmem_init();
 #ifdef CONFIG_PROC_VMCORE
 	if (setup_elfcorehdr && setup_elfcorehdr_size) {
@@ -860,7 +873,21 @@ static void __init arch_mem_init(char **cmdline_p)
 
 	plat_swiotlb_setup();
 
+#ifdef CONFIG_CMA_LIMIT_256M
+	/*
+	 * dma_alloc_coherent will return uncached address for most legacy MIPS,
+	 * the physical RAM is 256 MB for interaptiv, physical RAM is up to 3GB,
+	 * however, the system has only 256MB uncached address available 
+	 */
+	dma_cma_limit = PHYS_OFFSET + min(ZONE_DMA_SIZE, SZ_256M);
+	if (PFN_PHYS(max_low_pfn) < dma_cma_limit)
+		dma_cma_limit = PFN_PHYS(max_low_pfn);
+
+	dma_contiguous_reserve(dma_cma_limit);
+#else
 	dma_contiguous_reserve(PFN_PHYS(max_low_pfn));
+#endif
+
 	/* Tell bootmem about cma reserved memblock section */
 	for_each_memblock(reserved, reg)
 		if (reg->size != 0)
@@ -945,11 +972,24 @@ static inline void prefill_possible_map(void) {}
 
 void __init setup_arch(char **cmdline_p)
 {
+#ifdef CONFIG_CPU_HAS_DSP_ASE
+	init_dsp(); /* initialize DSP register cpu0 */
+#endif
 	cpu_probe();
 	mips_cm_probe();
+
+	/*
+	 * DTB was passed via firmware info so simulate
+	 * it was passed from the firmware
+	 */
+	if (!fw_passed_dtb && avm_fw_embedded_dtb())
+		fw_passed_dtb = (unsigned long)avm_fw_embedded_dtb();
+
 	prom_init();
+	write_c0_errorepc(0);
 
 	setup_early_fdc_console();
+
 #ifdef CONFIG_EARLY_PRINTK
 	setup_early_printk();
 #endif
@@ -972,6 +1012,9 @@ void __init setup_arch(char **cmdline_p)
 
 	cpu_cache_init();
 	paging_init();
+
+	avm_fw_info_init();
+	avm_module_mem_init();
 }
 
 unsigned long kernelsp[NR_CPUS];

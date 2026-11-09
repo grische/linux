@@ -68,6 +68,13 @@
 #include <asm/types.h>
 #include <asm/stacktrace.h>
 #include <asm/uasm.h>
+#if defined(CONFIG_AVM_ENHANCED)
+#include <asm/avm_enh/avm_enh.h>
+#endif
+#if defined(CONFIG_AVM_WP)
+#include <asm/avm_enh/avm_watch.h>
+#endif
+#include <avm/profile/profile.h>
 
 extern void check_wait(void);
 extern asmlinkage void rollback_handle_int(void);
@@ -139,11 +146,13 @@ static int __init set_raw_show_trace(char *str)
 __setup("raw_show_trace", set_raw_show_trace);
 #endif
 
-static void show_backtrace(struct task_struct *task, const struct pt_regs *regs)
+void show_backtrace(struct task_struct *task, const struct pt_regs *regs)
 {
 	unsigned long sp = regs->regs[29];
 	unsigned long ra = regs->regs[31];
 	unsigned long pc = regs->cp0_epc;
+	unsigned long first_ra = ra;
+	unsigned long first_sp = sp;
 
 	if (!task)
 		task = current;
@@ -152,10 +161,25 @@ static void show_backtrace(struct task_struct *task, const struct pt_regs *regs)
 		show_raw_backtrace(sp);
 		return;
 	}
-	printk("Call Trace:\n");
+	printk(KERN_ERR "Call Trace:\n");
 	do {
 		print_ip_sym(pc);
 		pc = unwind_stack(task, &sp, pc, &ra);
+		if (first_ra) {
+			if (pc == 0) {
+				/**--------------------------------------------------------------------------------**\
+				 * es gibt Funktionen (z.B. _raw_spin_lock_bh), wo direkt in eine andere Funktion
+				 * per bxx symbol+offset(!=0) (z.b. _raw_read_unlock_bh+0xa4) gesprungen wird. In diesem Fall
+				 * funktioniert die Ermittlung von ra ueber den Stack nicht, da der Stackoffset der
+				 * angeprungenen Funktion mit Offset 0 ermittelt wird - passiert dies beim ersten Aufruf
+				 * wo ja ra noch korrekt im Register koennen wir hier das ra direkt verwenden
+				 * (siehe JZ-30655)
+				 \**--------------------------------------------------------------------------------**/
+				pc = first_ra;
+				sp = first_sp;
+			}
+			first_ra = 0; /*--- nur initial das Register ra verwenden ---*/
+		}
 	} while (pc);
 	pr_cont("\n");
 }
@@ -193,6 +217,9 @@ static void show_stacktrace(struct task_struct *task,
 		i++;
 	}
 	pr_cont("\n");
+#if defined(CONFIG_AVM_ENHANCED)
+	show_stacktrace_memoryclassifier(regs);
+#endif
 	show_backtrace(task, regs);
 }
 
@@ -234,7 +261,7 @@ static void show_code(unsigned int __user *pc)
 	long i;
 	unsigned short __user *pc16 = NULL;
 
-	printk("Code:");
+	printk(KERN_ERR "Code:");
 
 	if ((unsigned long)pc & 1)
 		pc16 = (unsigned short __user *)((unsigned long)pc & ~1);
@@ -277,20 +304,21 @@ static void __show_regs(const struct pt_regs *regs)
 	}
 
 #ifdef CONFIG_CPU_HAS_SMARTMIPS
-	printk("Acx    : %0*lx\n", field, regs->acx);
+	printk(KERN_ERR "Acx    : %0*lx\n", field, regs->acx);
 #endif
-	printk("Hi    : %0*lx\n", field, regs->hi);
-	printk("Lo    : %0*lx\n", field, regs->lo);
+	printk(KERN_ERR "Hi    : %0*lx\n", field, regs->hi);
+	printk(KERN_ERR "Lo    : %0*lx\n", field, regs->lo);
+#ifdef CONFIG_CPU_HAS_DSP_ASE
+	printk(KERN_ERR "ac1Hi: %0*lx ac1Lo: %0*lx\n", field, regs->ac1hi,
+	       field, regs->ac1lo);
+	printk(KERN_ERR "ac2Hi: %0*lx ac2Lo: %0*lx\n", field, regs->ac2hi,
+	       field, regs->ac2lo);
+	printk(KERN_ERR "ac3Hi: %0*lx ac3Lo: %0*lx\n", field, regs->ac3hi,
+	       field, regs->ac3lo);
+	printk(KERN_ERR "dspcontrol: %0*lx\n", field, regs->dspctrl);
+#endif /* CONFIG_CPU_HAS_DSP_ASE */
 
-	/*
-	 * Saved cp0 registers
-	 */
-	printk("epc   : %0*lx %pS\n", field, regs->cp0_epc,
-	       (void *) regs->cp0_epc);
-	printk("ra    : %0*lx %pS\n", field, regs->regs[31],
-	       (void *) regs->regs[31]);
-
-	printk("Status: %08x	", (uint32_t) regs->cp0_status);
+	printk(KERN_ERR "Status: %08x	", (uint32_t)regs->cp0_status);
 
 	if (cpu_has_3kex) {
 		if (regs->cp0_status & ST0_KUO)
@@ -336,13 +364,42 @@ static void __show_regs(const struct pt_regs *regs)
 	pr_cont("\n");
 
 	exccode = (cause & CAUSEF_EXCCODE) >> CAUSEB_EXCCODE;
-	printk("Cause : %08x (ExcCode %02x)\n", cause, exccode);
+	printk(KERN_ERR "Cause : %08x exc_code:%d %s\n", cause,
+	       exccode,
+	       exccode == 1 ? "Mod" :
+			       exccode == 2 ?
+			       "TLBL" :
+			       exccode == 3 ?
+			       "TLBS" :
+			       exccode == 4 ?
+			       "AdEL" :
+			       exccode == 5 ?
+			       "AdES" :
+			       exccode == 6 ?
+			       "IBE" :
+			       exccode == 7 ?
+			       "DBE" :
+			       exccode == 25 ?
+			       "Thread" :
+			       exccode == 23 ?
+			       "WATCH" :
+			       exccode == 31 ? "CacheErr" : "");
 
 	if (1 <= exccode && exccode <= 5)
-		printk("BadVA : %0*lx\n", field, regs->cp0_badvaddr);
+		printk(KERN_ERR "BadVA : %0*lx\n", field, regs->cp0_badvaddr);
 
-	printk("PrId  : %08x (%s)\n", read_c0_prid(),
+	printk(KERN_ERR "epc   : %0*lx %pS\n", field, regs->cp0_epc,
+	       (void *)regs->cp0_epc);
+	printk(KERN_ERR "errepc: %08lx %pS\n", read_c0_errorepc(),
+	       (void *)read_c0_errorepc());
+	printk(KERN_ERR "ra    : %0*lx %pS\n", field, regs->regs[31],
+	       (void *)regs->regs[31]);
+	printk(KERN_ERR "%s\n", print_tainted());
+	printk(KERN_ERR "PrId  : %08x (%s)\n", read_c0_prid(),
 	       cpu_name_string());
+#if defined(CONFIG_AVM_ENHANCED)
+	show_register_memoryclassifier(regs);
+#endif
 }
 
 /*
@@ -354,7 +411,7 @@ void show_regs(struct pt_regs *regs)
 	dump_stack();
 }
 
-void show_registers(struct pt_regs *regs)
+void show_registers(const struct pt_regs *regs)
 {
 	const int field = 2 * sizeof(unsigned long);
 	mm_segment_t old_fs = get_fs();
@@ -475,12 +532,18 @@ asmlinkage void do_be(struct pt_regs *regs)
 	printk(KERN_ALERT "%s bus error, epc == %0*lx, ra == %0*lx\n",
 	       data ? "Data" : "Instruction",
 	       field, regs->cp0_epc, field, regs->regs[31]);
+
+	/* AVM|ATH: Only call die notifiers in case we are actually about to die */
+	if (user_mode(regs)) {
+		force_sig(SIGBUS, current);
+		return;
+	}
+
 	if (notify_die(DIE_OOPS, "bus error", regs, 0, current->thread.trap_nr,
 		       SIGBUS) == NOTIFY_STOP)
 		goto out;
 
-	die_if_kernel("Oops", regs);
-	force_sig(SIGBUS, current);
+	die("Oops", regs);
 
 out:
 	exception_exit(prev_state);
@@ -706,6 +769,10 @@ asmlinkage void do_ov(struct pt_regs *regs)
 	};
 
 	prev_state = exception_enter();
+
+#if defined(CONFIG_AVM_ENHANCED)
+	show_code_position_by_epc("kernel integer overflow", regs);
+#endif
 	die_if_kernel("Integer overflow", regs);
 
 	force_sig_info(SIGFPE, &info, current);
@@ -847,6 +914,9 @@ asmlinkage void do_fpe(struct pt_regs *regs, unsigned long fcr31)
 	write_32bit_cp1_register(CP1_STATUS, fcr31 & ~mask_fcr31_x(fcr31));
 	local_irq_enable();
 
+#if defined(CONFIG_AVM_ENHANCED)
+	show_code_position_by_epc("kernel-floatingpoint-exception", regs);
+#endif
 	die_if_kernel("FP exception in kernel code", regs);
 
 	if (fcr31 & FPU_CSR_UNI_X) {
@@ -924,6 +994,9 @@ void do_trap_or_bp(struct pt_regs *regs, unsigned int code, int si_code,
 		force_sig_info(SIGFPE, &info, current);
 		break;
 	case BRK_BUG:
+#if defined(CONFIG_AVM_ENHANCED)
+		show_bug_by_bugtable(regs);
+#endif
 		die_if_kernel("Kernel bug detected", regs);
 		force_sig(SIGTRAP, current);
 		break;
@@ -968,6 +1041,9 @@ asmlinkage void do_bp(struct pt_regs *regs)
 
 	prev_state = exception_enter();
 	current->thread.trap_nr = (regs->cp0_cause >> 2) & 0x1f;
+#if defined(CONFIG_AVM_ENHANCED)
+	show_code_position_by_epc("kernel-breakpoint", regs);
+#endif
 	if (get_isa16_mode(regs->cp0_epc)) {
 		u16 instr[2];
 
@@ -1054,6 +1130,9 @@ asmlinkage void do_tr(struct pt_regs *regs)
 	u16 instr[2];
 	mm_segment_t seg;
 	unsigned long epc = msk_isa16_mode(exception_epc(regs));
+#if defined(CONFIG_AVM_ENHANCED)
+	show_code_position_by_epc("kernel-trap", regs);
+#endif
 
 	seg = get_fs();
 	if (!user_mode(regs))
@@ -1518,6 +1597,13 @@ asmlinkage void do_watch(struct pt_regs *regs)
 	enum ctx_state prev_state;
 
 	prev_state = exception_enter();
+
+#if defined(CONFIG_AVM_WP)
+	if (avm_wp_dispatcher(regs)) {
+		exception_exit(prev_state);
+		return;
+	}
+#endif
 	/*
 	 * Clear WP (bit 22) bit of cause register so we don't loop
 	 * forever.
@@ -1917,13 +2003,23 @@ int register_nmi_notifier(struct notifier_block *nb)
 	return raw_notifier_chain_register(&nmi_chain, nb);
 }
 
+static void avm_fixup_c0_status(void)
+{
+	clear_c0_status(
+		ST0_IE  | /* Disable interrupts */
+		ST0_NMI | /* Reset NMI status */
+		ST0_BEV | /* Gives us working exceptions */
+		ST0_EXL); /* And working TLB exceptions (virtual memory access) */
+}
+
 void __noreturn nmi_exception_handler(struct pt_regs *regs)
 {
 	char str[100];
 
 	nmi_enter();
-	raw_notifier_call_chain(&nmi_chain, 0, regs);
+	avm_fixup_c0_status();
 	bust_spinlocks(1);
+	raw_notifier_call_chain(&nmi_chain, 0, regs);
 	snprintf(str, 100, "CPU%d NMI taken, CP0_EPC=%lx\n",
 		 smp_processor_id(), regs->cp0_epc);
 	regs->cp0_epc = read_c0_errorepc();
@@ -2272,12 +2368,16 @@ static char panic_null_cerr[] =
 void set_uncached_handler(unsigned long offset, void *addr,
 	unsigned long size)
 {
-	unsigned long uncached_ebase = CKSEG1ADDR(ebase);
+	unsigned long uncached_ebase __maybe_unused = CKSEG1ADDR(ebase);
 
 	if (!addr)
 		panic(panic_null_cerr);
 
+#ifndef CONFIG_EVA
 	memcpy((void *)(uncached_ebase + offset), addr, size);
+#else
+	set_handler(offset, addr, size);
+#endif /* CONFIG_EVA */
 }
 
 static int __initdata rdhwr_noopt;

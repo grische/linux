@@ -32,6 +32,9 @@
 #include <linux/semaphore.h>
 #include <linux/spinlock.h>
 #include <linux/ftrace.h>
+#if defined(CONFIG_AVM_IPI_YIELD)
+#include <asm/yield_context.h>
+#endif
 
 static noinline void __down(struct semaphore *sem);
 static noinline int __down_interruptible(struct semaphore *sem);
@@ -142,6 +145,26 @@ int down_trylock(struct semaphore *sem)
 }
 EXPORT_SYMBOL(down_trylock);
 
+#if defined(CONFIG_AVM_IPI_YIELD)
+/*--------------------------------------------------------------------------------*\
+  auch aus YIELD-Kontext verwendbar
+\*--------------------------------------------------------------------------------*/
+int yield_down_trylock(struct semaphore *sem)
+{
+	unsigned long flags;
+	int count;
+
+	yield_raw_spin_lock_irqsave(&sem->lock, flags);
+	count = sem->count - 1;
+	if (likely(count >= 0))
+		sem->count = count;
+	yield_raw_spin_unlock_irqrestore(&sem->lock, flags);
+
+	return (count < 0);
+}
+EXPORT_SYMBOL(yield_down_trylock);
+#endif /* CONFIG_AVM_IPI_YIELD */
+
 /**
  * down_timeout - acquire the semaphore within a specified time
  * @sem: the semaphore to be acquired
@@ -195,6 +218,31 @@ struct semaphore_waiter {
 	struct task_struct *task;
 	bool up;
 };
+#if defined(CONFIG_AVM_IPI_YIELD)
+/*--------------------------------------------------------------------------------*\
+  auch aus YIELD-Kontext verwendbar
+\*--------------------------------------------------------------------------------*/
+void yield_up(struct semaphore *sem)
+{
+	unsigned long flags;
+
+	if (yield_is_linux_context()) {
+		up(sem);
+		return;
+	}
+	yield_raw_spin_lock_irqsave(&sem->lock, flags);
+	if (likely(list_empty(&sem->wait_list))) {
+		sem->count++;
+	} else {
+		struct semaphore_waiter *waiter = list_first_entry(
+			&sem->wait_list, struct semaphore_waiter, list);
+		list_del(&waiter->list);
+		waiter->up = true;
+		yield_wake_up_process(waiter->task);
+	}
+	yield_raw_spin_unlock_irqrestore(&sem->lock, flags);
+}
+#endif /* CONFIG_AVM_IPI_YIELD */
 
 /*
  * Because this function is inlined, the 'state' parameter will be

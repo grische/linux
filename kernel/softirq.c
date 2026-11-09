@@ -27,6 +27,8 @@
 #include <linux/tick.h>
 #include <linux/irq.h>
 
+#include <avm/power/power.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
 
@@ -264,6 +266,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
 	in_hardirq = lockdep_softirq_start();
+	avm_sum_softirq_enter();
 
 restart:
 	/* Reset the pending bitmask before enabling irqs */
@@ -274,6 +277,7 @@ restart:
 	h = softirq_vec;
 
 	while ((softirq_bit = ffs(pending))) {
+		struct _runtime_stat *pts;
 		unsigned int vec_nr;
 		int prev_count;
 
@@ -285,7 +289,9 @@ restart:
 		kstat_incr_softirqs_this_cpu(vec_nr);
 
 		trace_softirq_entry(vec_nr);
+		pts = avm_softirq_enter(vec_nr);
 		h->action(h);
+		avm_softirq_leave(pts);
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {
 			pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
@@ -308,7 +314,7 @@ restart:
 
 		wakeup_softirqd();
 	}
-
+	avm_sum_softirq_leave();
 	lockdep_softirq_end(in_hardirq);
 	account_irq_exit_time(current);
 	__local_bh_enable(SOFTIRQ_OFFSET);
@@ -511,6 +517,7 @@ static __latent_entropy void tasklet_action(struct softirq_action *a)
 	local_irq_enable();
 
 	while (list) {
+		struct _runtime_stat *pfunc;
 		struct tasklet_struct *t = list;
 
 		list = list->next;
@@ -520,7 +527,9 @@ static __latent_entropy void tasklet_action(struct softirq_action *a)
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
 							&t->state))
 					BUG();
+				pfunc = avm_taskletfunc_enter(t->func, TASKLET_SOFTIRQ);
 				t->func(t->data);
+				avm_taskletfunc_leave(pfunc);
 				tasklet_unlock(t);
 				continue;
 			}
@@ -547,6 +556,7 @@ static __latent_entropy void tasklet_hi_action(struct softirq_action *a)
 	local_irq_enable();
 
 	while (list) {
+		struct _runtime_stat *pfunc;
 		struct tasklet_struct *t = list;
 
 		list = list->next;
@@ -556,7 +566,9 @@ static __latent_entropy void tasklet_hi_action(struct softirq_action *a)
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
 							&t->state))
 					BUG();
+				pfunc = avm_taskletfunc_enter(t->func, HI_SOFTIRQ);
 				t->func(t->data);
+				avm_taskletfunc_leave(pfunc);
 				tasklet_unlock(t);
 				continue;
 			}

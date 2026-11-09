@@ -1,0 +1,249 @@
+#include <dt-bindings/gpio/gpio.h>
+#include "../prx300.dtsi"
+
+/ {
+	compatible = "intel,prx321-sfu-qspi-pon", "intel,prx321-sfu", "intel,prx300", "intel,falconmx";
+
+	aliases {
+		i2c0 = &i2c0_gpio;
+	};
+
+	chosen {
+		bootargs-append = " clk_ignore_unused";
+		stdout-path = "serial0";
+	};
+
+	avm_netdev_map: avm_netdev_map {
+		compatible = "avm,port_netdev";
+
+		lan1 {
+			netdev = "eth0";
+		};
+	};
+
+	reserved-memory {
+		/delete-node/ bootcore@3E000000;
+
+		shm_rng_seed_mem: shm-rng-seed-mem@37fb0000 {
+			compatible = "avm,shm-rng-seed-early";
+			reg = <0x37fb0000 0x1000>;
+		};
+
+		cpunet_mempool: cpunet-mempool@37fc0000 {
+			reg = <0x37fc0000 0x00040000>;
+		};
+
+		bootcore@38000000 {
+			reg = <0x38000000 0x04000000>;
+		};
+	};
+
+	shm-rng-seed@37fb0000 {
+		compatible = "avm,shm-rng-seed";
+		memory-region = <&shm_rng_seed_mem>;
+	};
+
+	ssx1_3@1E000000 {
+		/delete-node/ mps@1107000;
+		/delete-node/ mpsmbx@1200000;
+		/delete-node/ mps2@1107400;
+
+		cpunet@1107400 {
+			compatible = "avm,cpunet";
+			reg = <0x1107400 0x300>;
+			mailbox-rx = <&mps2mbx 0x0 0x100>;
+			mailbox-tx = <&mps2mbx 0x100 0x100>;
+			mempool-rx = <&cpunet_mempool 0x0 0x20000>;
+			mempool-tx = <&cpunet_mempool 0x20000 0x20000>;
+			interrupt-parent = <&gic>;
+			// MPS2_IR0
+			interrupts = <GIC_SHARED 215 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		eip123@0 {
+			compatible = "verimatrix,eip123";
+			reg = <0x0 0xfffff>;
+			intel,syscon = <&sysconf>;
+			interrupts =
+				<GIC_SHARED 114 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SHARED 115 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SHARED 116 IRQ_TYPE_EDGE_RISING>,
+				<GIC_SHARED 117 IRQ_TYPE_EDGE_RISING>;
+		};
+	};
+};
+
+&pinctrl {
+	pinctrl_reserved: pinresv {
+		intel,pins = <30>, <31>;
+		intel,groups = "resv_pins";
+		intel,function = "resv_pins";
+		intel,mux = <EQBR_MUX_0>;
+	};
+};
+
+/******************************************************************************
+ ** Board configuration: Enable I2C for WAN transceiver EEPROM
+ ******************************************************************************/
+/ {
+	i2c0_gpio: i2c {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "i2c-gpio";
+		gpios = <
+			&gpio0 27 0 /* sda */
+			&gpio0 26 0 /* scl */
+			>;
+		i2c-gpio,delay-us = <2>;	/* ~100 kHz */
+
+		/* EEPROM of the optical WAN transceiver */
+		eeprom@50 {
+			compatible = "at,24c02";
+			reg = <0x50>;
+			avm,no-test;
+		};
+		eeprom@51 {
+			compatible = "at,24c02";
+			reg = <0x51>;
+			avm,no-test;
+		};
+	};
+};
+
+/******************************************************************************
+ ** Board configuration: Configure LAN/WAN interfaces
+ ******************************************************************************/
+&eth {
+	status = "okay";
+
+	lan0: interface@0 {
+		status = "okay";
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <0>;
+		intel,dp-dev-port = <4>;
+		intel,dp-port-id = <4>;
+		mac = <&gsw_mac2>;
+		intel,lct-en = <0>;
+		intel,extra-subif = <0>;
+		avm,name = "eth0";
+		avm,macname = "maca";
+
+		ethernet@0 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <0>;
+			phy-mode = "rgmii";
+			phy-handle = <&gphy>;
+		};
+	};
+};
+
+/* This is needed to improve qspi stability on the board */
+&pinctrl_qspi {
+	intel,slew-rate = <1>;
+	intel,drive-current = <3>;
+};
+
+&qspi0 {
+	status = "okay";
+
+	ltq-spinand@0 {
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "lantiq,spinand";
+		reg = <0 1>;
+		linux,mtd-name = "nand.0";
+		spi-max-frequency = <50000000>;
+		page-size = <2112>;
+		block-size = <17>; // 2^17, 128KB
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <4>;
+
+		/* Read-delay is needed for higher freq.
+		 * 2 ref_clk is chosen as value that works well upto
+		 * spi-freq 50MHz (with ref_clk 100MHz).
+		 */
+		read-delay = <2>;
+		tshsl-ns = <200>;
+		tsd2d-ns = <255>;
+		tchsh-ns = <20>;
+		tslch-ns = <20>;
+	};
+};
+
+&ssc0 {
+	status = "disabled";
+};
+
+&ssc1 {
+	status = "disabled";
+};
+
+&pinctrl_spi0 {
+	status = "disabled";
+};
+
+&pinctrl_spi0_cs {
+	status = "disabled";
+};
+
+&pinctrl_spi1 {
+	status = "disabled";
+};
+
+&asc1 {
+	status = "disabled";
+};
+
+&pinctrl_uart1 {
+	status = "disabled";
+};
+
+&cb0phy1 {
+	status = "okay";
+	intel,mode = <0>; /*0-pcie, 1-xpcs*/
+};
+
+&gphy_fw {
+	status = "okay";
+};
+
+&gphy {
+	status = "okay";
+};
+
+&ponmbox1 {
+	status = "okay";
+};
+
+&pcie1 {
+	intel,rst-interval = <200>;
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	num-lanes = <1>;
+	status = "ok";
+};
+
+&gptc0 {
+	status = "ok";
+};
+
+&gptc1 {
+	status = "ok";
+};
+
+&cpu3 {
+        default-OS = "MPEFW";
+};
+
+&cqm {
+	DQ3: cpu-port3 {
+		intel,deq-port = <3 4>;
+	};
+};
+
+&gsw_core {
+       intel,gsw-globalpce-rules = <256>;
+};

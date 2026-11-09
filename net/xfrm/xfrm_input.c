@@ -16,6 +16,9 @@
 #include <net/ip_tunnels.h>
 #include <net/ip6_tunnel.h>
 
+#include <avm/pa/avm_pa.h>
+static struct avm_pa_dev_info xfrm_in_dev_info __read_mostly;
+
 static struct kmem_cache *secpath_cachep __read_mostly;
 
 static DEFINE_SPINLOCK(xfrm_input_afinfo_lock);
@@ -234,18 +237,21 @@ int xfrm_input(struct sk_buff *skb, int nexthdr, __be32 spi, int encap_type)
 
 	seq = 0;
 	if (!spi && (err = xfrm_parse_spi(skb, nexthdr, &spi, &seq)) != 0) {
+		secpath_reset(skb);
 		XFRM_INC_STATS(net, LINUX_MIB_XFRMINHDRERROR);
 		goto drop;
 	}
 
 	do {
 		if (skb->sp->len == XFRM_MAX_DEPTH) {
+			secpath_reset(skb);
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMINBUFFERERROR);
 			goto drop;
 		}
 
 		x = xfrm_state_lookup(net, mark, daddr, spi, nexthdr, family);
 		if (x == NULL) {
+			secpath_reset(skb);
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMINNOSTATES);
 			xfrm_audit_state_notfound(skb, family, spi, seq);
 			goto drop;
@@ -293,6 +299,9 @@ int xfrm_input(struct sk_buff *skb, int nexthdr, __be32 spi, int encap_type)
 
 		skb_dst_force(skb);
 		dev_hold(skb->dev);
+
+		/* xfrm session is better, allow to take over (if pid is registered) */
+		avm_pa_add_xfrm_session(&xfrm_in_dev_info, skb, x);
 
 		nexthdr = x->type->input(x, skb);
 
@@ -344,6 +353,10 @@ resume:
 			goto drop;
 		}
 
+		avm_pa_reset_skb(skb);
+		if (avm_pa_dev_local_out(&xfrm_in_dev_info, skb) == AVM_PA_RX_STOLEN)
+			return 0;
+
 		if (x->outer_mode->flags & XFRM_MODE_FLAG_TUNNEL) {
 			decaps = 1;
 			break;
@@ -367,7 +380,7 @@ resume:
 	if (err)
 		goto drop;
 
-	nf_reset(skb);
+	nf_reset_no_generic_ct(skb);
 
 	if (decaps) {
 		skb_dst_drop(skb);
@@ -392,10 +405,56 @@ int xfrm_input_resume(struct sk_buff *skb, int nexthdr)
 }
 EXPORT_SYMBOL(xfrm_input_resume);
 
+static void xfrm_in_transmit(void *arg, struct sk_buff *skb)
+{
+	int ret;
+	struct xfrm_state *x = arg;
+
+	if (skb->protocol == htons(ETH_P_IP)) {
+		XFRM_TUNNEL_SKB_CB(skb)->tunnel.ip4 = NULL;
+		XFRM_SPI_SKB_CB(skb)->family = AF_INET;
+		XFRM_SPI_SKB_CB(skb)->daddroff = offsetof(struct iphdr, daddr);
+	} else if (skb->protocol == htons(ETH_P_IPV6)) {
+		XFRM_TUNNEL_SKB_CB(skb)->tunnel.ip6 = NULL;
+		XFRM_SPI_SKB_CB(skb)->family = AF_INET6;
+		XFRM_SPI_SKB_CB(skb)->daddroff = offsetof(struct ipv6hdr, daddr);
+	} else {
+		net_err_ratelimited("%s: unhandlet protocol %d\n",
+				    __func__, skb->protocol);
+		kfree_skb(skb);
+		return;
+	}
+
+	/* esp_input expects skb->data at esp header because normally
+	 * packets come via ip_local_deliver_finish()
+	 */
+	__skb_pull(skb, skb_transport_offset(skb));
+	ret = xfrm_input(skb, x->id.proto, 0, 0);
+
+	if (unlikely(ret != 0))
+		net_err_ratelimited("%s failed: %d\n", __func__, ret);
+}
+
+static void __init xfrm_input_avm_pa_register(void)
+{
+	struct avm_pa_pid_cfg cfg = {0};
+	int ret;
+
+	snprintf(cfg.name, sizeof(cfg.name), "xfrm_in");
+	cfg.framing = avm_pa_framing_ipdev;
+	cfg.default_mtu = 0xffff;
+	cfg.tx_func = xfrm_in_transmit;
+	ret = avm_pa_dev_pid_register(&xfrm_in_dev_info, &cfg);
+	if (ret < 0)
+		pr_err("%s: failed to register avm_pa pid %s: %d\n",
+		       __func__, cfg.name, ret);
+}
+
 void __init xfrm_input_init(void)
 {
 	secpath_cachep = kmem_cache_create("secpath_cache",
 					   sizeof(struct sec_path),
 					   0, SLAB_HWCACHE_ALIGN|SLAB_PANIC,
 					   NULL);
+	xfrm_input_avm_pa_register();
 }

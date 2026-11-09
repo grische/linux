@@ -29,6 +29,20 @@
 #include "xhci.h"
 #include "xhci-trace.h"
 
+/* 20191106 AVM/WKR Reuse AVM Bulk2Int patch from Kernel 3.10 */
+#define BULK2INT_SUPPORT
+
+#ifdef BULK2INT_SUPPORT
+#include <linux/moduleparam.h>
+#include <linux/ctype.h>
+
+/* 20170623 AVM/VGJ List of bulk endpoints to be treated as intr */
+static char *bulk2int = "";
+module_param(bulk2int, charp, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(bulk2int, "bulk2int");
+#endif
+
+
 /*
  * Allocates a generic ring segment from the ring pool, sets the dma address,
  * initializes the segment to zero, and sets the private next pointer to NULL.
@@ -454,6 +468,11 @@ static void xhci_reinit_cached_ring(struct xhci_hcd *xhci,
 		seg = seg->next;
 	} while (seg != ring->first_seg);
 	ring->type = type;
+#if defined (CONFIG_GRX5_AVM_FRITZ_BOX)
+	/* 20190827 AVM/WKR Fix: set link toggle bit like in xhci_ring_alloc */
+	ring->last_seg->trbs[TRBS_PER_SEGMENT - 1].link.control |=
+		cpu_to_le32(LINK_TOGGLE);
+#endif
 	xhci_initialize_ring_info(ring, cycle_state);
 	/* td list should be empty since all URBs have been cancelled,
 	 * but just in case...
@@ -1118,6 +1137,10 @@ void xhci_copy_ep0_dequeue_into_input_ctx(struct xhci_hcd *xhci,
 	virt_dev = xhci->devs[udev->slot_id];
 	ep0_ctx = xhci_get_ep_ctx(xhci, virt_dev->in_ctx, 0);
 	ep_ring = virt_dev->eps[0].ring;
+#if defined (CONFIG_GRX5_AVM_FRITZ_BOX)
+	/* AVM/WKR 20190827 : Fix avoids reset error on buggy host */
+	xhci_reinit_cached_ring(xhci, ep_ring, 1, TYPE_CTRL);
+#endif
 	/*
 	 * FIXME we don't keep track of the dequeue pointer very well after a
 	 * Set TR dequeue pointer, so we're setting the dequeue pointer of the
@@ -1481,6 +1504,96 @@ static u32 xhci_get_max_esit_payload(struct usb_device *udev,
 	return max_packet * (max_burst + 1);
 }
 
+#ifdef BULK2INT_SUPPORT
+/* 20170623 AVM/VGJ Returns 1 if a bulk endpoint must be treated as intr
+ *
+ * This is done by checking whether vendorId, productId and endpoint address
+ * meet the description in the module paramter "bulk2int". If they do, the
+ * interval for the endpoint's interval is stored in the input pointer interval
+ *
+ * Returns 0 if the endpoint is not in bulk2int or if there is a format error
+ */
+int check_bulk2int(struct usb_device *udev, struct usb_host_endpoint *ep, unsigned char *interval)
+{
+	unsigned short bulk2int_vendorId;
+	unsigned short bulk2int_productId;
+	unsigned char bulk2int_ep;
+	unsigned char bulk2int_interval;
+	char str[10];
+	int len;
+	char *p;
+
+	// Ignore super speed devices
+	if (udev->speed == USB_SPEED_SUPER) {
+		return 0;
+	}
+
+	p = bulk2int;
+
+	while (*p) {
+		// Read vendorId and productId
+		len = snprintf(str, sizeof(str), "%8.8s", p);
+		if (len < 8 || sscanf(str, "%4hx%4hx", &bulk2int_vendorId, &bulk2int_productId) != 2) {
+			printk(KERN_ERR "%s(): invalid device string - %s\n", __func__, str);
+			return 0;
+		}
+
+		// Update string pointer
+		p += len;
+		while (isspace(*p)) {
+			p++;
+		}
+
+		// Check whether devices match
+		if ((le16_to_cpu(udev->descriptor.idVendor) == bulk2int_vendorId) &&
+				(le16_to_cpu(udev->descriptor.idProduct) == bulk2int_productId)) {
+			while (*p && (*p != ':')) {
+				// Read endpoint's address and interval
+				len = snprintf(str, sizeof(str), "%4.4s", p);
+				if (len < 4 || sscanf(str, "%2hhx%2hhx", &bulk2int_ep, &bulk2int_interval) != 2) {
+					printk(KERN_ERR "%s(): invalid endpoint string - %s\n", __func__, str);
+					return 0;
+				}
+
+				// Endpoint's direction must be in
+				if ((bulk2int_ep & 0xF0) != 0x80) {
+					printk(KERN_ERR "%s(): invalid endpoint %02x\n", __func__, bulk2int_ep);
+					return 0;
+				}
+
+				// Check endpoint's address and type - max interval allowed is 0x0D (1024 ms)
+				if ((ep->desc.bEndpointAddress == bulk2int_ep) &&
+						(usb_endpoint_type(&ep->desc) == TYPE_BULK) &&
+						(bulk2int_interval <= 0x0D)) {
+					*interval = bulk2int_interval;
+					return 1;
+				}
+
+				// Update string pointer
+				p += len;
+				while (isspace(*p)) {
+					p++;
+				}
+			}
+		}
+
+		// Check whether there are more devices
+		p = strchr (p, ':');
+		if (p == NULL) {
+			return 0;
+		}
+
+		// Update string pointer
+		p++;
+		while (isspace(*p)) {
+			p++;
+		}
+	}
+
+	return 0;
+}
+#endif
+
 /* Set up an endpoint with one ring segment.  Do not allocate stream rings.
  * Drivers will have to call usb_alloc_streams() to do that.
  */
@@ -1502,6 +1615,12 @@ int xhci_endpoint_init(struct xhci_hcd *xhci,
 	unsigned int mult;
 	unsigned int avg_trb_len;
 	unsigned int err_count = 0;
+#ifdef BULK2INT_SUPPORT
+	/* 20170623 AVM/VGJ bulk2int: declare variables */
+	int ep_bulk2int;
+	unsigned char bulkt2int_interval;
+#endif
+
 
 	ep_index = xhci_get_endpoint_index(&ep->desc);
 	ep_ctx = xhci_get_ep_ctx(xhci, virt_dev->in_ctx, ep_index);
@@ -1511,6 +1630,18 @@ int xhci_endpoint_init(struct xhci_hcd *xhci,
 		return -EINVAL;
 
 	ring_type = usb_endpoint_type(&ep->desc);
+
+#ifdef BULK2INT_SUPPORT
+	/* 20170623 AVM/VGJ bulk2int: check endpoint */
+	ep_bulk2int = check_bulk2int(udev, ep, &bulkt2int_interval);
+	if (ep_bulk2int) {
+		printk(KERN_INFO "Bulk endpoint %02x used as intr with interval %d %s\n",
+				ep->desc.bEndpointAddress,
+				(bulkt2int_interval >= 3) ? 1 << (bulkt2int_interval - 3) : 125*(1 << bulkt2int_interval),
+				(bulkt2int_interval >= 3) ? "ms" : "us");
+		ring_type = TYPE_INTR;
+	}
+#endif
 
 	/*
 	 * Get values to fill the endpoint context, mostly from ep descriptor.
@@ -1575,6 +1706,17 @@ int xhci_endpoint_init(struct xhci_hcd *xhci,
 	ep_ring = virt_dev->eps[ep_index].new_ring;
 
 	/* Fill the endpoint context */
+#ifdef BULK2INT_SUPPORT
+	/* 20191106 AVM/WKR bulk2int: modify bulk endpoint setting to intr */
+	if(ep_bulk2int) {
+		endpoint_type = INT_IN_EP;
+		interval = bulkt2int_interval;
+		max_esit_payload = max_packet;
+		avg_trb_len = max_packet;
+		mult = 0;
+		max_burst = 0;
+	}
+#endif
 	ep_ctx->ep_info = cpu_to_le32(EP_MAX_ESIT_PAYLOAD_HI(max_esit_payload) |
 				      EP_INTERVAL(interval) |
 				      EP_MULT(mult));

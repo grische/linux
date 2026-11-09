@@ -1,0 +1,23 @@
+config AVM_EVENT
+	bool "AVM event support"
+	depends on AVM_SAMMEL
+	default y
+	help
+	  This driver provides support for event handling.
+
+if AVM_EVENT
+
+config AVM_EVENT_20
+	bool "AVM event support Version 2.0"
+	default y
+	help
+	  This driver provides support for event handling.
+
+config AVM_EVENTNODE_PUMA7
+	bool "Remote AVM events on Puma7"
+	depends on AVM_EVENT_20 && (MACH_PUMA7)
+	default n
+	help
+		This driver enables distribution of AVM events between Atom and ARM core on Puma7.
+
+endif

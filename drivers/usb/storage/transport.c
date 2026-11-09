@@ -64,6 +64,109 @@
 #include <linux/blkdev.h>
 #include "../../scsi/sd.h"
 
+/* == 20180328 AVM/VGJ - Include AVM USB Suspend functions == */
+#include "../core/usb.h"
+
+/* 20160801 AVM/VGJ USB KPI */
+#if defined (CONFIG_AVM_KERNEL)
+#include <linux/moduleparam.h>
+
+#define BYTES_PER_GB (1024*1024*1024)
+
+int reset_count = 0;
+module_param(reset_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(reset_count, "Count of reset errors");
+
+int gb_transferred = 0;
+module_param(gb_transferred, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(gb_transferred, "Count of gigabytes transferred");
+
+int bytes_transferred = 0;
+module_param(bytes_transferred, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(bytes_transferred, "Count of bytes transferred since last GB");
+#endif //(CONFIG_AVM_KERNEL)
+
+#if defined (CONFIG_AVM_USB_SUSPEND)
+int max_spinup_ms = 0;
+module_param(max_spinup_ms, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(max_spinup_ms, "Maximum Spin Up time in ms");
+
+int spinup_error_count = 0;
+module_param(spinup_error_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(spinup_error_count, "Count of failed spinups");
+
+
+/*== 201701110 AVM/WKR - Inc use counter and resume device if it is suspended ==*/
+static int avm_usb_suspend_get_storage(struct us_data *us)
+{
+	int ret;
+
+	mutex_unlock(&us->dev_mutex);
+	ret = avm_usb_suspend_get(us->pusb_dev);
+	mutex_lock(&us->dev_mutex);
+
+	return ret;
+}
+
+/*== 20171110 AVM/WKR - Dec use counter so device may be suspended ==*/
+static void avm_usb_suspend_put_storage(struct us_data *us)
+{
+	mutex_unlock(&us->dev_mutex);
+	avm_usb_suspend_put(us->pusb_dev);
+	mutex_lock(&us->dev_mutex);
+}
+
+/*== 20171120 AVM/VGJ - Calculates spinup time for USB KPIs and optimizes autosuspend_delay ==*/
+static void avm_usb_suspend_check_spinup_ms(struct us_data *us)
+{
+	if (us->resume_start > 0) {
+		unsigned int spinup_ms = jiffies_to_msecs(jiffies-us->resume_start);
+		us->resume_start = 0;
+
+		printk(KERN_ERR "%s - spin up time %u ms\n", us->scsi_name, spinup_ms);
+
+		/* == 20180219 AVM/VGJ - update device's and global max spin up time ==*/
+		if (spinup_ms > us->max_spinup_ms) {
+			us->max_spinup_ms = spinup_ms;
+
+			if (spinup_ms > max_spinup_ms) {
+				max_spinup_ms = spinup_ms;
+				printk(KERN_ERR "new max spin up time %u ms\n", max_spinup_ms);
+			}
+
+			/* == 20171017 AVM/WKR - optimize suspend_delay ==*/
+			if (us->max_spinup_ms > 5000) {
+				avm_usb_suspend_min_delay(us->pusb_dev, AVM_USB_SUSPEND_SPINDOWN_DELAY);
+			} else if (us->max_spinup_ms < 2000) {
+				avm_usb_suspend_max_delay(us->pusb_dev, AVM_USB_SUSPEND_FLASH_DELAY);
+			}
+		}
+	}
+}
+
+/* == 20180215 AVM/VGJ Some HDDs are disconnected during spin up == */
+static void avm_usb_suspend_check_spinup_error(struct us_data *us)
+{
+	if (us->resume_start > 0) {
+		if (us->pusb_dev->state == USB_STATE_NOTATTACHED) {
+			unsigned int spinup_ms = jiffies_to_msecs(jiffies - us->resume_start);
+
+			/* == 20180405 AVM/VGJ - ignore spin up time of disconnected devices ==*/
+			us->resume_start = 0;
+
+			printk(KERN_ERR "device disconnected on spin up after %d ms\n", spinup_ms);
+
+			if (spinup_ms < 3000) {
+				spinup_error_count++;
+				avm_usb_suspend_add_to_blacklist(us->pusb_dev);
+			}
+		} else {
+			/* == 20180216 AVM/WKR A USB reset after next resume might prevent storage errors == */
+			us->pusb_dev->reset_resume = 1;
+		}
+	}
+}
+#endif //(CONFIG_AVM_USB_SUSPEND)
 
 /***********************************************************************
  * Data transfer routines
@@ -213,6 +316,10 @@ int usb_stor_control_msg(struct us_data *us, unsigned int pipe,
 	us->cr->wValue = cpu_to_le16(value);
 	us->cr->wIndex = cpu_to_le16(index);
 	us->cr->wLength = cpu_to_le16(size);
+
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	WARN_ON(avm_usb_suspend_is_idle(us->pusb_dev));
+#endif
 
 	/* fill and submit the URB */
 	usb_fill_control_urb(us->current_urb, us->pusb_dev, pipe, 
@@ -617,6 +724,24 @@ void usb_stor_invoke_transport(struct scsi_cmnd *srb, struct us_data *us)
 	int need_auto_sense;
 	int result;
 
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	unsigned int stop_unit_idle_ms = 0;
+
+	if(us->pusb_dev->port_is_suspended) {
+		us->resume_start = jiffies;
+	}
+
+	/* == 20180213 AVM/VGJ - check whether the command is Stop Unit and store idle time ==*/
+	if ((srb->cmnd[0] == START_STOP) && !(srb->cmnd[4] & 0x01)) {
+		stop_unit_idle_ms = avm_usb_suspend_get_idle_ms(us->pusb_dev);
+	}
+
+	/*== 201701110 AVM/WKR - Inc use counter and resume device if it is suspended ==*/
+	if (avm_usb_suspend_get_storage(us) < 0) {
+		return;
+	}
+#endif
+
 	/* send the command to the transport layer */
 	scsi_set_resid(srb, 0);
 	result = us->transport(srb, us);
@@ -642,6 +767,10 @@ void usb_stor_invoke_transport(struct scsi_cmnd *srb, struct us_data *us)
 	if (result == USB_STOR_TRANSPORT_NO_SENSE) {
 		srb->result = SAM_STAT_CHECK_CONDITION;
 		last_sector_hacks(us, srb);
+#if defined (CONFIG_AVM_USB_SUSPEND)
+		/* == 20171214 AVM/WKR - Dec use counter so device may be suspended ==*/
+		avm_usb_suspend_put_storage(us);
+#endif
 		return;
 	}
 
@@ -775,6 +904,10 @@ Retry_Sense:
 			srb->result = DID_ERROR << 16;
 			if (!(us->fflags & US_FL_SCM_MULT_TARG))
 				goto Handle_Errors;
+#if defined (CONFIG_AVM_USB_SUSPEND)
+			/* == 20171214 AVM/WKR - Dec use counter so device may be suspended ==*/
+			avm_usb_suspend_put_storage(us);
+#endif
 			return;
 		}
 
@@ -897,6 +1030,26 @@ Retry_Sense:
 		srb->result = DID_ERROR << 16;
 
 	last_sector_hacks(us, srb);
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	/* == 20171120 AVM/VGJ - check spin up time ==*/
+	if (!need_auto_sense) {
+		avm_usb_suspend_check_spinup_ms(us);
+	}
+
+	/* == 20171214 AVM/WKR - Dec use counter so device may be suspended ==*/
+	avm_usb_suspend_put_storage(us);
+
+	/* == 20180214 AVM/VGJ - schedule suspend if unit is stopped ==*/
+	if (stop_unit_idle_ms) {
+		unsigned int delay = AVM_USB_SUSPEND_MIN_DELAY;
+		/* == 20180214 AVM/VGJ - ensure 10 min of idle time if stop unit failed ==*/
+		if (need_auto_sense && (stop_unit_idle_ms < AVM_USB_SUSPEND_SPINDOWN_DELAY)) {
+			delay = AVM_USB_SUSPEND_SPINDOWN_DELAY - stop_unit_idle_ms;
+			printk(KERN_ERR "stop unit failed, suspending in %u ms\n", delay);
+		}
+		avm_usb_suspend_schedule(us->pusb_dev, delay);
+	}
+#endif
 	return;
 
 	/*
@@ -928,9 +1081,23 @@ Retry_Sense:
 		usb_stor_report_device_reset(us);
 		scsi_unlock(us_to_host(us));
 		us->transport_reset(us);
+	} else {
+/* 20160801 AVM/VGJ Increment reset counter */
+#if defined (CONFIG_AVM_KERNEL)
+		printk(KERN_ERR "USB Storage device reset\n");
+		reset_count++;
+#endif
 	}
+
 	clear_bit(US_FLIDX_RESETTING, &us->dflags);
 	last_sector_hacks(us, srb);
+#ifdef CONFIG_AVM_USB_SUSPEND
+	/* == 20180329 AVM/VGJ Some HDDs are disconnected during spin up == */
+	avm_usb_suspend_check_spinup_error(us);
+
+	/* == 20171110 AVM/WKR - Dec use counter so device may be suspended ==*/
+	avm_usb_suspend_put_storage(us);
+#endif
 }
 
 /* Stop the current URB transfer */
@@ -1213,6 +1380,19 @@ int usb_stor_Bulk_transport(struct scsi_cmnd *srb, struct us_data *us)
 				goto skipped_data_phase;
 			}
 		}
+
+		/* == 20171214 == AVM/VGJ detect read error faster, skip 30s timeout == */
+		if (result == USB_STOR_XFER_SHORT &&
+				srb->sc_data_direction == DMA_FROM_DEVICE &&
+				(transfer_length > 512) &&
+				((transfer_length % 512) == 0)) {
+			printk(KERN_ERR "%s(): Storage READ Error len=%u , res=%u \n", __func__, transfer_length , scsi_get_resid(srb));
+			/* == 20180604 == AVM/VGJ Reset only if CSW was already received == */
+			if (((scsi_get_resid(srb) + US_BULK_CS_WRAP_LEN) % 512) == 0) {
+				printk(KERN_ERR "%s(): triggering reset\n", __func__);
+				return USB_STOR_TRANSPORT_ERROR;
+			}
+		}
 	}
 
 	/*
@@ -1315,6 +1495,15 @@ int usb_stor_Bulk_transport(struct scsi_cmnd *srb, struct us_data *us)
 				       sizeof(usb_stor_sense_invalidCDB));
 				return USB_STOR_TRANSPORT_NO_SENSE;
 			}
+
+/* 20160801 AVM/VGJ Increment bytes transferred counters */
+#if defined (CONFIG_AVM_KERNEL)
+			bytes_transferred += transfer_length;
+			if(bytes_transferred > BYTES_PER_GB) {
+				gb_transferred++;
+				bytes_transferred -= BYTES_PER_GB;
+			}
+#endif
 
 			/* command good -- note that data could be short */
 			return USB_STOR_TRANSPORT_GOOD;

@@ -56,6 +56,7 @@
 #include <linux/stringify.h>
 #include <linux/bottom_half.h>
 #include <asm/barrier.h>
+#include <asm/yield_context_os.h>
 
 
 /*
@@ -299,101 +300,121 @@ do {							\
 
 static __always_inline void spin_lock(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	raw_spin_lock(&lock->rlock);
 }
 
 static __always_inline void spin_lock_bh(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	raw_spin_lock_bh(&lock->rlock);
 }
 
 static __always_inline int spin_trylock(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	return raw_spin_trylock(&lock->rlock);
 }
 
 #define spin_lock_nested(lock, subclass)			\
 do {								\
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();			\
 	raw_spin_lock_nested(spinlock_check(lock), subclass);	\
 } while (0)
 
 #define spin_lock_bh_nested(lock, subclass)			\
 do {								\
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();			\
 	raw_spin_lock_bh_nested(spinlock_check(lock), subclass);\
 } while (0)
 
 #define spin_lock_nest_lock(lock, nest_lock)				\
 do {									\
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();			\
 	raw_spin_lock_nest_lock(spinlock_check(lock), nest_lock);	\
 } while (0)
 
 static __always_inline void spin_lock_irq(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	raw_spin_lock_irq(&lock->rlock);
 }
 
 #define spin_lock_irqsave(lock, flags)				\
 do {								\
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();			\
 	raw_spin_lock_irqsave(spinlock_check(lock), flags);	\
 } while (0)
 
 #define spin_lock_irqsave_nested(lock, flags, subclass)			\
 do {									\
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();			\
 	raw_spin_lock_irqsave_nested(spinlock_check(lock), flags, subclass); \
 } while (0)
 
 static __always_inline void spin_unlock(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	raw_spin_unlock(&lock->rlock);
 }
 
 static __always_inline void spin_unlock_bh(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	raw_spin_unlock_bh(&lock->rlock);
 }
 
 static __always_inline void spin_unlock_irq(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	raw_spin_unlock_irq(&lock->rlock);
 }
 
 static __always_inline void spin_unlock_irqrestore(spinlock_t *lock, unsigned long flags)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	raw_spin_unlock_irqrestore(&lock->rlock, flags);
 }
 
 static __always_inline int spin_trylock_bh(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	return raw_spin_trylock_bh(&lock->rlock);
 }
 
 static __always_inline int spin_trylock_irq(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	return raw_spin_trylock_irq(&lock->rlock);
 }
 
 #define spin_trylock_irqsave(lock, flags)			\
 ({								\
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();			\
 	raw_spin_trylock_irqsave(spinlock_check(lock), flags); \
 })
 
 static __always_inline void spin_unlock_wait(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	raw_spin_unlock_wait(&lock->rlock);
 }
 
 static __always_inline int spin_is_locked(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	return raw_spin_is_locked(&lock->rlock);
 }
 
 static __always_inline int spin_is_contended(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	return raw_spin_is_contended(&lock->rlock);
 }
 
 static __always_inline int spin_can_lock(spinlock_t *lock)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	return raw_spin_can_lock(&lock->rlock);
 }
 

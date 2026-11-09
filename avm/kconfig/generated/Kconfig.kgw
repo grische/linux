@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config KGW_KCONFIG
+	def_bool y
+
+if KGW_KCONFIG
+menu "AVM kernel/GU wrapper (k/gw) settings"
+
+comment "Kernel/GU wrapper (k/gw) is AVM build system integration for kbuild."
+comment "All these settings _do not_ influence the actual kernel build, but are evaluated later (e.g. during FIT image composition)."
+
+config AVM_BOOTLOADER_SUPPORTS_64BIT
+	bool "AVM boot loader supports 64bit addresses"
+	depends on 64BIT
+	default y
+	help
+	  Some old AVM boot loaders are not able to handle 64bit addresses in
+	  FIT images properly.  Set to 'n' to prevent enforcement of 32bit to
+	  64bit address extension in AVM FIT compilation scripts.
+
+endmenu
+endif

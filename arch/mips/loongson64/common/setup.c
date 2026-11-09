@@ -23,7 +23,7 @@ static void wbflush_loongson(void)
 {
 	asm(".set\tpush\n\t"
 	    ".set\tnoreorder\n\t"
-	    ".set mips3\n\t"
+	    ".set mips32r2\n\t"
 	    "sync\n\t"
 	    "nop\n\t"
 	    ".set\tpop\n\t"

@@ -49,9 +49,8 @@ static BRPORT_ATTR(_name, S_IRUGO | S_IWUSR,			\
 static int store_flag(struct net_bridge_port *p, unsigned long v,
 		      unsigned long mask)
 {
-	unsigned long flags;
-
-	flags = p->flags;
+	unsigned long flags = p->flags;
+	int err;
 
 	if (v)
 		flags |= mask;
@@ -59,6 +58,10 @@ static int store_flag(struct net_bridge_port *p, unsigned long v,
 		flags &= ~mask;
 
 	if (flags != p->flags) {
+		err = br_switchdev_set_port_flag(p, flags, mask);
+		if (err)
+			return err;
+
 		p->flags = flags;
 		br_port_flags_change(p, mask);
 	}
@@ -80,6 +83,13 @@ static ssize_t show_priority(struct net_bridge_port *p, char *buf)
 
 static BRPORT_ATTR(priority, S_IRUGO | S_IWUSR,
 			 show_priority, br_stp_set_port_priority);
+
+static ssize_t show_learning_limit(struct net_bridge_port *p, char *buf)
+{
+	return sprintf(buf, "%i\n", p->learning_limit);
+}
+
+static BRPORT_ATTR(learning_limit, S_IRUGO, show_learning_limit, NULL);
 
 static ssize_t show_designated_root(struct net_bridge_port *p, char *buf)
 {
@@ -172,6 +182,9 @@ BRPORT_ATTR_FLAG(unicast_flood, BR_FLOOD);
 BRPORT_ATTR_FLAG(proxyarp, BR_PROXYARP);
 BRPORT_ATTR_FLAG(proxyarp_wifi, BR_PROXYARP_WIFI);
 BRPORT_ATTR_FLAG(multicast_flood, BR_MCAST_FLOOD);
+BRPORT_ATTR_FLAG(broadcast_flood, BR_BCAST_FLOOD);
+BRPORT_ATTR_FLAG(isolated, BR_ISOLATED);
+BRPORT_ATTR_FLAG(software_fwd, BR_SOFTWARE_FWD);
 
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
 static ssize_t show_multicast_router(struct net_bridge_port *p, char *buf)
@@ -188,6 +201,7 @@ static BRPORT_ATTR(multicast_router, S_IRUGO | S_IWUSR, show_multicast_router,
 		   store_multicast_router);
 
 BRPORT_ATTR_FLAG(multicast_fast_leave, BR_MULTICAST_FAST_LEAVE);
+BRPORT_ATTR_FLAG(multicast_to_unicast, BR_MULTICAST_TO_UNICAST);
 #endif
 
 static const struct brport_attribute *brport_attrs[] = {
@@ -214,10 +228,14 @@ static const struct brport_attribute *brport_attrs[] = {
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
 	&brport_attr_multicast_router,
 	&brport_attr_multicast_fast_leave,
+	&brport_attr_multicast_to_unicast,
 #endif
 	&brport_attr_proxyarp,
 	&brport_attr_proxyarp_wifi,
 	&brport_attr_multicast_flood,
+	&brport_attr_broadcast_flood,
+	&brport_attr_isolated,
+	&brport_attr_software_fwd,
 	NULL
 };
 

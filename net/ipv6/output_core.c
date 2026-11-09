@@ -9,6 +9,7 @@
 #include <net/addrconf.h>
 #include <net/secure_seq.h>
 #include <linux/netfilter.h>
+#include <avm/pa/avm_pa.h>
 
 static u32 __ipv6_select_ident(struct net *net,
 			       const struct in6_addr *dst,
@@ -144,6 +145,10 @@ int __ip6_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 		return 0;
 
 	skb->protocol = htons(ETH_P_IPV6);
+
+	/* not called for TCP, SCTP and DCCP, see ip6_xmit() */
+	if (avm_pa_dev_local_out(AVM_PA_NET_IP6_DEVINFO(net), skb) == AVM_PA_RX_STOLEN)
+		return 0;
 
 	return nf_hook(NFPROTO_IPV6, NF_INET_LOCAL_OUT,
 		       net, sk, skb, NULL, skb_dst(skb)->dev,

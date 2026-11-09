@@ -1,0 +1,16 @@
+/dts-v1/;
+
+#include "hw226.dtsi"
+#include "grx550_nofpga.dtsi"
+
+/ {
+
+    model = "AVM7590 (GRX550, HW226) Main model";
+
+    avm-hw-revision{
+        compatible = "avm,avm_hw_revision";
+        revision = "226";
+        subrevision = "31";
+    };
+
+};

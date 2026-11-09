@@ -1179,7 +1179,7 @@ do {								\
 			: "=r" (__res));				\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips32\n\t"				\
+			".set\tmips32r2\n\t"				\
 			"mfc0\t%0, " #source ", " #sel "\n\t"		\
 			".set\tmips0\n\t"				\
 			: "=r" (__res));				\
@@ -1192,13 +1192,13 @@ do {								\
 		__res = __read_64bit_c0_split(source, sel);		\
 	else if (sel == 0)						\
 		__asm__ __volatile__(					\
-			".set\tmips3\n\t"				\
+			".set\tmips32r2\n\t"				\
 			"dmfc0\t%0, " #source "\n\t"			\
 			".set\tmips0"					\
 			: "=r" (__res));				\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmfc0\t%0, " #source ", " #sel "\n\t"		\
 			".set\tmips0"					\
 			: "=r" (__res));				\
@@ -1213,7 +1213,7 @@ do {									\
 			: : "Jr" ((unsigned int)(value)));		\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips32\n\t"				\
+			".set\tmips32r2\n\t"				\
 			"mtc0\t%z0, " #register ", " #sel "\n\t"	\
 			".set\tmips0"					\
 			: : "Jr" ((unsigned int)(value)));		\
@@ -1225,13 +1225,13 @@ do {									\
 		__write_64bit_c0_split(register, sel, value);		\
 	else if (sel == 0)						\
 		__asm__ __volatile__(					\
-			".set\tmips3\n\t"				\
+			".set\tmips32r2\n\t"				\
 			"dmtc0\t%z0, " #register "\n\t"			\
 			".set\tmips0"					\
 			: : "Jr" (value));				\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmtc0\t%z0, " #register ", " #sel "\n\t"	\
 			".set\tmips0"					\
 			: : "Jr" (value));				\
@@ -1280,7 +1280,7 @@ do {									\
 	local_irq_save(__flags);					\
 	if (sel == 0)							\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmfc0\t%M0, " #source "\n\t"			\
 			"dsll\t%L0, %M0, 32\n\t"			\
 			"dsra\t%M0, %M0, 32\n\t"			\
@@ -1289,7 +1289,7 @@ do {									\
 			: "=r" (__val));				\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmfc0\t%M0, " #source ", " #sel "\n\t"		\
 			"dsll\t%L0, %M0, 32\n\t"			\
 			"dsra\t%M0, %M0, 32\n\t"			\
@@ -1308,7 +1308,7 @@ do {									\
 	local_irq_save(__flags);					\
 	if (sel == 0)							\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dsll\t%L0, %L0, 32\n\t"			\
 			"dsrl\t%L0, %L0, 32\n\t"			\
 			"dsll\t%M0, %M0, 32\n\t"			\
@@ -1318,7 +1318,7 @@ do {									\
 			: : "r" (val));					\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dsll\t%L0, %L0, 32\n\t"			\
 			"dsrl\t%L0, %L0, 32\n\t"			\
 			"dsll\t%M0, %M0, 32\n\t"			\
@@ -2069,7 +2069,7 @@ do {									\
 	"	.set	reorder					\n"	\
 	"	# gas fails to assemble cfc1 for some archs,	\n"	\
 	"	# like Octeon.					\n"	\
-	"	.set	mips1					\n"	\
+	"	.set	mips32r2				\n"	\
 	"	"STR(gas_hardfloat)"				\n"	\
 	"	cfc1	%0,"STR(source)"			\n"	\
 	"	.set	pop					\n"	\

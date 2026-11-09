@@ -17,7 +17,7 @@
 #include <asm/regdef.h>
 
 	.set	noreorder
-	.set	mips2
+	.set	mips32r2
 	.set	push
 	SET_HARDFLOAT
 

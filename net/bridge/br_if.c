@@ -262,6 +262,10 @@ static void del_nbp(struct net_bridge_port *p)
 	struct net_bridge *br = p->br;
 	struct net_device *dev = p->dev;
 
+#ifdef CONFIG_MCAST_SNOOPING
+	br_mcast_port_cleanup(p);
+#endif
+
 	sysfs_remove_link(br->ifobj, p->dev->name);
 
 	nbp_delete_promisc(p);
@@ -360,10 +364,17 @@ static struct net_bridge_port *new_nbp(struct net_bridge *br,
 	dev_hold(dev);
 	p->dev = dev;
 	p->path_cost = port_cost(dev);
+	p->learning_limit = BRPORT_LEARNING_LIMIT_UNLIMITED;
 	p->priority = 0x8000 >> BR_PORT_BITS;
 	p->port_no = index;
-	p->flags = BR_LEARNING | BR_FLOOD | BR_MCAST_FLOOD;
+	p->flags = BR_LEARNING | BR_FLOOD | BR_MCAST_FLOOD | BR_BCAST_FLOOD;
 	br_init_port(p);
+
+#ifdef CONFIG_MCAST_SNOOPING
+	br_mcast_port_init(p);
+	spin_lock_init(&p->mghash_lock);
+#endif
+
 	br_set_state(p, BR_STATE_DISABLED);
 	br_stp_port_timer_init(p);
 	err = br_multicast_add_port(p);
@@ -424,22 +435,31 @@ int br_del_bridge(struct net *net, const char *name)
 }
 
 /* MTU of the bridge pseudo-device: ETH_DATA_LEN or the minimum of the ports */
-int br_min_mtu(const struct net_bridge *br)
+static int br_mtu_min(const struct net_bridge *br)
 {
 	const struct net_bridge_port *p;
-	int mtu = 0;
+	int ret_mtu = 0;
 
+	list_for_each_entry(p, &br->port_list, list)
+		if (!ret_mtu || ret_mtu > p->dev->mtu)
+			ret_mtu = p->dev->mtu;
+
+	return ret_mtu ? ret_mtu : ETH_DATA_LEN;
+}
+
+void br_mtu_auto_adjust(struct net_bridge *br)
+{
 	ASSERT_RTNL();
 
-	if (list_empty(&br->port_list))
-		mtu = ETH_DATA_LEN;
-	else {
-		list_for_each_entry(p, &br->port_list, list) {
-			if (!mtu  || p->dev->mtu < mtu)
-				mtu = p->dev->mtu;
-		}
-	}
-	return mtu;
+	/* if the bridge MTU was manually configured don't mess with it */
+	if (br->mtu_set_by_user)
+		return;
+
+	/* change to the minimum MTU and clear the flag which was set by
+	 * the bridge ndo_change_mtu callback
+	 */
+	dev_set_mtu(br->dev, br_mtu_min(br));
+	br->mtu_set_by_user = false;
 }
 
 static void br_set_gso_limits(struct net_bridge *br)
@@ -602,10 +622,14 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	if (changed_addr)
 		call_netdevice_notifiers(NETDEV_CHANGEADDR, br->dev);
 
-	dev_set_mtu(br->dev, br_min_mtu(br));
+	br_mtu_auto_adjust(br);
 	br_set_gso_limits(br);
 
 	kobject_uevent(&p->kobj, KOBJ_ADD);
+
+#ifdef CONFIG_MCAST_SNOOPING
+	br_ifinfo_notify(RTM_NEWLINK, p);
+#endif
 
 	return 0;
 
@@ -649,7 +673,7 @@ int br_del_if(struct net_bridge *br, struct net_device *dev)
 	 */
 	del_nbp(p);
 
-	dev_set_mtu(br->dev, br_min_mtu(br));
+	br_mtu_auto_adjust(br);
 	br_set_gso_limits(br);
 
 	spin_lock_bh(&br->lock);
@@ -660,6 +684,10 @@ int br_del_if(struct net_bridge *br, struct net_device *dev)
 		call_netdevice_notifiers(NETDEV_CHANGEADDR, br->dev);
 
 	netdev_update_features(br->dev);
+
+#ifdef CONFIG_MCAST_SNOOPING
+	br_ifinfo_notify(RTM_DELLINK, p);
+#endif
 
 	return 0;
 }

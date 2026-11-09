@@ -27,6 +27,7 @@
 #include <asm/ptrace.h>
 #include <asm/highmem.h>		/* For VMALLOC_END */
 #include <linux/kdebug.h>
+#include <avm/power/power.h>
 
 int show_unhandled_signals = 1;
 
@@ -152,7 +153,9 @@ good_area:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
+	avm_page_statistic_fault_get();
 	fault = handle_mm_fault(vma, address, flags);
+	avm_page_statistic_fault_put();
 
 	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
 		return;

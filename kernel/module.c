@@ -63,6 +63,11 @@
 #include <linux/dynamic_debug.h>
 #include <uapi/linux/module.h>
 #include "module-internal.h"
+#if defined(CONFIG_BUG_EXTRA_INFO)
+#include <asm/avm_enh/avm_enh.h>
+#endif
+
+#include <avm/enh/module_mem.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
@@ -253,6 +258,9 @@ static void mod_update_bounds(struct module *mod)
 #ifdef CONFIG_KGDB_KDB
 struct list_head *kdb_modules = &modules; /* kdb needs the list of modules */
 #endif /* CONFIG_KGDB_KDB */
+#ifdef CONFIG_CRASHLOG
+struct list_head *crashlog_modules = &modules;
+#endif
 
 static void module_assert_mutex(void)
 {
@@ -760,6 +768,10 @@ MODINFO_ATTR(version);
 MODINFO_ATTR(srcversion);
 
 static char last_unloaded_module[MODULE_NAME_LEN+1];
+static unsigned long last_unloaded_module_jiffies;
+/*--- Berechnung bei ARCH_DMA_MINALIGN = 32 Byte korrekt, solange size <= 128 Byte ---*/
+#define MY_ALIGN_BIT  (ffs(ARCH_DMA_MINALIGN) - 1)
+#define SLAB_ORG_SIZE(size) (((((size-1) >> MY_ALIGN_BIT)  + 1) << MY_ALIGN_BIT))
 
 #ifdef CONFIG_MODULE_UNLOAD
 
@@ -933,7 +945,7 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 {
 	struct module *mod;
 	char name[MODULE_NAME_LEN];
-	int ret, forced = 0;
+	int ret, forced = 0, status;
 
 	if (!capable(CAP_SYS_MODULE) || modules_disabled)
 		return -EPERM;
@@ -984,8 +996,13 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 	/* Final destruction now no one is using it. */
 	if (mod->exit != NULL)
 		mod->exit();
-	blocking_notifier_call_chain(&module_notify_list,
+	status = blocking_notifier_call_chain(&module_notify_list,
 				     MODULE_STATE_GOING, mod);
+#if defined(CONFIG_AVM_ENHANCED)
+	if (status == NOTIFY_BAD) {
+		return -EBUSY;
+	}
+#endif
 	klp_module_going(mod);
 	ftrace_release_mod(mod);
 
@@ -994,6 +1011,7 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 	/* Store the name of the last unloaded module for diagnostic purposes */
 	strlcpy(last_unloaded_module, mod->name, sizeof(last_unloaded_module));
 
+	last_unloaded_module_jiffies = jiffies;
 	free_module(mod);
 	/* someone could wait for the module in add_unformed_module() */
 	wake_up_all(&module_wq);
@@ -1452,6 +1470,9 @@ struct module_sect_attr {
 struct module_sect_attrs {
 	struct attribute_group grp;
 	unsigned int nsections;
+	unsigned char *names_ptr;
+	unsigned int names_size;
+	unsigned int slab_names_size;
 	struct module_sect_attr attrs[0];
 };
 
@@ -1463,12 +1484,22 @@ static ssize_t module_sect_show(struct module_attribute *mattr,
 	return sprintf(buf, "0x%pK\n", (void *)sattr->address);
 }
 
+static unsigned int global_modulesymbol_namesize;
+static unsigned int global_modulesymbol_entries;
+static unsigned int global_modulesymbol_slabsize;
+
 static void free_sect_attrs(struct module_sect_attrs *sect_attrs)
 {
 	unsigned int section;
 
-	for (section = 0; section < sect_attrs->nsections; section++)
-		kfree(sect_attrs->attrs[section].name);
+	if (sect_attrs->names_ptr) {
+		global_modulesymbol_namesize -= sect_attrs->names_size;
+		global_modulesymbol_entries -= sect_attrs->nsections;
+		global_modulesymbol_slabsize -= sect_attrs->slab_names_size;
+		free_pages_exact(sect_attrs->names_ptr, sect_attrs->names_size);
+	} else
+		for (section = 0; section < sect_attrs->nsections; section++)
+			kfree(sect_attrs->attrs[section].name);
 	kfree(sect_attrs);
 }
 
@@ -1479,10 +1510,19 @@ static void add_sect_attrs(struct module *mod, const struct load_info *info)
 	struct module_sect_attr *sattr;
 	struct attribute **gattr;
 
+	unsigned int needed_size, sum_slab_names_size = 0, sum_names_size = 0,
+				  name_size;
+	unsigned char *names_ptr = NULL;
 	/* Count loaded sections and allocate structures */
-	for (i = 0; i < info->hdr->e_shnum; i++)
-		if (!sect_empty(&info->sechdrs[i]))
-			nloaded++;
+	for (i = 0; i < info->hdr->e_shnum; i++) {
+		Elf_Shdr *sec = &info->sechdrs[i];
+		if (sect_empty(sec))
+			continue;
+		nloaded++;
+		name_size = strlen(info->secstrings + sec->sh_name) + 1;
+		sum_names_size += name_size;
+		sum_slab_names_size += SLAB_ORG_SIZE(name_size);
+	}
 	size[0] = ALIGN(sizeof(*sect_attrs)
 			+ nloaded * sizeof(sect_attrs->attrs[0]),
 			sizeof(sect_attrs->grp.attrs[0]));
@@ -1494,6 +1534,20 @@ static void add_sect_attrs(struct module *mod, const struct load_info *info)
 	/* Setup section attributes. */
 	sect_attrs->grp.name = "sections";
 	sect_attrs->grp.attrs = (void *)sect_attrs + size[0];
+	needed_size = (sum_names_size + PAGE_SIZE - 1) & PAGE_MASK;
+	if (needed_size < sum_slab_names_size) {
+		names_ptr =
+			alloc_pages_exact(needed_size, GFP_KERNEL | __GFP_ZERO);
+		if (names_ptr) {
+			sect_attrs->names_ptr = names_ptr;
+			sect_attrs->names_size = needed_size;
+			sect_attrs->slab_names_size = sum_slab_names_size;
+			global_modulesymbol_namesize += needed_size;
+			global_modulesymbol_entries += nloaded;
+			global_modulesymbol_slabsize += sum_slab_names_size;
+			/*--- printk(KERN_INFO"%s: symbols=%u size=%u(%u) saved-memory=%u byte\n", __func__, nloaded, needed_size, sum_names_size, sum_slab_names_size - needed_size); ---*/
+		}
+	}
 
 	sect_attrs->nsections = 0;
 	sattr = &sect_attrs->attrs[0];
@@ -1503,8 +1557,14 @@ static void add_sect_attrs(struct module *mod, const struct load_info *info)
 		if (sect_empty(sec))
 			continue;
 		sattr->address = sec->sh_addr;
-		sattr->name = kstrdup(info->secstrings + sec->sh_name,
-					GFP_KERNEL);
+		if (names_ptr) {
+			sattr->name = names_ptr;
+			names_ptr += sprintf(names_ptr, "%s",
+					     info->secstrings + sec->sh_name) +
+				     1;
+		} else
+			sattr->name = kstrdup(info->secstrings + sec->sh_name,
+					      GFP_KERNEL);
 		if (sattr->name == NULL)
 			goto out;
 		sect_attrs->nsections++;
@@ -2141,16 +2201,20 @@ static void free_module(struct module *mod)
 	/* This may be empty, but that's OK */
 	disable_ro_nx(&mod->init_layout);
 	module_arch_freeing_init(mod);
-	module_memfree(mod->init_layout.base);
+	avm_module_mem_free(mod->init_layout.base);
 	kfree(mod->args);
 	percpu_modfree(mod);
 
 	/* Free lock-classes; relies on the preceding sync_rcu(). */
 	lockdep_free_key_range(mod->core_layout.base, mod->core_layout.size);
 
+#if defined(CONFIG_BUG_EXTRA_INFO)
+	release_bug_debug_table(mod->name);
+#endif
+
 	/* Finally, free the core (containing the module structure) */
 	disable_ro_nx(&mod->core_layout);
-	module_memfree(mod->core_layout.base);
+	avm_module_mem_free(mod->core_layout.base);
 
 #ifdef CONFIG_MPU
 	update_protections(current->mm);
@@ -2985,8 +3049,10 @@ static struct module *setup_load_info(struct load_info *info, int flags)
 
 static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 {
-	const char *modmagic = get_modinfo(info, "vermagic");
 	int err;
+
+#ifndef CONFIG_MODULE_STRIPPED
+	const char *modmagic = get_modinfo(info, "vermagic");
 
 	if (flags & MODULE_INIT_IGNORE_VERMAGIC)
 		modmagic = NULL;
@@ -3008,6 +3074,7 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 				mod->name);
 		add_taint_module(mod, TAINT_OOT_MODULE, LOCKDEP_STILL_OK);
 	}
+#endif
 
 	check_modinfo_retpoline(mod, info);
 
@@ -3119,7 +3186,7 @@ static int move_module(struct module *mod, struct load_info *info)
 	void *ptr;
 
 	/* Do the allocs. */
-	ptr = module_alloc(mod->core_layout.size);
+	ptr = avm_module_mem_alloc(mod, mod->core_layout.size, avm_module_mem_type_core);
 	/*
 	 * The pointer to this block is stored in the module structure
 	 * which is inside the block. Just mark it as not being a
@@ -3133,7 +3200,8 @@ static int move_module(struct module *mod, struct load_info *info)
 	mod->core_layout.base = ptr;
 
 	if (mod->init_layout.size) {
-		ptr = module_alloc(mod->init_layout.size);
+		ptr = avm_module_mem_alloc(mod, mod->init_layout.size, avm_module_mem_type_init);
+
 		/*
 		 * The pointer to this block is stored in the module structure
 		 * which is inside the block. This block doesn't need to be
@@ -3142,7 +3210,7 @@ static int move_module(struct module *mod, struct load_info *info)
 		 */
 		kmemleak_ignore(ptr);
 		if (!ptr) {
-			module_memfree(mod->core_layout.base);
+			avm_module_mem_free(mod->core_layout.base);
 			return -ENOMEM;
 		}
 		memset(ptr, 0, mod->init_layout.size);
@@ -3327,8 +3395,8 @@ static void module_deallocate(struct module *mod, struct load_info *info)
 {
 	percpu_modfree(mod);
 	module_arch_freeing_init(mod);
-	module_memfree(mod->init_layout.base);
-	module_memfree(mod->core_layout.base);
+	avm_module_mem_free(mod->init_layout.base);
+	avm_module_mem_free(mod->core_layout.base);
 }
 
 int __weak module_finalize(const Elf_Ehdr *hdr,
@@ -3394,7 +3462,7 @@ struct mod_initfree {
 static void do_free_init(struct rcu_head *head)
 {
 	struct mod_initfree *m = container_of(head, struct mod_initfree, rcu);
-	module_memfree(m->module_init);
+	avm_module_mem_free(m->module_init);
 	kfree(m);
 }
 
@@ -3585,6 +3653,26 @@ out:
 	mutex_unlock(&module_mutex);
 	return err;
 }
+#if defined(CONFIG_BUG_EXTRA_INFO)
+/*--------------------------------------------------------------------------------*\
+\*--------------------------------------------------------------------------------*/
+static void __register_module_bugtable(struct module *mod,
+				       struct load_info *info)
+{
+	struct bug_debug_table_entry *bug_info;
+	unsigned int num_bug_info;
+	bug_info = section_objs(info, "__bug_debug_table",
+				sizeof(struct bug_debug_table_entry),
+				&num_bug_info);
+
+	/*--- printk(KERN_INFO"%s: %s: bug_info_start: %p num=%u\n", __func__, mod->name, bug_info, num_bug_info); ---*/
+	if (num_bug_info && bug_info) {
+		register_bug_debug_table(
+			mod->name, (unsigned long)bug_info,
+			(unsigned long)&bug_info[num_bug_info]);
+	}
+}
+#endif /* CONFIG_BUG_EXTRA_INFO */
 
 static int prepare_coming_module(struct module *mod)
 {
@@ -3741,6 +3829,9 @@ static int load_module(struct load_info *info, const char __user *uargs,
 			goto sysfs_cleanup;
 	}
 
+#if defined(CONFIG_BUG_EXTRA_INFO)
+	__register_module_bugtable(mod, info);
+#endif
 	/* Get rid of temporary copy. */
 	free_copy(info);
 
@@ -4128,6 +4219,16 @@ static void *m_next(struct seq_file *m, void *p, loff_t *pos)
 
 static void m_stop(struct seq_file *m, void *p)
 {
+	if (strcmp(current->comm, "cat") == 0) {
+		seq_printf(
+			m,
+			"sum of module-symbols: %u (%u KiB) saved-memory %u KiB\n",
+			global_modulesymbol_entries,
+			global_modulesymbol_namesize / 1000,
+			(global_modulesymbol_slabsize -
+			 global_modulesymbol_namesize) /
+				1000);
+	}
 	mutex_unlock(&module_mutex);
 }
 
@@ -4316,8 +4417,14 @@ void print_modules(void)
 		pr_cont(" %s%s", mod->name, module_flags(mod, buf));
 	}
 	preempt_enable();
-	if (last_unloaded_module[0])
-		pr_cont(" [last unloaded: %s]", last_unloaded_module);
+	if (last_unloaded_module[0]) {
+		struct timespec sincetime;
+		jiffies_to_timespec(jiffies - last_unloaded_module_jiffies,
+				    &sincetime);
+		pr_cont(" [last unloaded: %s before %lu.%03lu s]",
+		       last_unloaded_module, sincetime.tv_sec,
+		       sincetime.tv_nsec / (1000 * 1000));
+	}
 	pr_cont("\n");
 }
 

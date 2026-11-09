@@ -17,6 +17,7 @@
 #include <net/icmp.h>
 #include <net/protocol.h>
 #include <net/udp.h>
+#include <crypto/ltq_ipsec_ins.h>
 
 struct esp_skb_cb {
 	struct xfrm_skb_cb xfrm;
@@ -304,6 +305,74 @@ static int esp_output(struct xfrm_state *x, struct sk_buff *skb)
 error:
 	return err;
 }
+#if IS_ENABLED(CONFIG_PPA_MPE_IP97)
+int (*ltq_ipsec_enc_hook)(u32 spi, u16 ip_prot, u8 *in, u8 *out, uint16_t outBufLen, void (*callback)(struct ltq_ipsec_complete *done),
+			  unsigned int buflen, void *ip_data) = NULL;
+EXPORT_SYMBOL(ltq_ipsec_enc_hook);
+
+int (*ltq_get_len_param_hook)(u32 spi, unsigned int *ivsize, unsigned int *ICV_length,
+			      unsigned int *blksize) = NULL;
+EXPORT_SYMBOL(ltq_get_len_param_hook);
+
+static void esp_output_done_fastpath(struct ltq_ipsec_complete *done)
+{
+	struct sk_buff *skb = (struct sk_buff *)(done->data);
+	skb->len = done->ret_pkt_len;
+	skb->data = skb_transport_header(skb);
+	skb_set_tail_pointer(skb, skb->len);
+	skb_push(skb, -skb_network_offset(skb));
+	xfrm_output_resume(skb, done->err);
+}
+
+static int esp_output_eip97(struct xfrm_state *x, struct sk_buff *skb)
+{
+	int32_t err = 0;
+	int32_t trailer_len = 0;
+	uint32_t iv_len = 0, icv_len = 0, blk_size = 0;
+	struct sk_buff *trailer;
+	uint16_t nexthdr = 0;
+	uint16_t outBufLen = 0;
+
+	/* If ltq_crypto kmod is absent packet will go via complete CPU Path */
+	if (!ltq_get_len_param_hook || !ltq_ipsec_enc_hook)
+		return esp_output(x, skb);
+
+	/* If Security Association is absent in EIP97's DB, EIP97 wont be able to encrypt the
+		packet so it will go via complete CPU Path and use software crypto modules */
+	err = ltq_get_len_param_hook(x->id.spi, &iv_len, &icv_len, &blk_size);
+	if (err < 0)
+		return esp_output(x, skb);
+
+	if (skb_linearize(skb) < 0) {
+		err = -ENOMEM;
+		goto error;
+	}
+	trailer_len = icv_len + blk_size;
+	err = skb_cow_data(skb, trailer_len, &trailer);
+	if (err < 0)
+		goto error;
+
+	nexthdr = ip_hdr(skb)->protocol;
+	ip_hdr(skb)->protocol = IPPROTO_ESP;
+	outBufLen = skb_tail_pointer(skb) - skb_transport_header(skb) + skb_tailroom(skb);
+	err = ltq_ipsec_enc_hook(x->id.spi, nexthdr, skb->data, skb_transport_header(skb), outBufLen, esp_output_done_fastpath, skb->len, skb);
+	if (err == -EINPROGRESS)
+		goto error;
+
+	if (err == -EBUSY)
+		err = NET_XMIT_DROP;
+
+	if (err > 0) {
+		skb->data = skb_transport_header(skb);
+		skb->len = err;
+		skb_set_tail_pointer(skb, skb->len);
+		skb_push(skb, -skb_network_offset(skb));
+		return 0;
+	}
+error:
+	return err;
+}
+#endif
 
 static int esp_input_done2(struct sk_buff *skb, int err)
 {
@@ -501,6 +570,55 @@ static int esp_input(struct xfrm_state *x, struct sk_buff *skb)
 out:
 	return err;
 }
+#if IS_ENABLED(CONFIG_PPA_MPE_IP97)
+int (*ltq_ipsec_dec_hook)(u32 spi, u8 *in, u8 *out, void (*callback)(struct ltq_ipsec_complete *done),
+			  unsigned int buflen, void *ip_data) = NULL;
+
+EXPORT_SYMBOL(ltq_ipsec_dec_hook);
+
+static void esp_input_done_fastpath(struct ltq_ipsec_complete *done)
+{
+	uint16_t ihl = 0;
+	struct iphdr *iph;
+	struct sk_buff *skb = (struct sk_buff *)(done->data);
+	skb->len = done->ret_pkt_len;
+	iph = ip_hdr(skb);
+	ihl = iph->ihl * 4;
+	skb_set_network_header(skb, -ihl);
+	skb_set_transport_header(skb, -ihl);
+	skb_set_tail_pointer(skb, skb->len);
+	xfrm_input_resume(skb, done->nexthdr);
+}
+
+static int esp_input_eip97(struct xfrm_state *x, struct sk_buff *skb)
+{
+	int32_t err = 0;
+	struct sk_buff *trailer;
+
+	/* If ltq_crypto kmod is absent or Security Association is absent in EIP97's DB, EIP97 wont be
+	able to decrypt the packet so it will go via complete CPU Path and use software crypto modules */
+	if (!ltq_ipsec_dec_hook || !ltq_ipsec_get_param_hook || !ltq_ipsec_get_param_hook(x->id.spi))
+		return esp_input(x, skb);
+
+	err = skb_cow_data(skb, 0, &trailer);
+	if (err < 0)
+		goto error;
+
+	skb_linearize(skb);
+	err = ltq_ipsec_dec_hook(x->id.spi, skb->data, skb->data, esp_input_done_fastpath, skb->len, skb);
+	if (err == -EINPROGRESS)
+		goto error;
+
+	if (err > 0) {
+		skb->len = err;
+		skb_set_tail_pointer(skb, skb->len);
+		return 0;
+	}
+
+error:
+	return err;
+}
+#endif
 
 static u32 esp4_get_mtu(struct xfrm_state *x, int mtu)
 {
@@ -741,17 +859,22 @@ static int esp4_rcv_cb(struct sk_buff *skb, int err)
 }
 
 static const struct xfrm_type esp_type =
-{
-	.description	= "ESP4",
-	.owner		= THIS_MODULE,
-	.proto	     	= IPPROTO_ESP,
-	.flags		= XFRM_TYPE_REPLAY_PROT,
-	.init_state	= esp_init_state,
-	.destructor	= esp_destroy,
-	.get_mtu	= esp4_get_mtu,
-	.input		= esp_input,
-	.output		= esp_output
-};
+	{
+		.description = "ESP4",
+		.owner = THIS_MODULE,
+		.proto = IPPROTO_ESP,
+		.flags = XFRM_TYPE_REPLAY_PROT,
+		.init_state = esp_init_state,
+		.destructor = esp_destroy,
+		.get_mtu = esp4_get_mtu,
+#if IS_ENABLED(CONFIG_PPA_MPE_IP97)
+		.input = esp_input_eip97,
+		.output = esp_output_eip97
+#else
+		.input = esp_input,
+		.output = esp_output
+#endif
+	};
 
 static struct xfrm4_protocol esp4_protocol = {
 	.handler	=	xfrm4_rcv,

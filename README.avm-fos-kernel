@@ -1,0 +1,134 @@
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+
+AVM FRITZ!OS kernel - README
+============================
+
+AVM FRITZ!OS kernel is a Linux derivate.  If you are familiar with building
+Linux kernels, take a look at linux/.config.avm, and go ahead with the
+source-tree in linux/.  For those, who like to get some initial guidance for
+building the FRITZ!OS kernel, here are some hints.
+
+ * To get more reproducible build output, you might want to enable the settings
+   for SOURCE_DATE_EPOCH, KBUILD_BUILD_USER,
+   KBUILD_BUILD_HOST and KBUILD_BUILD_TIMESTAMP in linux/.kernelvariables by
+   setting 'reproducibility' to a nonempty value.
+
+ * Adjust the toolchain variables, to match your cross toolchain as required:
+   CROSS_COMPILE (e.g.  mips-linux-gnu-), CC (e.g. mips-linux-gnu-gcc-5),
+   HOSTCC (e.g. gcc).  You can either update linux/.kernelvariables, or
+   override the AVM defaults via command line options, e.g.
+
+    make ARCH=riscv CC=riscv-linux-gnu-gcc CROSS_COMPILE=riscv-linux-gnu-
+
+ * For some, the Makefile in this directory might be helpful for first steps
+   towards compiling your F!OS kernel.  Install the kernel build dependencies
+   (cp. linux/Documentation/process/changes.rst) and run 'make' for some help.
+
+If you want to build your kernel in-source, then:
+
+ * Copy 'linux/.config.avm' to 'linux/.config'
+
+if you want to build your kernel out-of-source, with build results in ${BUILD},
+then
+
+ * Copy 'linux/.config.avm' to '${BUILD}/.config'
+
+
+Example for building the F!OS kernel for a arm64 board out-of-source:
+
+    cd source/kernel
+    mkdir build
+    cp linux/.config.avm build/.config
+    make -C linux O=../build ARCH=arm64 CC=aarch64-linux-gnu-gcc CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc)
+
+
+Note: Running 'make mrproper' in the Linux source tree removes also
+linux/.kernelvariables.  You might want to restore it by cloning from
+linux/.kernelvariables.gpl.
+
+
+Thanks for caring for your open-source kernel.
+
+Yours,
+the FRITZ!OS kernel team.
+
+
+
+FAQs
+====
+
+Q: Can I use my host distribution's toolchain for compiling the kernel?
+-----------------------------------------------------------------------
+
+Maybe.  Upstream Linux kernel versions are developed for a specific range of
+gcc/clang versions, but FRITZ!OS kernels are developed only with one specific
+gcc version, possibly with specific features enabled or disabled (as provided
+in the GPL package).  Compiler versions that are too old for the specific Linux
+version will not be able to compile the code due to a lack of features or
+language extensions in upstream gcc.  Compiler versions that are newer than the
+one we provide in the GPL package may be able to build the kernel, but might
+also lead to build failures as they tend to be better in detecting bad code and
+might error-out.
+
+Thus, even if you supply the original board specific environment variables
+(e.g. ARCH), your toolchain might have different features or language
+extensions enabled than the toolchain we use at AVM (watch out for CC_HAS_*
+kconfig symbols).
+
+To verify, that all important kconfig symbols are unmodified, you might want
+run
+
+    linux/scripts/diffconfig linux/.config ${BUILD}/.config
+
+So, if you want to reproduce the FRITZ!OS kernel, please stick to the toolchain
+and its configurations as supplied in the GPL archive.  If you experience
+kconfig changes or build failures with the original FRITZ!OS kernel
+configuration, even though you use the toolchain as delivered via the AVM GPL
+package, please contact us (as this might be a serious bug that slipped through
+our automated testing).
+
+
+Q: How is the FRITZ!OS kernel build system different from Linux upstream?
+-------------------------------------------------------------------------
+
+FRITZ!OS kernels carry some extensions that need adjustments in kbuild.  We
+attempt to keep the kbuild changes in upstream sources as small as possible,
+but put several files around that hook into some parts:
+
+1. $(KBUILD_OUTPUT)/.kernelvariables or linux/.kernelvariables
+
+  holds kbuild related environment variables like ARCH, CC, CROSS_COMPILE etc.
+  Some variables might need to be adjusted, e.g. if a different toolchain is
+  used; variables can be overidden via make command line.  .kernelvariables is
+  sourced by GNUmakefile, see below.
+
+
+2. GNUmakefile
+
+   We ship and use a GNUmakefile to set up several environment variables that
+   are needed for FRITZ!OS kernel builds, and we wrap some kbuild targets, e.g.:
+
+     * Source .kernelvariables for cached variables required for kernel builds.
+
+     * Copy avm/conf/${whatever} (see AVM_KCONFIG_CONFIG in .kernelvariables)
+       to $(KBUILD_OUTPUT)/.config, if it is newer than
+       $(KBUILD_OUTPUT)/.config.
+
+     * Find "LiSI" subtrees (cp. below) and forward their additional include
+       paths.
+
+     * Show a kconfig diff between $(KBUILD_OUTPUT)/.config and
+       $(AVM_KCONFIG_CONFIG) (if enabled in .kernelvariables).
+
+     * Install in-tree kmods twice: stripped (/lib/modules/...) and unstripped
+       (/usr/lib/debug/lib/modules/...).
+
+     * When building external kmods: Install a project specific *.symvers file
+       along with the kernel module(s).
+
+3. "Linux Subproject Integration" (LiSI)
+
+   Some AVM specific Linux subtrees contain a avm/conf/ folder, and their
+   include folders will be put into the list of Linux in-tree or UAPI header
+   directories.  These subtrees are thus providing C header files for other
+   kernel code (in-tree as well as external kmods) and for user-space.

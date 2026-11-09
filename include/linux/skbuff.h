@@ -39,6 +39,23 @@
 #include <linux/in6.h>
 #include <linux/if_packet.h>
 #include <net/flow.h>
+#ifdef CONFIG_NETWORK_EXTMARK
+#include <linux/extmark.h>
+#endif
+#ifdef CONFIG_LTQ_DATAPATH_SKB
+#include <net/datapath_api_skb.h>
+#endif
+
+#include <avm/pa/generic_ct.h>
+
+/* Do not include avm_pa.h to avoid include cycle. Since we can't determine
+ * the size here we reserve some space, including some extra space for future
+ * extensions without having to rebuild the world.
+ *
+ * avm_pa contains a BUILD_BUG_ON() in case the reserve is too small.
+ */
+#define AVM_PA_PKT_INFO_SKB_RESERVE 256
+struct avm_pa_pkt_info;
 
 /* The interface for checksum offload between the stack and networking drivers
  * is as follows...
@@ -646,6 +663,9 @@ struct sk_buff {
 		struct rb_node		rbnode; /* used in netem, ip4 defrag, and tcp stack */
 	};
 
+#ifdef CONFIG_LTQ_DATAPATH_SKB
+	struct ltq_dp_skb dp_skb_info;
+#endif
 	union {
 		struct sock		*sk;
 		int			ip_defrag_offset;
@@ -668,6 +688,11 @@ struct sk_buff {
 #endif
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	struct nf_conntrack	*nfct;
+#endif
+#if IS_ENABLED(CONFIG_AVM_PA_GENERIC_CT)
+	struct generic_ct_data	ct_data;
+#define SKB_GENERIC_CT(skb) ((skb)->ct_data.generic_ct)
+#define SKB_GENERIC_CT_DIR(skb) ((skb)->ct_data.generic_ct_dir)
 #endif
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	struct nf_bridge_info	*nf_bridge;
@@ -747,7 +772,8 @@ struct sk_buff {
 #ifdef CONFIG_NET_SWITCHDEV
 	__u8			offload_fwd_mark:1;
 #endif
-	/* 2, 4 or 5 bit hole */
+	__u8 gro_skip : 1;
+	/* 1, 3 or 4 bit hole */
 
 #ifdef CONFIG_NET_SCHED
 	__u16			tc_index;	/* traffic control index */
@@ -797,8 +823,24 @@ struct sk_buff {
 	__u16			network_header;
 	__u16			mac_header;
 
+#if defined(CONFIG_LTQ_CBM) || IS_ENABLED(CONFIG_DIRECTCONNECT_DP_API)
+	__u32 DW0, DW1, DW2, DW3;
+#endif
+#ifdef CONFIG_NETWORK_EXTMARK
+	__u32 extmark;
+#endif
+#ifdef CONFIG_PPA
+	void *ptr_ppa_pitem;
+#endif
 	/* private: */
 	__u32			headers_end[0];
+
+#ifdef CONFIG_AVM_PA
+	__u8                    avm_pa[AVM_PA_PKT_INFO_SKB_RESERVE];
+#define AVM_PKT_INFO(skb)	((struct avm_pa_pkt_info *) (skb)->avm_pa)
+#else
+#define AVM_PKT_INFO(skb)	((struct avm_pa_pkt_info *) NULL)
+#endif
 	/* public: */
 
 	/* These elements must be at the end, see alloc_skb() for details.  */
@@ -2317,7 +2359,7 @@ static inline int pskb_network_may_pull(struct sk_buff *skb, unsigned int len)
  * NET_IP_ALIGN(2) + ethernet_header(14) + IP_header(20/40) + ports(8)
  */
 #ifndef NET_SKB_PAD
-#define NET_SKB_PAD	max(32, L1_CACHE_BYTES)
+#define NET_SKB_PAD max(64, L1_CACHE_BYTES)
 #endif
 
 int ___pskb_trim(struct sk_buff *skb, unsigned int len);
@@ -2351,6 +2393,9 @@ static inline int pskb_trim(struct sk_buff *skb, unsigned int len)
 {
 	return (len < skb->len) ? __pskb_trim(skb, len) : 0;
 }
+
+extern struct sk_buff *__netdev_alloc_skb_ip_align(struct net_device *dev,
+						   unsigned int length, gfp_t gfp);
 
 /**
  *	pskb_trim_unique - remove end from a paged unique (not cloned) buffer
@@ -2471,16 +2516,6 @@ static inline struct sk_buff *dev_alloc_skb(unsigned int length)
 	return netdev_alloc_skb(NULL, length);
 }
 
-
-static inline struct sk_buff *__netdev_alloc_skb_ip_align(struct net_device *dev,
-		unsigned int length, gfp_t gfp)
-{
-	struct sk_buff *skb = __netdev_alloc_skb(dev, length + NET_IP_ALIGN, gfp);
-
-	if (NET_IP_ALIGN && skb)
-		skb_reserve(skb, NET_IP_ALIGN);
-	return skb;
-}
 
 static inline struct sk_buff *netdev_alloc_skb_ip_align(struct net_device *dev,
 		unsigned int length)
@@ -3355,6 +3390,10 @@ static inline int skb_csum_unnecessary(const struct sk_buff *skb)
 		 skb_checksum_start_offset(skb) >= 0));
 }
 
+#ifdef CONFIG_LTQ_CBM
+void ltq_copy_skb_header(struct sk_buff *n, const struct sk_buff *skb);
+#endif
+
 /**
  *	skb_checksum_complete - Calculate checksum of an entire packet
  *	@skb: packet to process
@@ -3593,6 +3632,29 @@ static inline void nf_conntrack_get(struct nf_conntrack *nfct)
 		atomic_inc(&nfct->use);
 }
 #endif
+
+#if IS_ENABLED(CONFIG_AVM_PA_GENERIC_CT)
+static inline void generic_ct_reset(struct sk_buff *skb)
+{
+	generic_ct_put(SKB_GENERIC_CT(skb));
+	SKB_GENERIC_CT(skb) = NULL;
+}
+
+static inline void __generic_ct_copy(struct sk_buff *dst,
+				     const struct sk_buff *src)
+{
+	SKB_GENERIC_CT(dst) = generic_ct_get(SKB_GENERIC_CT(src));
+	SKB_GENERIC_CT_DIR(dst) = SKB_GENERIC_CT_DIR(src);
+}
+
+static inline void generic_ct_copy(struct sk_buff *dst,
+				   const struct sk_buff *src)
+{
+	generic_ct_put(SKB_GENERIC_CT(dst));
+	__generic_ct_copy(dst, src);
+}
+#endif
+
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 static inline void nf_bridge_put(struct nf_bridge_info *nf_bridge)
 {
@@ -3605,7 +3667,8 @@ static inline void nf_bridge_get(struct nf_bridge_info *nf_bridge)
 		atomic_inc(&nf_bridge->use);
 }
 #endif /* CONFIG_BRIDGE_NETFILTER */
-static inline void nf_reset(struct sk_buff *skb)
+
+static inline void nf_reset_no_generic_ct(struct sk_buff *skb)
 {
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	nf_conntrack_put(skb->nfct);
@@ -3614,6 +3677,14 @@ static inline void nf_reset(struct sk_buff *skb)
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	nf_bridge_put(skb->nf_bridge);
 	skb->nf_bridge = NULL;
+#endif
+}
+
+static inline void nf_reset(struct sk_buff *skb)
+{
+	nf_reset_no_generic_ct(skb);
+#if IS_ENABLED(CONFIG_AVM_PA_GENERIC_CT)
+	generic_ct_reset(skb);
 #endif
 }
 
@@ -3632,8 +3703,9 @@ static inline void ipvs_reset(struct sk_buff *skb)
 }
 
 /* Note: This doesn't put any conntrack and bridge info in dst. */
-static inline void __nf_copy(struct sk_buff *dst, const struct sk_buff *src,
-			     bool copy)
+static inline void __nf_copy_no_generic_ct(struct sk_buff *dst,
+					   const struct sk_buff *src,
+					   bool copy)
 {
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	dst->nfct = src->nfct;
@@ -3651,7 +3723,17 @@ static inline void __nf_copy(struct sk_buff *dst, const struct sk_buff *src,
 #endif
 }
 
-static inline void nf_copy(struct sk_buff *dst, const struct sk_buff *src)
+/* Note: This doesn't put any conntrack and bridge info in dst. */
+static inline void __nf_copy(struct sk_buff *dst, const struct sk_buff *src,
+			     bool copy)
+{
+	__nf_copy_no_generic_ct(dst, src, copy);
+#if IS_ENABLED(CONFIG_AVM_PA_GENERIC_CT)
+	__generic_ct_copy(dst, src);
+#endif
+}
+
+static inline void nf_copy_no_generic_ct(struct sk_buff *dst, const struct sk_buff *src)
 {
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	nf_conntrack_put(dst->nfct);
@@ -3659,7 +3741,15 @@ static inline void nf_copy(struct sk_buff *dst, const struct sk_buff *src)
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	nf_bridge_put(dst->nf_bridge);
 #endif
-	__nf_copy(dst, src, true);
+	__nf_copy_no_generic_ct(dst, src, true);
+}
+
+static inline void nf_copy(struct sk_buff *dst, const struct sk_buff *src)
+{
+	nf_copy_no_generic_ct(dst, src);
+#if IS_ENABLED(CONFIG_AVM_PA_GENERIC_CT)
+	generic_ct_copy(dst, src);
+#endif
 }
 
 #ifdef CONFIG_NETWORK_SECMARK

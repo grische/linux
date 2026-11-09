@@ -202,21 +202,24 @@ struct rtmsg {
 
 enum {
 	RTN_UNSPEC,
-	RTN_UNICAST,		/* Gateway or direct route	*/
-	RTN_LOCAL,		/* Accept locally		*/
-	RTN_BROADCAST,		/* Accept locally as broadcast,
+	RTN_UNICAST, /* Gateway or direct route	*/
+	RTN_LOCAL, /* Accept locally		*/
+	RTN_BROADCAST, /* Accept locally as broadcast,
 				   send as broadcast */
-	RTN_ANYCAST,		/* Accept locally as broadcast,
+	RTN_ANYCAST, /* Accept locally as broadcast,
 				   but send as unicast */
-	RTN_MULTICAST,		/* Multicast route		*/
-	RTN_BLACKHOLE,		/* Drop				*/
-	RTN_UNREACHABLE,	/* Destination is unreachable   */
-	RTN_PROHIBIT,		/* Administratively prohibited	*/
-	RTN_THROW,		/* Not in this table		*/
-	RTN_NAT,		/* Translate this address	*/
-	RTN_XRESOLVE,		/* Use external resolver	*/
+	RTN_MULTICAST, /* Multicast route		*/
+	RTN_BLACKHOLE, /* Drop				*/
+	RTN_UNREACHABLE, /* Destination is unreachable   */
+	RTN_PROHIBIT, /* Administratively prohibited	*/
+	RTN_THROW, /* Not in this table		*/
+	RTN_NAT, /* Translate this address	*/
+	RTN_XRESOLVE, /* Use external resolver	*/
+	RTN_POLICY_FAILED, /* Failed ingress/egress policy */
 	__RTN_MAX
 };
+
+#define RTN_FAILED_POLICY RTN_POLICY_FAILED
 
 #define RTN_MAX (__RTN_MAX - 1)
 
@@ -318,6 +321,7 @@ enum rtattr_type_t {
 	RTA_ENCAP,
 	RTA_EXPIRES,
 	RTA_PAD,
+	RTA_UID,
 	__RTA_MAX
 };
 
@@ -543,6 +547,9 @@ enum {
 	TCA_STATS2,
 	TCA_STAB,
 	TCA_PAD,
+	TCA_DUMP_INVISIBLE,
+	TCA_CHAIN,
+	TCA_HW_OFFLOAD,
 	__TCA_MAX
 };
 

@@ -1,0 +1,64 @@
+Shared memory based communication of a random seed from one cpu to a
+different cpu with external synchronisation.
+
+Required driver node properties:
+  - compatible : Should be "avm,shm-rng-seed"
+  - memory-region: phandle to a node of reserved memory (see
+    Documentation/devicetree/bindings/reserved-memory/reserved-memory.txt)
+    used to store the random seed between writing by the sending cpu
+    and reading by the receiving cpu.
+
+Optional driver properties:
+  - avm,write : Should be set on the writing side (e.g. the first kernel
+                started) and not set on the reading side (e.g. the second
+                kernel started)
+
+Optional reserved-memory node properties:
+  - compatible : Should be "avm,shm-rng-seed-early" if early loading of the
+                 memory seed is desired and the driver was compiled into
+                 the kernel.
+
+Example for the second kernel reading the data early:
+/ {
+	...
+	reserved-memory {
+		shm_rng_seed_mem: shm-rng-seed-mem@12345678 {
+			compatible = "avm,shm-rng-seed-early";
+			reg = <0x12345678 0x00001000>;
+		}
+	}
+	...
+}
+
+Example for the second kernel reading the data late:
+/ {
+	...
+	reserved-memory {
+		shm_rng_seed_mem: shm-rng-seed-mem@12345678 {
+			reg = <0x12345678 0x00001000>;
+		}
+	}
+	...
+	shm-rng-seed@12345678 {
+		compatible = "avm,shm-rng-seed";
+		memory-region = <&shm_rng_seed_mem>;
+	}
+	...
+}
+
+Example for the first kernel writing the data:
+/ {
+	...
+	reserved-memory {
+		shm_rng_seed_mem: shm-rng-seed-mem@12345678 {
+			reg = <0x12345678 0x00001000>;
+		}
+	}
+	...
+	shm-rng-seed@12345678 {
+		compatible = "avm,shm-rng-seed";
+		memory-region = <&shm_rng_seed_mem>;
+		avm,write;
+	}
+	...
+}

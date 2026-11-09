@@ -15,6 +15,23 @@ config PRINTK_TIME
 	  The behavior is also controlled by the kernel command line
 	  parameter printk.time=1. See Documentation/kernel-parameters.txt
 
+config PRINTK_CALLER
+	bool "Show caller information on printks"
+	depends on PRINTK
+	help
+	  Selecting this option causes printk() to add a caller "thread id" (if
+	  in task context) or a caller "processor id" (if not in task context)
+	  to every message.
+
+	  This option is intended for environments where multiple threads
+	  concurrently call printk() for many times, for it is difficult to
+	  interpret without knowing where these lines (or sometimes individual
+	  line which was divided into multiple lines due to race) came from.
+
+	  Since toggling after boot makes the code racy, currently there is
+	  no option to enable/disable at the kernel command line parameter or
+	  sysfs interface.
+
 config MESSAGE_LOGLEVEL_DEFAULT
 	int "Default message log level (1-7)"
 	range 1 7
@@ -258,7 +275,6 @@ config PAGE_OWNER
 
 config DEBUG_FS
 	bool "Debug Filesystem"
-	select SRCU
 	help
 	  debugfs is a virtual file system that kernel developers use to put
 	  debugging files into.  Enable this option to be able to read and
@@ -395,6 +411,11 @@ config MAGIC_SYSRQ_DEFAULT_ENABLE
 	  Specifies which SysRq key functions are enabled by default.
 	  This may be set to 1 or 0 to enable or disable them all, or
 	  to a bitmask as described in Documentation/sysrq.txt.
+
+config MAGIC_SYSRQ_SERIAL
+	bool "Enable magic SysRq key over serial"
+	depends on MAGIC_SYSRQ
+	default y
 
 config DEBUG_KERNEL
 	bool "Kernel debugging"

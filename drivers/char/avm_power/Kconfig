@@ -1,0 +1,51 @@
+#
+# AVM Powermanagment
+#
+#
+#
+menu "AVM Powermanagment"
+
+config AVM_POWER
+	bool "AVM power managment support"
+	default n
+	help
+	  This driver provides power managment functions for AVMs own drivers. Allow to set(and get) relevant power,bitfile,eth and other control-states.
+
+config AVM_POWERMETER
+	bool "AVM powermeter support"
+	depends on AVM_POWER
+	default y
+	help
+      This driver provides power managment ressource info function for AVMs own drivers. Collect dsl,temperature,power,idle,eth,usb,memory-state and send avm_events.
+
+config AVM_SOFTIRQ_STATISTIC
+	bool "AVM Softirq statistic for system-load"
+	depends on AVM_POWER
+	default n
+	help
+	  deliver softirq-runtime for system-load
+
+config AVM_POWER_REMOTE_SOURCE
+	bool "Powermanagment Remote-Source"
+	depends on AVM_POWER && ( AVM_EVENTNODE_PUMA6 || AVM_EVENTNODE_PUMA7)
+	default n
+	help
+	  This powermanager service send messages to other cpu
+
+config AVM_POWER_REMOTE_SINK
+	bool "Powermanagment Remote-Sink"
+	depends on AVM_POWER && ( AVM_EVENTNODE_PUMA6 || AVM_EVENTNODE_PUMA7)
+	default n
+	help
+	  This powermanager service receive messages from other cpu
+
+
+config AVM_DECT_SYNC
+	int "AVM dect sync support"
+	depends on AVM_POWER && AVM_DECT_IO && MIPS_UR8
+	default -1
+	help
+      Zerberus - obsolet
+	  the number of gpio for sync-usage, -1: ignore sync
+
+endmenu

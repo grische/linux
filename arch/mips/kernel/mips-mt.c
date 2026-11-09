@@ -55,66 +55,109 @@ void mips_mt_regdump(unsigned long mvpctl)
 	int ntc;
 	int i;
 	int tc;
+	int curr_tc = -1;
 	unsigned long haltval;
 	unsigned long tcstatval;
+	unsigned long vpe[16][6];
+	unsigned long tcreg[16][8];
 
 	local_irq_save(flags);
+	/**-------------------------------------------------------------------------------**\
+	 * START-CRITICAL START-CRITICAL START-CRITICAL START-CRITICAL START-CRITICAL
+	 * Achtung kritischer Abschnitt - hier keine printks (ergo spinlocks  etc.) verwenden
+	 * -> Deadlock-Gefahr!
+	\*--------------------------------------------------------------------------------**/
 	vpflags = dvpe();
-	printk("=== MIPS MT State Dump ===\n");
-	printk("-- Global State --\n");
-	printk("   MVPControl Passed: %08lx\n", mvpctl);
-	printk("   MVPControl Read: %08lx\n", vpflags);
-	printk("   MVPConf0 : %08lx\n", (mvpconf0 = read_c0_mvpconf0()));
+	mvpconf0 = read_c0_mvpconf0();
 	nvpe = ((mvpconf0 & MVPCONF0_PVPE) >> MVPCONF0_PVPE_SHIFT) + 1;
 	ntc = ((mvpconf0 & MVPCONF0_PTC) >> MVPCONF0_PTC_SHIFT) + 1;
-	printk("-- per-VPE State --\n");
 	for (i = 0; i < nvpe; i++) {
 		for (tc = 0; tc < ntc; tc++) {
 			settc(tc);
 			if ((read_tc_c0_tcbind() & TCBIND_CURVPE) == i) {
-				printk("  VPE %d\n", i);
-				printk("   VPEControl : %08lx\n",
-				       read_vpe_c0_vpecontrol());
-				printk("   VPEConf0 : %08lx\n",
-				       read_vpe_c0_vpeconf0());
-				printk("   VPE%d.Status : %08lx\n",
-				       i, read_vpe_c0_status());
-				printk("   VPE%d.EPC : %08lx %pS\n",
-				       i, read_vpe_c0_epc(),
-				       (void *) read_vpe_c0_epc());
-				printk("   VPE%d.Cause : %08lx\n",
-				       i, read_vpe_c0_cause());
-				printk("   VPE%d.Config7 : %08lx\n",
-				       i, read_vpe_c0_config7());
+				vpe[i][0] = read_vpe_c0_vpecontrol();
+				vpe[i][1] = read_vpe_c0_vpeconf0();
+				vpe[i][2] = read_vpe_c0_status();
+				vpe[i][3] = read_vpe_c0_epc();
+				vpe[i][4] = read_vpe_c0_cause();
+				vpe[i][5] = read_vpe_c0_config7();
 				break; /* Next VPE */
 			}
 		}
 	}
-	printk("-- per-TC State --\n");
 	for (tc = 0; tc < ntc; tc++) {
 		settc(tc);
 		if (read_tc_c0_tcbind() == read_c0_tcbind()) {
 			/* Are we dumping ourself?  */
 			haltval = 0; /* Then we're not halted, and mustn't be */
 			tcstatval = flags; /* And pre-dump TCStatus is flags */
-			printk("  TC %d (current TC with VPE EPC above)\n", tc);
+			curr_tc = tc;
 		} else {
 			haltval = read_tc_c0_tchalt();
 			write_tc_c0_tchalt(1);
 			tcstatval = read_tc_c0_tcstatus();
-			printk("  TC %d\n", tc);
 		}
-		printk("   TCStatus : %08lx\n", tcstatval);
-		printk("   TCBind : %08lx\n", read_tc_c0_tcbind());
-		printk("   TCRestart : %08lx %pS\n",
-		       read_tc_c0_tcrestart(), (void *) read_tc_c0_tcrestart());
-		printk("   TCHalt : %08lx\n", haltval);
-		printk("   TCContext : %08lx\n", read_tc_c0_tccontext());
-		if (!haltval)
+		tcreg[tc][0] = tcstatval;
+		tcreg[tc][1] = read_tc_c0_tcbind();
+		tcreg[tc][2] = read_tc_c0_tcrestart();
+		tcreg[tc][3] = haltval;
+		tcreg[tc][4] = read_tc_c0_tccontext();
+#if defined(CONFIG_AVM_ENHANCED)
+		if (!haltval) {
+			tcreg[tc][5] = read_tc_gpr_sp();
+			tcreg[tc][6] = read_tc_gpr_gp();
+			tcreg[tc][7] = read_tc_gpr_ra();
+		}
+#endif
+		if (!haltval) {
 			write_tc_c0_tchalt(0);
+		}
 	}
-	printk("===========================\n");
 	evpe(vpflags);
+	/*-------------------------------------------------------------------------------*\
+	 * END-CRITICAL END-CRITICAL END-CRITICAL END-CRITICAL END-CRITICAL
+	\*-------------------------------------------------------------------------------*/
+	printk(KERN_EMERG "=== MIPS MT State Dump ===\n");
+	printk(KERN_EMERG "-- Global State --\n");
+	printk(KERN_EMERG "   MVPControl Read: %08lx\n", vpflags);
+	printk(KERN_EMERG "   MVPConf0       : %08lx\n", mvpconf0);
+	printk(KERN_EMERG "-- per-VPE State --\n");
+	for (i = 0; i < nvpe; i++) {
+		printk(KERN_EMERG "VPE %d\n", i);
+		printk(KERN_EMERG "   VPEControl   : %08lx\n", vpe[i][0]);
+		printk(KERN_EMERG "   VPEConf0     : %08lx\n", vpe[i][1]);
+		printk(KERN_EMERG "   VPE%d.Status  : %08lx\n", i, vpe[i][2]);
+		printk(KERN_EMERG "   VPE%d.EPC     : %08lx %pS\n", i,
+		       vpe[i][3], (void *)vpe[i][3]);
+		printk(KERN_EMERG "   VPE%d.Cause   : %08lx\n", i, vpe[i][4]);
+		printk(KERN_EMERG "   VPE%d.Config7 : %08lx\n", i, vpe[i][5]);
+	}
+	printk(KERN_EMERG "-- per-TC State --\n");
+	for (tc = 0; tc < ntc; tc++) {
+		if (curr_tc == tc) {
+			/* Are we dumping ourself?  */
+			printk(KERN_EMERG
+			       "TC %d (current TC with VPE EPC above)\n",
+			       tc);
+		} else {
+			printk(KERN_EMERG "TC %d\n", tc);
+		}
+		printk(KERN_EMERG "   TCStatus : %08lx\n", tcreg[tc][0]);
+		printk(KERN_EMERG "   TCBind   : %08lx\n", tcreg[tc][1]);
+		printk(KERN_EMERG "   TCRestart: %08lx %pS\n", tcreg[tc][2],
+		       (void *)tcreg[tc][2]);
+		printk(KERN_EMERG "   TCHalt   : %08lx\n", tcreg[tc][3]);
+		printk(KERN_EMERG "   TCContext: %08lx\n", tcreg[tc][4]);
+#if defined(CONFIG_AVM_ENHANCED)
+		if (!tcreg[tc][3]) {
+			printk(KERN_EMERG "   SP:    %08lx\n", tcreg[tc][5]);
+			printk(KERN_EMERG "   GP:    %08lx\n", tcreg[tc][6]);
+			printk(KERN_EMERG "   RA:    %08lx %pS\n", tcreg[tc][7],
+			       (void *)tcreg[tc][7]);
+		}
+#endif
+	}
+	printk(KERN_EMERG "===========================\n");
 	local_irq_restore(flags);
 }
 

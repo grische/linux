@@ -763,6 +763,7 @@ static const struct net_device_ops cdc_ncm_netdev_ops = {
 	.ndo_stop	     = usbnet_stop,
 	.ndo_start_xmit	     = usbnet_start_xmit,
 	.ndo_tx_timeout	     = usbnet_tx_timeout,
+	.ndo_set_rx_mode     = usbnet_set_rx_mode,
 	.ndo_change_mtu	     = cdc_ncm_change_mtu,
 	.ndo_set_mac_address = eth_mac_addr,
 	.ndo_validate_addr   = eth_validate_addr,
@@ -1648,6 +1649,7 @@ static const struct driver_info cdc_ncm_info = {
 	.status = cdc_ncm_status,
 	.rx_fixup = cdc_ncm_rx_fixup,
 	.tx_fixup = cdc_ncm_tx_fixup,
+	.set_rx_mode = usbnet_cdc_update_filter,
 };
 
 /* Same as cdc_ncm_info, but with FLAG_WWAN */
@@ -1661,6 +1663,7 @@ static const struct driver_info wwan_info = {
 	.status = cdc_ncm_status,
 	.rx_fixup = cdc_ncm_rx_fixup,
 	.tx_fixup = cdc_ncm_tx_fixup,
+	.set_rx_mode = usbnet_cdc_update_filter,
 };
 
 /* Same as wwan_info, but with FLAG_NOARP  */
@@ -1674,86 +1677,108 @@ static const struct driver_info wwan_noarp_info = {
 	.status = cdc_ncm_status,
 	.rx_fixup = cdc_ncm_rx_fixup,
 	.tx_fixup = cdc_ncm_tx_fixup,
+	.set_rx_mode = usbnet_cdc_update_filter,
 };
 
 static const struct usb_device_id cdc_devs[] = {
 	/* Ericsson MBM devices like F5521gw */
-	{ .match_flags = USB_DEVICE_ID_MATCH_INT_INFO
-		| USB_DEVICE_ID_MATCH_VENDOR,
-	  .idVendor = 0x0bdb,
-	  .bInterfaceClass = USB_CLASS_COMM,
-	  .bInterfaceSubClass = USB_CDC_SUBCLASS_NCM,
-	  .bInterfaceProtocol = USB_CDC_PROTO_NONE,
-	  .driver_info = (unsigned long) &wwan_info,
+	{
+		.match_flags = USB_DEVICE_ID_MATCH_INT_INFO | USB_DEVICE_ID_MATCH_VENDOR,
+		.idVendor = 0x0bdb,
+		.bInterfaceClass = USB_CLASS_COMM,
+		.bInterfaceSubClass = USB_CDC_SUBCLASS_NCM,
+		.bInterfaceProtocol = USB_CDC_PROTO_NONE,
+		.driver_info = (unsigned long)&wwan_info,
 	},
 
 	/* Telit LE910 V2 */
-	{ USB_DEVICE_AND_INTERFACE_INFO(0x1bc7, 0x0036,
-		USB_CLASS_COMM,
-		USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
-	  .driver_info = (unsigned long)&wwan_noarp_info,
+	{
+		USB_DEVICE_AND_INTERFACE_INFO(0x1bc7, 0x0036,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&wwan_noarp_info,
 	},
 
 	/* DW5812 LTE Verizon Mobile Broadband Card
 	 * Unlike DW5550 this device requires FLAG_NOARP
 	 */
-	{ USB_DEVICE_AND_INTERFACE_INFO(0x413c, 0x81bb,
-		USB_CLASS_COMM,
-		USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
-	  .driver_info = (unsigned long)&wwan_noarp_info,
+	{
+		USB_DEVICE_AND_INTERFACE_INFO(0x413c, 0x81bb,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&wwan_noarp_info,
 	},
 
 	/* DW5813 LTE AT&T Mobile Broadband Card
 	 * Unlike DW5550 this device requires FLAG_NOARP
 	 */
-	{ USB_DEVICE_AND_INTERFACE_INFO(0x413c, 0x81bc,
-		USB_CLASS_COMM,
-		USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
-	  .driver_info = (unsigned long)&wwan_noarp_info,
+	{
+		USB_DEVICE_AND_INTERFACE_INFO(0x413c, 0x81bc,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&wwan_noarp_info,
 	},
 
 	/* Dell branded MBM devices like DW5550 */
-	{ .match_flags = USB_DEVICE_ID_MATCH_INT_INFO
-		| USB_DEVICE_ID_MATCH_VENDOR,
-	  .idVendor = 0x413c,
-	  .bInterfaceClass = USB_CLASS_COMM,
-	  .bInterfaceSubClass = USB_CDC_SUBCLASS_NCM,
-	  .bInterfaceProtocol = USB_CDC_PROTO_NONE,
-	  .driver_info = (unsigned long) &wwan_info,
+	{
+		.match_flags = USB_DEVICE_ID_MATCH_INT_INFO | USB_DEVICE_ID_MATCH_VENDOR,
+		.idVendor = 0x413c,
+		.bInterfaceClass = USB_CLASS_COMM,
+		.bInterfaceSubClass = USB_CDC_SUBCLASS_NCM,
+		.bInterfaceProtocol = USB_CDC_PROTO_NONE,
+		.driver_info = (unsigned long)&wwan_info,
 	},
 
 	/* Toshiba branded MBM devices */
-	{ .match_flags = USB_DEVICE_ID_MATCH_INT_INFO
-		| USB_DEVICE_ID_MATCH_VENDOR,
-	  .idVendor = 0x0930,
-	  .bInterfaceClass = USB_CLASS_COMM,
-	  .bInterfaceSubClass = USB_CDC_SUBCLASS_NCM,
-	  .bInterfaceProtocol = USB_CDC_PROTO_NONE,
-	  .driver_info = (unsigned long) &wwan_info,
+	{
+		.match_flags = USB_DEVICE_ID_MATCH_INT_INFO | USB_DEVICE_ID_MATCH_VENDOR,
+		.idVendor = 0x0930,
+		.bInterfaceClass = USB_CLASS_COMM,
+		.bInterfaceSubClass = USB_CDC_SUBCLASS_NCM,
+		.bInterfaceProtocol = USB_CDC_PROTO_NONE,
+		.driver_info = (unsigned long)&wwan_info,
 	},
 
 	/* tag Huawei devices as wwan */
-	{ USB_VENDOR_AND_INTERFACE_INFO(0x12d1,
-					USB_CLASS_COMM,
-					USB_CDC_SUBCLASS_NCM,
-					USB_CDC_PROTO_NONE),
-	  .driver_info = (unsigned long)&wwan_info,
+	{
+		USB_VENDOR_AND_INTERFACE_INFO(0x12d1,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_NCM,
+					      USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&wwan_info,
 	},
 
 	/* Infineon(now Intel) HSPA Modem platform */
-	{ USB_DEVICE_AND_INTERFACE_INFO(0x1519, 0x0443,
-		USB_CLASS_COMM,
-		USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
-	  .driver_info = (unsigned long)&wwan_noarp_info,
+	{
+		USB_DEVICE_AND_INTERFACE_INFO(0x1519, 0x0443,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&wwan_noarp_info,
+	},
+
+	/* Fibocom L830-EB LTE Modem platform */
+	{
+		USB_DEVICE_AND_INTERFACE_INFO(0x2cb7, 0x000b,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&wwan_noarp_info,
+	},
+
+	/* Fibocom L850-GL LTE Modem platform */
+	{
+		USB_DEVICE_AND_INTERFACE_INFO(0x8087, 0x095a,
+					      USB_CLASS_COMM,
+					      USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+		.driver_info = (unsigned long)&wwan_noarp_info,
 	},
 
 	/* Generic CDC-NCM devices */
-	{ USB_INTERFACE_INFO(USB_CLASS_COMM,
-		USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
+	{
+		USB_INTERFACE_INFO(USB_CLASS_COMM,
+				   USB_CDC_SUBCLASS_NCM, USB_CDC_PROTO_NONE),
 		.driver_info = (unsigned long)&cdc_ncm_info,
 	},
-	{
-	},
+	{},
 };
 MODULE_DEVICE_TABLE(usb, cdc_devs);
 

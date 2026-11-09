@@ -2313,6 +2313,12 @@ static ssize_t n_tty_write(struct tty_struct *tty, struct file *file,
 			return retval;
 	}
 
+	if (tty->driver->ops->avm_console_enabled) {
+		if (!tty->driver->ops->avm_console_enabled(tty)) {
+			return nr;
+		}
+	}
+
 	down_read(&tty->termios_rwsem);
 
 	/* Write out any echoed characters that are still pending */

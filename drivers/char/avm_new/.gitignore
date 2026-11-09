@@ -1,0 +1,21 @@
+**/*.mod.c
+**/modules.builtin
+**/modules.order
+**/*.o.cmd
+**/*.ko.cmd
+**/*.ko
+/avm_event.h
+*.o
+.*.o.d
+
+### Vim ###
+# swap
+.sw[a-p]
+.*.sw[a-p]
+# session
+Session.vim
+# temporary
+.netrwhist
+*~
+# auto-generated tag files
+tags

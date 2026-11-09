@@ -148,6 +148,8 @@
 #include <linux/netlink.h>
 #include <net/dst_metadata.h>
 
+#include <avm/pa/avm_pa.h>
+
 /*
  *	Process Router Attention IP option (RFC 2113)
  */
@@ -496,4 +498,44 @@ drop:
 	kfree_skb(skb);
 out:
 	return NET_RX_DROP;
+}
+
+static void ip_avm_pa_transmit(void *arg, struct sk_buff *skb)
+{
+	/* We can safely pass NULL as sk parameter, it is just required
+	 * to be a valid netfilter hook. The initiator, ip_local_deliver()
+	 * passes a NULL sock because it doesn't even know the socket yet.
+	 */
+	ip_local_deliver_finish((struct net *) arg, NULL, skb);
+}
+
+static void __init ip_avm_pa_register(void)
+{
+	struct avm_pa_dev_info *ip_dev = AVM_PA_NET_IP_DEVINFO(&init_net);
+	struct avm_pa_pid_cfg cfg = {0};
+	struct avm_pa_pid_ecfg ecfg = { 0 };
+
+	if (!ip_dev)
+		return;
+
+	strlcpy(cfg.name, "ipv4", sizeof(cfg.name));
+	cfg.framing = avm_pa_framing_ipdev;
+	cfg.default_mtu = 0xffff;
+	cfg.tx_func = ip_avm_pa_transmit;
+	cfg.tx_arg = &init_net;
+
+	if (avm_pa_dev_pid_register(ip_dev, &cfg) < 0) {
+		pr_err("failed to register avm_pa pid %s\n", cfg.name);
+		return;
+	}
+
+	ecfg.version = AVM_PA_PID_ECFG_VERSION;
+	ecfg.cb_start = 0;
+	ecfg.cb_len = sizeof(struct inet_skb_parm);
+	avm_pa_pid_set_ecfg(ip_dev->pid_handle, &ecfg);
+}
+
+void __init ip_input_init(void)
+{
+	ip_avm_pa_register();
 }

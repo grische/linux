@@ -1,0 +1,17 @@
+AVM urlader environment stored in the device tree and exposed via
+/proc/sys/urlader/environment.
+
+Required properties:
+ - compatible            : "avm,dt-urlader-env"
+ - avm,urlader-env-names : Whitelist of environment variables to expose
+                           if they are stored in the device tree under
+                           /chosen/${name}
+
+Example:
+	dt-urlader-env {
+		compatible = "avm,dt-urlader-env";
+
+		avm,urlader-env-names = "HWRevision", "HWSubRevision", "annex",
+					"bootloaderVersion", "maca", "macb",
+					"macdsl", "gpon_serial";
+	};

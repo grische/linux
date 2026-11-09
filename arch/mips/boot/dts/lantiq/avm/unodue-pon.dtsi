@@ -1,0 +1,22 @@
+&vuni {
+       status = "okay";
+       vani@0 {
+               intel,extra-subif = <0>;
+       };
+};
+
+&pon_eth {
+	status = "okay";
+};
+
+&pon_ptp0 {
+	status = "okay";
+};
+
+&pon_ptp1 {
+	status = "okay";
+};
+
+&wan_xpcs_phy {
+	status = "disabled"; // conflict with ponmbox1
+};

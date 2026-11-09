@@ -34,6 +34,7 @@
 #include <linux/serial_core.h>
 #include <linux/delay.h>
 #include <linux/mutex.h>
+#include <linux/pm_runtime.h>
 
 #include <asm/irq.h>
 #include <asm/uaccess.h>
@@ -566,6 +567,38 @@ static void uart_flush_chars(struct tty_struct *tty)
 {
 	uart_start(tty);
 }
+
+/*
+ * keine Ausgaben auf der Console
+ * avm_console_enabled=1 schaltet die Ausgaben auf der Console ueber
+ * n_tty_write wieder frei beim Kunden beachtet niemand die Ausgaben auf der
+ * Console
+ */
+unsigned int avm_console_enabled;
+EXPORT_SYMBOL(avm_console_enabled);
+
+static int uart_avm_console_enabled(struct tty_struct *tty)
+{
+	struct uart_state *state = tty->driver_data;
+	struct uart_port *port = state->uart_port;
+
+	if (port->cons) {
+		if (port->cons->flags & (CON_ENABLED | CON_CONSDEV)) {
+			return avm_console_enabled;
+		}
+	}
+
+	return 1;
+}
+
+static int setup_debug_console(char *p)
+{
+	avm_console_enabled = 1;
+
+	return 0;
+}
+
+__setup("debug_console", setup_debug_console);
 
 static int uart_write(struct tty_struct *tty,
 					const unsigned char *buf, int count)
@@ -2038,8 +2071,10 @@ uart_set_options(struct uart_port *port, struct console *co,
 	 * early.
 	 * If this port is a console, then the spinlock is already
 	 * initialised.
+	 * AVM: This should also hold true for devices used with tty polling.
 	 */
-	if (!(uart_console(port) && (port->cons->flags & CON_ENABLED))) {
+	if (!((uart_console(port) && (port->cons->flags & CON_ENABLED))
+			|| (port->flags & UPF_AVM_POLLING))) {
 		spin_lock_init(&port->lock);
 		lockdep_set_class(&port->lock, &port_lock_key);
 	}
@@ -2440,7 +2475,7 @@ static void uart_poll_put_char(struct tty_driver *driver, int line, char ch)
 	if (!port)
 		return;
 
-	if (ch == '\n')
+	if (ch == '\n' && !(port->flags & UPF_AVM_POLLING))
 		port->ops->poll_put_char(port, '\r');
 	port->ops->poll_put_char(port, ch);
 	uart_port_deref(port);
@@ -2458,37 +2493,38 @@ static int uart_install(struct tty_driver *driver, struct tty_struct *tty)
 }
 
 static const struct tty_operations uart_ops = {
-	.install	= uart_install,
-	.open		= uart_open,
-	.close		= uart_close,
-	.write		= uart_write,
-	.put_char	= uart_put_char,
-	.flush_chars	= uart_flush_chars,
-	.write_room	= uart_write_room,
-	.chars_in_buffer= uart_chars_in_buffer,
-	.flush_buffer	= uart_flush_buffer,
-	.ioctl		= uart_ioctl,
-	.throttle	= uart_throttle,
-	.unthrottle	= uart_unthrottle,
-	.send_xchar	= uart_send_xchar,
-	.set_termios	= uart_set_termios,
-	.set_ldisc	= uart_set_ldisc,
-	.stop		= uart_stop,
-	.start		= uart_start,
-	.hangup		= uart_hangup,
-	.break_ctl	= uart_break_ctl,
-	.wait_until_sent= uart_wait_until_sent,
+	.install = uart_install,
+	.open = uart_open,
+	.close = uart_close,
+	.write = uart_write,
+	.put_char = uart_put_char,
+	.flush_chars = uart_flush_chars,
+	.write_room = uart_write_room,
+	.chars_in_buffer = uart_chars_in_buffer,
+	.flush_buffer = uart_flush_buffer,
+	.ioctl = uart_ioctl,
+	.throttle = uart_throttle,
+	.unthrottle = uart_unthrottle,
+	.send_xchar = uart_send_xchar,
+	.set_termios = uart_set_termios,
+	.set_ldisc = uart_set_ldisc,
+	.stop = uart_stop,
+	.start = uart_start,
+	.hangup = uart_hangup,
+	.break_ctl = uart_break_ctl,
+	.wait_until_sent = uart_wait_until_sent,
 #ifdef CONFIG_PROC_FS
-	.proc_fops	= &uart_proc_fops,
+	.proc_fops = &uart_proc_fops,
 #endif
-	.tiocmget	= uart_tiocmget,
-	.tiocmset	= uart_tiocmset,
-	.get_icount	= uart_get_icount,
+	.tiocmget = uart_tiocmget,
+	.tiocmset = uart_tiocmset,
+	.get_icount = uart_get_icount,
 #ifdef CONFIG_CONSOLE_POLL
-	.poll_init	= uart_poll_init,
-	.poll_get_char	= uart_poll_get_char,
-	.poll_put_char	= uart_poll_put_char,
+	.poll_init = uart_poll_init,
+	.poll_get_char = uart_poll_get_char,
+	.poll_put_char = uart_poll_put_char,
 #endif
+	.avm_console_enabled = uart_avm_console_enabled,
 };
 
 static const struct tty_port_operations uart_port_ops = {
@@ -2498,6 +2534,188 @@ static const struct tty_port_operations uart_port_ops = {
 	.shutdown	= uart_tty_port_shutdown,
 };
 
+#ifdef CONFIG_AVM_TTY_POLLING
+struct polling_tty_port {
+	struct tty_driver *driver;
+	int                line;
+};
+
+struct polling_tty_port *avm_tty_poll_acquire(const char *ttyname)
+{
+	struct polling_tty_port *pport;
+	struct tty_driver *ttydrv;
+	struct uart_driver *drv;
+	struct uart_state *state;
+	struct uart_port *uport;
+	struct tty_port *port;
+	int line, err;
+	char name[40];
+
+	pr_debug("Acquiring polling tty port %s\n", ttyname);
+
+	strscpy(name, ttyname, sizeof(name));
+	ttydrv = tty_find_polling_driver(name, &line);
+	if (!ttydrv) {
+		err = -ENODEV;
+		goto err_out;
+	}
+
+	drv = ttydrv->driver_state;
+	state = drv->state + line;
+	if (!state)
+		goto noport;
+	port = &state->port;
+
+	mutex_lock(&port->mutex);
+
+	uport = state->uart_port;
+	if (!uport) {
+		mutex_unlock(&port->mutex);
+		goto noport;
+	}
+
+	pport = kmalloc(sizeof(*pport), GFP_KERNEL);
+	if (!pport) {
+		err = -ENOMEM;
+		mutex_unlock(&port->mutex);
+		goto put_driver;
+	}
+
+	if (uport->irq)
+		disable_irq(uport->irq);
+	pm_runtime_get_sync(uport->dev);
+	uport->flags |= UPF_AVM_POLLING;
+
+	mutex_unlock(&port->mutex);
+
+	pport->driver = ttydrv;
+	pport->line = line;
+
+	return pport;
+noport:
+	pr_err("No port state for %s\n", ttyname);
+	err = -EL3HLT;
+put_driver:
+	put_tty_driver(ttydrv);
+err_out:
+	pr_err("Error acquiring polling tty port %s: %d\n", ttyname, err);
+
+	return ERR_PTR(err);
+}
+EXPORT_SYMBOL(avm_tty_poll_acquire);
+
+int avm_tty_poll_configure(struct polling_tty_port *pport, int baud,
+		int parity, int bits, int flow)
+{
+	struct tty_driver *ttydrv = pport->driver;
+	struct uart_driver *drv;
+	struct uart_state *state;
+	struct uart_port *uport;
+	struct tty_port *port;
+
+	pr_debug("Setting polling tty port %s%d to %u baud\n",
+			ttydrv->name, pport->line, baud);
+
+	drv = ttydrv->driver_state;
+	state = drv->state + pport->line;
+	if (!state)
+		goto noport;
+	port = &state->port;
+
+	mutex_lock(&port->mutex);
+	uport = state->uart_port;
+	if (!uport) {
+		mutex_unlock(&port->mutex);
+		goto noport;
+	}
+	uart_set_options(uport, NULL, baud, parity, bits, flow);
+	mutex_unlock(&port->mutex);
+
+	return 0;
+noport:
+	pr_err("Error setting baudrate of polling tty port %s%d: no port state\n",
+			ttydrv->name, pport->line);
+	return -EL3HLT;
+}
+EXPORT_SYMBOL(avm_tty_poll_configure);
+
+void avm_tty_poll_release(struct polling_tty_port *pport)
+{
+	struct tty_driver *ttydrv = pport->driver;
+	struct uart_driver *drv;
+	struct uart_state *state;
+	struct uart_port *uport;
+	struct tty_port *port;
+
+	pr_debug("Releasing polling tty port %s%d\n",
+			ttydrv->name, pport->line);
+
+	drv = ttydrv->driver_state;
+	state = drv->state + pport->line;
+	if (!state)
+		goto out;
+
+	port = &state->port;
+	mutex_lock(&port->mutex);
+
+	uport = state->uart_port;
+	if (!uport) {
+		mutex_unlock(&port->mutex);
+		goto out;
+	}
+
+	if (uport->irq)
+		enable_irq(uport->irq);
+
+	uport->flags &= ~UPF_AVM_POLLING;
+
+	pm_runtime_put(uport->dev);
+	mutex_unlock(&port->mutex);
+out:
+	put_tty_driver(ttydrv);
+	kfree(pport);
+}
+EXPORT_SYMBOL(avm_tty_poll_release);
+
+int avm_tty_poll_get_char(struct polling_tty_port *pport)
+{
+	return pport->driver->ops->poll_get_char(pport->driver, pport->line);
+}
+EXPORT_SYMBOL(avm_tty_poll_get_char);
+
+void avm_tty_poll_put_char(struct polling_tty_port *pport, unsigned char c)
+{
+	pport->driver->ops->poll_put_char(pport->driver, pport->line, c);
+}
+EXPORT_SYMBOL(avm_tty_poll_put_char);
+#endif /* CONFIG_AVM_TTY_POLLING */
+
+#ifdef CONFIG_INTEL_UART_ENABLE_CONTROL
+static ssize_t uart_get_attr_enable_ctrl(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	int enable;
+
+	if (intel_ce2700_read_atom_uartctrl(&enable) != IOCNFG_OK)
+		pr_err("Unable to read AtomUartCtrl status\n");
+
+	return sprintf(buf, "%d\n", enable);
+}
+
+static ssize_t uart_set_attr_enable_ctrl(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int enable;
+
+	enable = (int)(buf[0] - '0');
+	if ((enable == 0) || (enable == 1))
+		intel_ce2700_config_atom_uartctrl(enable);
+	else
+		pr_info("uart_enable_ctrl: 0(disable) / 1(enable) UART\n");
+
+	return count;
+}
+#endif
 /**
  *	uart_register_driver - register a driver with the uart core layer
  *	@drv: low level driver structure

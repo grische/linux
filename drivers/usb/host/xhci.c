@@ -29,6 +29,9 @@
 #include <linux/slab.h>
 #include <linux/dmi.h>
 #include <linux/dma-mapping.h>
+#include <linux/workqueue.h>
+#include <linux/avm_hw_config.h>
+#include <asm/mach_avm.h>
 
 #include "xhci.h"
 #include "xhci-trace.h"
@@ -38,6 +41,17 @@
 #define DRIVER_DESC "'eXtensible' Host Controller (xHC) Driver"
 
 #define	PORT_WAKE_BITS	(PORT_WKOC_E | PORT_WKDISC_E | PORT_WKCONN_E)
+
+#if defined (CONFIG_GRX5_AVM_FRITZ_BOX)
+/* 20190827 AVM/WKR USB3 ports switchable */
+int usb3port_config = 0; //default USB2 only
+module_param(usb3port_config, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(usb3port_config, "Bitmask of allowed USB3 ports");
+#endif
+
+static void xhci_vbus_work_func(struct work_struct *work);
+static DECLARE_DELAYED_WORK(xhci_vbus_work, xhci_vbus_work_func);
+static int usb_power_gpio = -1;
 
 /* Some 0.95 hardware can't handle the chain bit on a Link TRB being cleared */
 static int link_quirk;
@@ -566,6 +580,14 @@ int xhci_init(struct usb_hcd *hcd)
 /*-------------------------------------------------------------------------*/
 
 
+static void xhci_vbus_work_func(struct work_struct *work)
+{
+	if (usb_power_gpio >= 0) {
+		avm_gpio_out_bit(usb_power_gpio, 1);
+		pr_info("xHCI: delayed VBUS POWER on\n");
+	}
+}
+
 static int xhci_run_finished(struct xhci_hcd *xhci)
 {
 	if (xhci_start(xhci)) {
@@ -577,6 +599,10 @@ static int xhci_run_finished(struct xhci_hcd *xhci)
 
 	if (xhci->quirks & XHCI_NEC_HOST)
 		xhci_ring_cmd_db(xhci);
+
+	cancel_delayed_work_sync(&xhci_vbus_work);
+	pr_info("xHCI: delay VBUS POWER on for 100 ms\n");
+	schedule_delayed_work(&xhci_vbus_work, msecs_to_jiffies(100));
 
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 			"Finished xhci_run for USB3 roothub");
@@ -730,6 +756,13 @@ void xhci_stop(struct usb_hcd *hcd)
 			"xhci_stop completed - status = %x",
 			readl(&xhci->op_regs->status));
 	mutex_unlock(&xhci->mutex);
+
+	cancel_delayed_work_sync(&xhci_vbus_work);
+
+	if (usb_power_gpio >= 0) {
+		avm_gpio_out_bit(usb_power_gpio, 0);
+		pr_info("xHCI: delayed VBUS POWER off\n");
+	}
 }
 
 /*
@@ -5055,7 +5088,7 @@ static const struct hc_driver xhci_hc_driver = {
 	 * generic hardware linkage
 	 */
 	.irq =			xhci_irq,
-	.flags =		HCD_MEMORY | HCD_USB3 | HCD_SHARED,
+	.flags =		HCD_MEMORY | HCD_USB3 | HCD_SHARED | HCD_BH,
 
 	/*
 	 * basic lifecycle operations
@@ -5131,6 +5164,8 @@ MODULE_LICENSE("GPL");
 
 static int __init xhci_hcd_init(void)
 {
+	int ret;
+
 	/*
 	 * Check the compiler generated sizes of structures that must be laid
 	 * out in specific ways for hardware access.
@@ -5151,6 +5186,13 @@ static int __init xhci_hcd_init(void)
 
 	if (usb_disabled())
 		return -ENODEV;
+
+	ret =  avm_get_hw_config(AVM_HW_CONFIG_VERSION, "gpio_avm_usb_power_enable", &usb_power_gpio, NULL);
+	if (ret < 0)
+		return ret;
+
+	avm_gpio_ctrl(usb_power_gpio, GPIO_PIN, GPIO_OUTPUT_PIN);
+	avm_gpio_out_bit(usb_power_gpio, 0);
 
 	return 0;
 }

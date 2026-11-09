@@ -48,6 +48,9 @@
 #include <asm/stacktrace.h>
 #include <asm/irq_regs.h>
 
+#pragma GCC push_options
+#pragma GCC diagnostic ignored "-Wunused-function"
+
 #ifdef CONFIG_HOTPLUG_CPU
 void arch_cpu_idle_dead(void)
 {
@@ -670,7 +673,19 @@ static void raise_backtrace(cpumask_t *mask)
 
 void arch_trigger_cpumask_backtrace(const cpumask_t *mask, bool exclude_self)
 {
+#if defined(CONFIG_AVM_ENHANCED)
+	cpumask_t local_cpu_mask;
+	if (exclude_self) {
+		int act_cpu = smp_processor_id();
+
+		cpumask_copy(&local_cpu_mask, mask);
+		cpumask_clear_cpu(act_cpu, &local_cpu_mask);
+		mask = &local_cpu_mask;
+	}
+	arch_trigger_all_cpu_backtrace(mask);
+#else
 	nmi_trigger_cpumask_backtrace(mask, exclude_self, raise_backtrace);
+#endif
 }
 
 int mips_get_process_fp_mode(struct task_struct *task)
@@ -781,3 +796,5 @@ int mips_set_process_fp_mode(struct task_struct *task, unsigned int value)
 
 	return 0;
 }
+
+#pragma GCC pop_options

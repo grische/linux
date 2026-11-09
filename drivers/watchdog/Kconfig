@@ -1515,6 +1515,28 @@ config LANTIQ_WDT
 	help
 	  Hardware driver for the Lantiq SoC Watchdog Timer.
 
+config GRX500_IAP_WDT
+        tristate "GRX500 SoC watchdog for InterAptiv core"
+        depends on SOC_GRX500
+	select WATCHDOG_CORE
+        help
+          Hardware driver for the GRX500 SoC Watchdog Timer for
+	  InterAptiv core.
+
+config AVM_GRX500_IAP_WDT_NMI
+	bool "Use NMI for the watchdog's barking irq"
+	depends on GRX500_IAP_WDT && AVM_WATCHDOG_SHIM
+	help
+	  Configure the barking irq of the InterAptiv watchdog as an NMI.
+
+config GRX500_BOOTCORE_WDT
+        tristate "GRX500 SoC watchdog for Bootcore"
+        depends on SOC_TYPE_GRX500_TEP 
+	select WATCHDOG_CORE
+        help
+          Hardware driver for the GRX500 SoC Watchdog Timer for
+	  Bootcore core.
+
 config RALINK_WDT
 	tristate "Ralink SoC watchdog"
 	select WATCHDOG_CORE
@@ -1895,5 +1917,14 @@ config WATCHDOG_PRETIMEOUT_GOV_PANIC
 	  event put the kernel into panic.
 
 endif # WATCHDOG_PRETIMEOUT_GOV
+
+config AVM_WATCHDOG_SHIM_SUPPORT
+	bool "Support AVM watchdog shim driver"
+	select WATCHDOG_CORE
+	help
+	  This adds support for the AVM watchdog shim driver by exposing some
+	  of the internal watchdog API to external modules and adding watchdog
+	  device notifiers. The shim driver is located in the Sammeltreiber; to
+	  enable it, select AVM_WATCHDOG_SHIM.
 
 endif # WATCHDOG

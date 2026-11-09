@@ -92,6 +92,8 @@ devm_gpiod_get_array_optional(struct device *dev, const char *con_id,
 void devm_gpiod_put(struct device *dev, struct gpio_desc *desc);
 void devm_gpiod_put_array(struct device *dev, struct gpio_descs *descs);
 
+void __iomem *gpiod_avm_get_inputreg_and_bit(struct gpio_desc *desc, int *bit);
+
 int gpiod_get_direction(struct gpio_desc *desc);
 int gpiod_direction_input(struct gpio_desc *desc);
 int gpiod_direction_output(struct gpio_desc *desc, int value);
@@ -267,6 +269,12 @@ static inline void devm_gpiod_put_array(struct device *dev,
 	WARN_ON(1);
 }
 
+
+static inline void __iomem *gpiod_avm_get_inputreg_and_bit(struct gpio_desc *desc, int *bit) {
+	/* GPIO can never have been requested */
+	WARN_ON(1);
+	return -ENOSYS;
+}
 
 static inline int gpiod_get_direction(const struct gpio_desc *desc)
 {

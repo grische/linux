@@ -1,0 +1,15 @@
+#include "grx550_common.dtsi"
+#include "leds-hw226.dtsi"
+
+/ {
+	wwan {
+		compatible = "avm,wwan", "avm,gpio-aggregator";
+		gpios = <&gpio0 19 GPIO_ACTIVE_HIGH>,
+			<&gpio1 1 GPIO_ACTIVE_HIGH>,
+			<&gpio0 3 GPIO_ACTIVE_HIGH>,
+			<&gpio0 14 GPIO_ACTIVE_HIGH>;
+
+		gpio-line-names = "wwan_power", "wwan_reset", "wwan_disable",
+			"wwan_vctrl";
+	};
+};

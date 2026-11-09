@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+
+$id: http://devicetree.org/schemas/avm,gpio-panic-trigger.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Device-Tree bindings for GPIO synchronized panics on multiple CPUs
+
+maintainers:
+  - Johannes Nixdorf <j.nixdorf@avm.de>
+
+properties:
+  compatible:
+    const: avm,companion-panic
+
+  in-gpio:
+    description: The GPIO that will trigger a local panic
+    maxItems: 1
+
+  out-gpio:
+    description: The GPIO that will set to 1 on a local panic
+    maxItems: 1
+
+  avm,sync:
+    description: The timeout to wait for the other CPU to panic as well before
+      resetting. Disabled if missing or 0.
+    $ref: /schemas/types.yaml#/definitions/uint32
+
+  avm,default-disabled:
+    description: Whether the panic trigger starts disabled, and only gets
+      enabled by writing 1 to the enabled device property.
+    type: boolean
+
+required:
+  - compatible
+  - in-gpio
+  - out-gpio
+
+additionalProperties: false
+
+examples:
+  - |
+    companion-panic {
+        compatible = "avm,companion-panic";
+
+        in-gpio = <&tlmm 13 GPIO_ACTIVE_HIGH>; /* fm_panic */
+        out-gpio = <&tlmm 11 GPIO_ACTIVE_HIGH>; /* hk_panic */
+
+        avm,sync = <5000>;
+        avm,default-disabled;
+    };

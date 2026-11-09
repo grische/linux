@@ -19,6 +19,8 @@
  *	YOSHIFUJI Hideaki @USAGI: Remove ipv6_parse_exthdrs().
  */
 
+#define pr_fmt(fmt) "IPv6: " fmt
+
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/socket.h>
@@ -46,6 +48,8 @@
 #include <net/xfrm.h>
 #include <net/inet_ecn.h>
 #include <net/dst_metadata.h>
+
+#include <avm/pa/avm_pa.h>
 
 int ip6_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
@@ -403,4 +407,45 @@ out:
 	}
 
 	return 0;
+}
+
+static void ip6_avm_pa_transmit(void *arg, struct sk_buff *skb)
+{
+	/* We can safely pass NULL as sk parameter, it is just required
+	 * to be a valid netfilter hook. The initiator, ip6_input()
+	 * passes a NULL sock because it doesn't even know the socket yet.
+	 */
+	ip6_input_finish((struct net *) arg, NULL, skb);
+}
+
+static void __init ip6_avm_pa_register(void)
+{
+	struct avm_pa_dev_info *ip6_dev = AVM_PA_NET_IP6_DEVINFO(&init_net);
+	struct avm_pa_pid_cfg cfg = {0};
+	struct avm_pa_pid_ecfg ecfg = {0};
+
+	if (!ip6_dev)
+		return;
+
+	strlcpy(cfg.name, "ipv6", sizeof(cfg.name));
+	cfg.framing = avm_pa_framing_ipdev;
+	cfg.default_mtu = 0xffff;
+	cfg.tx_func = &ip6_avm_pa_transmit;
+	cfg.tx_arg = &init_net;
+
+	if (avm_pa_dev_pid_register(ip6_dev, &cfg) < 0) {
+		pr_err("failed to register avm_pa pid %s\n", cfg.name);
+		return;
+	}
+
+	/* ip6_input_finish() needs a valid IP6CB */
+	ecfg.version = AVM_PA_PID_ECFG_VERSION;
+	ecfg.cb_start = 0;
+	ecfg.cb_len = sizeof(struct inet6_skb_parm);
+	avm_pa_pid_set_ecfg(ip6_dev->pid_handle, &ecfg);
+}
+
+void __init ip6_input_init(void)
+{
+	ip6_avm_pa_register();
 }

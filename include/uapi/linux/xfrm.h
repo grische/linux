@@ -303,6 +303,10 @@ enum xfrm_attr_type_t {
 	XFRMA_PROTO,		/* __u8 */
 	XFRMA_ADDRESS_FILTER,	/* struct xfrm_address_filter */
 	XFRMA_PAD,
+	XFRMA_OFFLOAD_DEV,	/* struct xfrm_state_offload */
+	XFRMA_SET_MARK,		/* __u32 */
+	XFRMA_SET_MARK_MASK,	/* __u32 */
+	XFRMA_IF_ID,		/* __u32 */
 	__XFRMA_MAX
 
 #define XFRMA_MAX (__XFRMA_MAX - 1)
@@ -492,6 +496,11 @@ struct xfrm_address_filter {
 	__u16				family;
 	__u8				splen;
 	__u8				dplen;
+};
+
+struct xfrm_user_offload {
+	int				ifindex;
+	__u8				flags;
 };
 
 #ifndef __KERNEL__

@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/notifier.h>
 #include <uapi/linux/watchdog.h>
+#include <linux/notifier.h>
 
 struct watchdog_ops;
 struct watchdog_device;
@@ -27,6 +28,8 @@ struct watchdog_governor;
  * @start:	The routine for starting the watchdog device.
  * @stop:	The routine for stopping the watchdog device.
  * @ping:	The routine that sends a keepalive ping to the watchdog device.
+ * @avm_hw_ping: The routine that sends a keepalive ping to the watchdog device,
+ *              bypassing all locks and accessing the hw directly.
  * @status:	The routine that shows the status of the watchdog device.
  * @set_timeout:The routine for setting the watchdog devices timeout value (in seconds).
  * @set_pretimeout:The routine for setting the watchdog devices pretimeout.
@@ -46,6 +49,7 @@ struct watchdog_ops {
 	int (*stop)(struct watchdog_device *);
 	/* optional operations */
 	int (*ping)(struct watchdog_device *);
+	int (*avm_hw_ping)(struct watchdog_device *);
 	unsigned int (*status)(struct watchdog_device *);
 	int (*set_timeout)(struct watchdog_device *, unsigned int);
 	int (*set_pretimeout)(struct watchdog_device *, unsigned int);
@@ -198,7 +202,19 @@ static inline void watchdog_notify_pretimeout(struct watchdog_device *wdd)
 }
 #endif
 
-/* drivers/watchdog/watchdog_core.c */
+#if IS_ENABLED(CONFIG_AVM_WATCHDOG_SHIM_SUPPORT)
+int avm_watchdog_start(struct watchdog_device *wdd);
+int avm_watchdog_stop(struct watchdog_device *wdd);
+
+int watchdog_register_notifier(struct notifier_block *nb);
+#endif /* CONFIG_AVM_WATCHDOG_SHIM_SUPPORT */
+
+/* AVM: Watchdog notifier events */
+enum watchdog_notifier_action {
+	WATCHDOG_NOTIFY_ADD_DEVICE,
+	WATCHDOG_NOTIFY_DEL_DEVICE,
+};
+
 void watchdog_set_restart_priority(struct watchdog_device *wdd, int priority);
 extern int watchdog_init_timeout(struct watchdog_device *wdd,
 				  unsigned int timeout_parm, struct device *dev);

@@ -184,7 +184,7 @@ struct regmap *syscon_regmap_lookup_by_phandle(struct device_node *np,
 	if (property)
 		syscon_np = of_parse_phandle(np, property, 0);
 	else
-		syscon_np = np;
+		syscon_np = of_node_get(np);
 
 	if (!syscon_np)
 		return ERR_PTR(-ENODEV);

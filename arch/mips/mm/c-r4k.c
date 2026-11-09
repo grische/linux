@@ -39,6 +39,8 @@
 #include <asm/dma-coherence.h>
 #include <asm/mips-cm.h>
 
+#include <asm/avm_enh/check_cpu_features.h>
+
 /*
  * Bits describing what cache ops an SMP callback function may perform.
  *
@@ -472,6 +474,7 @@ static inline void local_r4k___flush_cache_all(void * args)
 	case CPU_R12000:
 	case CPU_R14000:
 	case CPU_R16000:
+	case CPU_INTERAPTIV:
 		/*
 		 * These caches are inclusive caches, that is, if something
 		 * is not cached in the S-cache, we know it also won't be
@@ -1083,7 +1086,7 @@ static inline void rm7k_erratum31(void)
 		__asm__ __volatile__ (
 			".set push\n\t"
 			".set noreorder\n\t"
-			".set mips3\n\t"
+			".set mips32r2\n\t"
 			"cache\t%1, 0(%0)\n\t"
 			"cache\t%1, 0x1000(%0)\n\t"
 			"cache\t%1, 0x2000(%0)\n\t"
@@ -1530,6 +1533,8 @@ static void probe_pcache(void)
 		c->icache.ways = 1;
 	}
 
+	avm_check_pcache_features();
+
 	printk("Primary instruction cache %ldkB, %s, %s, linesize %d bytes.\n",
 	       icache_size >> 10,
 	       c->icache.flags & MIPS_CACHE_VTAG ? "VIVT" : "VIPT",
@@ -1755,10 +1760,15 @@ static void setup_scache(void)
 			if (!(c->scache.flags & MIPS_CACHE_NOT_PRESENT))
 				panic("Dunno how to handle MIPS32 / MIPS64 second level cache");
 #endif
+
+			avm_check_scache_features(); //as MIPS_CPU_CACHE_CDEX_S was determined
+
 			return;
 		}
 		sc_present = 0;
 	}
+
+	avm_check_scache_features(); //in case we did not return above
 
 	if (!sc_present)
 		return;

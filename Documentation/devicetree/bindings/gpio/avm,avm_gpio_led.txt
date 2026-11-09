@@ -1,0 +1,11 @@
+avm_gpio-API using the led subsystem
+
+This provides an led trigger, that is controlled by the avm_gpio functions.
+
+Required properties:
+- compatible:		"avm,avm_gpio_led"
+
+Example of an avm_gpio node:
+	gpio_avm_led_power {
+		compatible = "avm,avm_gpio_led";
+	};

@@ -265,7 +265,7 @@ config SERIAL_SAMSUNG_UARTS
 	help
 	  Select the number of available UART ports for the Samsung S3C
 	  serial driver
-	
+
 config SERIAL_SAMSUNG_DEBUG
 	bool "Samsung SoC serial debug"
 	depends on SERIAL_SAMSUNG && DEBUG_LL
@@ -686,8 +686,8 @@ config PDC_CONSOLE
 	depends on PARISC && !SERIAL_MUX && VT
 	default n
 	help
-	  Saying Y here will enable the software based PDC console to be 
-	  used as the system console.  This is useful for machines in 
+	  Saying Y here will enable the software based PDC console to be
+	  used as the system console.  This is useful for machines in
 	  which the hardware based console has not been written yet.  The
 	  following steps must be completed to use the PDC console:
 
@@ -803,6 +803,17 @@ config SERIAL_CORE_CONSOLE
 config CONSOLE_POLL
 	bool
 
+config AVM_TTY_POLLING
+	bool "Support polling I/O for in-kernel users"
+	default y if AVM_PIGLET_DECT
+	select CONSOLE_POLL
+	help
+	  Enable polling support in tty drivers, bypassing the device files.
+	  This provides a synchronous interface for kernel code to directly access
+	  uart devices which have a driver that supports console polling.
+
+	  Currently, the avm piglet driver is the sole user of this interface.
+
 config SERIAL_MCF
 	bool "Coldfire serial support"
 	depends on COLDFIRE
@@ -874,7 +885,7 @@ config SERIAL_CPM
 	depends on CPM2 || CPM1
 	select SERIAL_CORE
 	help
-	  This driver supports the SCC and SMC serial ports on Motorola 
+	  This driver supports the SCC and SMC serial ports on Motorola
 	  embedded PowerPC that contain a CPM1 (8xx) or CPM2 (8xxx)
 
 config SERIAL_CPM_CONSOLE
@@ -1146,11 +1157,19 @@ config SERIAL_OMAP_CONSOLE
 
 config SERIAL_LANTIQ
 	bool "Lantiq serial driver"
-	depends on LANTIQ
 	select SERIAL_CORE
 	select SERIAL_CORE_CONSOLE
 	help
 	  Support for console and UART on Lantiq SoCs.
+
+config SERIAL_GRX500_BOOTCORE_CONSOLE
+        bool "Console on GRX500 TEP(grx500_bootcore) console"
+	depends on LANTIQ && SOC_TYPE_GRX500_TEP
+        select SERIAL_CORE
+        default n
+        select SERIAL_CORE_CONSOLE
+        help
+          Support for Console on Lantiq GRX500 TEP(grx500_bootcore) console.
 
 config SERIAL_QE
 	tristate "Freescale QUICC Engine serial port support"

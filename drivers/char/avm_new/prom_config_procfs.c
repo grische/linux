@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: GPL-2.0+
+#define pr_fmt(fmt) "[avm_prom_config] " fmt
+
+#include <linux/kernel.h>
+#include <linux/vmalloc.h>
+#include <linux/version.h>
+#include <linux/fs.h>
+#include <linux/proc_fs.h>
+#include <linux/uaccess.h>
+#include <linux/slab.h>
+#include <linux/debugfs.h>
+#include <linux/compiler.h>
+
+#include <avm/enh/prom_config.h>
+#include <avm/compat/proc_fs.h>
+#include "prom_config_internal.h"
+
+#ifdef DEBUG
+#  define prom_config_debug 1
+#else
+#  define prom_config_debug 0
+#endif
+
+static struct proc_dir_entry *calibprocdir;
+static struct dentry *debugfs_dir __maybe_unused;
+
+#define PROC_CALIBDIR "avm/calib"
+
+const char *const avm_prom_config_type_name[AVM_PROM_MAX_TYPE] = {
+	[AVM_PROM_WLAN]			= "wlan",
+	[AVM_PROM_DECT]			= "dect",
+	[AVM_PROM_WLAN2]		= "wlan2",
+	[AVM_PROM_ZERTIFIKATE]		= "zertifikate",
+	[AVM_PROM_DOCSIS]		= "docsis",
+	[AVM_PROM_DSL]			= "dsl",
+	[AVM_PROM_PROLIFIC]		= "prolific",
+	[AVM_PROM_WLAN_ZIP]		= "wlan_zip",
+	[AVM_PROM_WLAN2_ZIP]		= "wlan2_zip",
+	[AVM_PROM_ZERTIFIKATE2]		= "zertifikate2",
+	[AVM_PROM_ZERTIFIKATE3]		= "zertifikate3",
+	[AVM_PROM_ZERTIFIKATE4]		= "zertifikate4",
+	[AVM_PROM_FINAL]		= "final",
+	[AVM_PROM_PRODCERT1]		= "prodcert1",
+	[AVM_PROM_PRODCERT2]		= "prodcert2",
+	[AVM_PROM_PRODCERT3]		= "prodcert3",
+	[AVM_PROM_PRODCERT4]		= "prodcert4",
+	[AVM_PROM_PRODENV]		= "prodenv",
+	[AVM_PROM_WLAN3_ZIP]		= "wlan3_zip",
+	[AVM_PROM_WLAN3]		= "wlan3",
+	[AVM_PROM_AVMZERTIFIKATE]	= "avmzertifikate",
+	[AVM_PROM_LRWPAN]		= "lrwpan",
+	[AVM_PROM_DTB_OVERLAY]		= "dtb_overlay",
+	[AVM_PROM_FIBER]		= "fiber",
+	[AVM_PROM_FIBER_ZIP]		= "fiber_zip",
+	[AVM_PROM_WLAN4]		= "wlan4",
+	[AVM_PROM_WLAN4_ZIP]		= "wlan4_zip",
+};
+
+struct private_data {
+	void *buffer;
+	size_t size;
+};
+
+static int __avm_prom_config_open(enum avm_prom_config_type type,
+		struct inode *inode, struct file *file)
+{
+	struct private_data *data;
+	ssize_t ret;
+
+	WARN_ON(file->private_data);
+
+	data = kmalloc(sizeof(struct private_data), GFP_KERNEL);
+
+	if (!data)
+		return -ENOMEM;
+
+	ret = avm_prom_get_config_alloc(type, &data->buffer);
+	if (ret < 0) {
+		kfree(data);
+		return ret;
+	}
+
+	data->size = ret;
+
+	file->private_data = data;
+
+	return 0;
+}
+
+static int avm_prom_config_open_procfs(struct inode *inode, struct file *file)
+{
+	enum avm_prom_config_type type =
+		(enum avm_prom_config_type)pde_data(inode);
+
+	return __avm_prom_config_open(type, inode, file);
+}
+
+static int avm_prom_config_open_debugfs(struct inode *inode,
+					struct file *file) __maybe_unused;
+static int avm_prom_config_open_debugfs(struct inode *inode, struct file *file)
+{
+	enum avm_prom_config_type type =
+		(enum avm_prom_config_type)inode->i_private;
+
+	return __avm_prom_config_open(type, inode, file);
+}
+
+static ssize_t avm_prom_config_read(struct file *file, char __user *buf,
+				    size_t len, loff_t *ofs)
+{
+	struct private_data *data = file->private_data;
+
+	return simple_read_from_buffer(buf, len, ofs, data->buffer, data->size);
+}
+
+static loff_t avm_prom_config_lseek(struct file *file, loff_t offset, int origin)
+{
+	struct private_data *data = file->private_data;
+
+	return fixed_size_llseek(file, offset, origin, data->size);
+}
+
+static int avm_prom_config_release(struct inode *inode, struct file *file)
+{
+	struct private_data *data = file->private_data;
+
+	vfree(data->buffer);
+	kfree(data);
+
+	return 0;
+}
+
+static const struct proc_ops proc_ops = {
+	.proc_open = avm_prom_config_open_procfs,
+	.proc_read = avm_prom_config_read,
+	.proc_lseek = avm_prom_config_lseek,
+	.proc_release = avm_prom_config_release,
+};
+
+static const struct file_operations debugfs_fops __maybe_unused = {
+	.open = avm_prom_config_open_debugfs,
+	.read = avm_prom_config_read,
+	.release = avm_prom_config_release,
+};
+
+int avm_prom_create_config_proc(enum avm_prom_config_type type)
+{
+	if (!calibprocdir)
+		calibprocdir = proc_mkdir(PROC_CALIBDIR, NULL);
+
+	if (!calibprocdir) {
+		pr_err("%s: can't create %s\n", __func__, PROC_CALIBDIR);
+		return -ENOMEM;
+	}
+
+	proc_create_data(avm_prom_config_type_name[type], 0, calibprocdir,
+			&proc_ops, (void *)type);
+
+	return 0;
+}
+
+int avm_prom_create_config_debugfs(enum avm_prom_config_type type)
+{
+	if (!prom_config_debug)
+		return 0;
+
+	if (!debugfs_dir) {
+		struct dentry *d;
+
+		d = debugfs_create_dir("avm-prom", NULL);
+		if (IS_ERR_OR_NULL(d))
+			return 0;
+
+		debugfs_dir = d;
+	}
+
+	debugfs_create_file(avm_prom_config_type_name[type], 0444,
+			debugfs_dir, (void *)type, &debugfs_fops);
+
+	return 0;
+}

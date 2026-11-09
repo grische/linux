@@ -391,6 +391,10 @@ static void sctp_packet_set_owner_w(struct sk_buff *skb, struct sock *sk)
 	skb->sk = sk;
 	skb->destructor = sctp_packet_release_owner;
 
+#ifdef CONFIG_AVM_SK_TC_INDEX
+	skb->tc_index = sk->sk_tc_index;
+#endif
+
 	/*
 	 * The data chunks have already been accounted for in sctp_sendmsg(),
 	 * therefore only reserve a single byte to keep socket around until

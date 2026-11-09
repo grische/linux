@@ -330,8 +330,14 @@ static inline bool ipv6_accept_ra(struct inet6_dev *idev)
 	    idev->cnf.accept_ra;
 }
 
-#define IPV6_FRAG_HIGH_THRESH	(4 * 1024*1024)	/* 4194304 */
-#define IPV6_FRAG_LOW_THRESH	(3 * 1024*1024)	/* 3145728 */
+/* Fragmentsmack CVE-2018-5391 */
+#define IPV6_FRAG_HIGH_THRESH (256 * 1024)
+#define IPV6_FRAG_LOW_THRESH (192 * 1024)
+/*
+ * OLD default values
+ * #define IPV6_FRAG_HIGH_THRESH (4 * 1024*1024) 4194304
+ * #define IPV6_FRAG_LOW_THRESH  (3 * 1024*1024) 3145728
+ */
 #define IPV6_FRAG_TIMEOUT	(60 * HZ)	/* 60 seconds */
 
 int __ipv6_addr_type(const struct in6_addr *addr);
@@ -823,6 +829,7 @@ int ip6_xmit(const struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 
 int ip6_find_1stfragopt(struct sk_buff *skb, u8 **nexthdr);
 
+void ip6_input_init(void);
 int ip6_append_data(struct sock *sk,
 		    int getfrag(void *from, char *to, int offset, int len,
 				int odd, struct sk_buff *skb),

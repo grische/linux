@@ -91,6 +91,40 @@ __be32 __skb_flow_get_ports(const struct sk_buff *skb, int thoff, u8 ip_proto,
 }
 EXPORT_SYMBOL(__skb_flow_get_ports);
 
+static void
+__skb_flow_dissect_ipv4(const struct sk_buff *skb,
+			struct flow_dissector *flow_dissector,
+			void *target_container, void *data, const struct iphdr *iph)
+{
+	struct flow_dissector_key_ip *key_ip;
+
+	if (!dissector_uses_key(flow_dissector, FLOW_DISSECTOR_KEY_IP))
+		return;
+
+	key_ip = skb_flow_dissector_target(flow_dissector,
+					   FLOW_DISSECTOR_KEY_IP,
+					   target_container);
+	key_ip->tos = iph->tos;
+	key_ip->ttl = iph->ttl;
+}
+
+static void
+__skb_flow_dissect_ipv6(const struct sk_buff *skb,
+			struct flow_dissector *flow_dissector,
+			void *target_container, void *data, const struct ipv6hdr *iph)
+{
+	struct flow_dissector_key_ip *key_ip;
+
+	if (!dissector_uses_key(flow_dissector, FLOW_DISSECTOR_KEY_IP))
+		return;
+
+	key_ip = skb_flow_dissector_target(flow_dissector,
+					   FLOW_DISSECTOR_KEY_IP,
+					   target_container);
+	key_ip->tos = ipv6_get_dsfield(iph);
+	key_ip->ttl = iph->hop_limit;
+}
+
 /**
  * __skb_flow_dissect - extract the flow_keys struct and return it
  * @skb: sk_buff to extract the flow from, can be NULL if the rest are specified
@@ -120,7 +154,7 @@ bool __skb_flow_dissect(const struct sk_buff *skb,
 	struct flow_dissector_key_tags *key_tags;
 	struct flow_dissector_key_vlan *key_vlan;
 	struct flow_dissector_key_keyid *key_keyid;
-	bool skip_vlan = false;
+	enum flow_dissector_key_id dissector_vlan = FLOW_DISSECTOR_KEY_MAX;
 	u8 ip_proto = 0;
 	bool ret;
 
@@ -195,6 +229,9 @@ ip:
 			}
 		}
 
+		__skb_flow_dissect_ipv4(skb, flow_dissector,
+					target_container, data, iph);
+
 		if (flags & FLOW_DISSECTOR_F_STOP_AT_L3)
 			goto out_good;
 
@@ -242,6 +279,9 @@ ipv6:
 				goto out_good;
 		}
 
+		__skb_flow_dissect_ipv6(skb, flow_dissector,
+					target_container, data, iph);
+
 		if (flags & FLOW_DISSECTOR_F_STOP_AT_L3)
 			goto out_good;
 
@@ -249,32 +289,35 @@ ipv6:
 	}
 	case htons(ETH_P_8021AD):
 	case htons(ETH_P_8021Q): {
-		const struct vlan_hdr *vlan;
+		const struct vlan_hdr *vlan = NULL;
 		struct vlan_hdr _vlan;
-		bool vlan_tag_present = skb && skb_vlan_tag_present(skb);
+		__be16 saved_vlan_tpid = proto;
 
-		if (vlan_tag_present)
+		if (dissector_vlan == FLOW_DISSECTOR_KEY_MAX &&
+		    skb && skb_vlan_tag_present(skb)) {
 			proto = skb->protocol;
-
-		if (!vlan_tag_present || eth_type_vlan(skb->protocol)) {
+		} else {
 			vlan = __skb_header_pointer(skb, nhoff, sizeof(_vlan),
 						    data, hlen, &_vlan);
 			if (!vlan)
 				goto out_bad;
 			proto = vlan->h_vlan_encapsulated_proto;
 			nhoff += sizeof(*vlan);
-			if (skip_vlan)
-				goto again;
 		}
 
-		skip_vlan = true;
-		if (dissector_uses_key(flow_dissector,
-				       FLOW_DISSECTOR_KEY_VLAN)) {
+		if (dissector_vlan == FLOW_DISSECTOR_KEY_MAX) {
+			dissector_vlan = FLOW_DISSECTOR_KEY_VLAN;
+		} else if (dissector_vlan == FLOW_DISSECTOR_KEY_VLAN) {
+			dissector_vlan = FLOW_DISSECTOR_KEY_CVLAN;
+		} else
+			goto again;
+
+		if (dissector_uses_key(flow_dissector, dissector_vlan)) {
 			key_vlan = skb_flow_dissector_target(flow_dissector,
-							     FLOW_DISSECTOR_KEY_VLAN,
+							     dissector_vlan,
 							     target_container);
 
-			if (vlan_tag_present) {
+			if (!vlan) {
 				key_vlan->vlan_id = skb_vlan_tag_get_id(skb);
 				key_vlan->vlan_priority =
 					(skb_vlan_tag_get_prio(skb) >> VLAN_PRIO_SHIFT);
@@ -285,6 +328,7 @@ ipv6:
 					(ntohs(vlan->h_vlan_TCI) &
 					 VLAN_PRIO_MASK) >> VLAN_PRIO_SHIFT;
 			}
+			key_vlan->vlan_tpid = saved_vlan_tpid;
 		}
 
 		goto again;

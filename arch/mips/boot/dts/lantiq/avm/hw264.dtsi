@@ -1,0 +1,305 @@
+#include "prx_common.dtsi"
+
+/ {
+	model = "AVM FRITZ!Box EMS v2";
+};
+
+&qspi0 {
+	ltq-spinand@0 {
+		page-size = <4224>;
+	};
+};
+
+&i2c0_gpio {
+	ina226@40 {
+		compatible = "ti,ina226";
+		reg = <0x40>;
+		shunt-resistor = <10000>;
+	};
+};
+
+/ {
+	tdm {
+		compatible = "avm,ltq_tdm";
+
+		clocks = <&cgu0 PRX300_GCLK_TDM>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 52 IRQ_TYPE_LEVEL_HIGH>,
+			<GIC_SHARED 51 IRQ_TYPE_EDGE_RISING>;
+	};
+
+	yield {
+		compatible = "avm,yield";
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 0 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 1 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 2 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 3 IRQ_TYPE_EDGE_RISING>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_tdm &pinctrl_gpc0>;
+	};
+
+	bthelper {
+		compatible = "avm,bthelper";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 200 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 201 IRQ_TYPE_EDGE_RISING>;
+	};
+
+	/* Linux hat keine Beschreibung für Relays; die Relays 1 und 2 haben
+	 * aber auch jeweils eine LED und das DuT enthält sogar mehrere LEDs.
+	 * Daher beschreiben wir hier die LEDs. */
+	leds {
+		compatible = "gpio-leds";
+
+		dut_pwr {
+			gpios = <&ssogpio 7 GPIO_ACTIVE_HIGH>;
+		};
+
+		relay1 {
+			gpios = <&ssogpio 6 GPIO_ACTIVE_HIGH>;
+		};
+
+		relay2 {
+			gpios = <&ssogpio 5 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};
+
+&pinctrl {
+	pinctrl_gpc0: gpc0 {
+		intel,pins = <19>;
+		intel,function = "gpc0";
+		intel,mux = <EQBR_MUX_2>;
+		intel,groups = "gpc0";
+	};
+};
+
+&cb0phy0 {
+	status = "okay";
+	intel,mode = <1>; /*0-pcie, 1-xpcs*/
+};
+
+&eth {
+	status = "okay";
+
+	lan1: interface@1 {
+		status = "okay";
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <1>;
+		intel,dp-dev-port = <3>;
+		intel,dp-port-id = <3>;
+		mac = <&gsw_mac1>;
+		intel,lct-en = <0>;
+		intel,extra-subif = <0>;
+		avm,name = "switch0";
+		avm,macname = "macb";
+
+		ethernet@1 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <1>;
+			fixed-link {
+				speed = <2500>;
+				full-duplex;
+				pause;
+			};
+		};
+	};
+
+	wan: interface@5 {
+		status = "okay";
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <5>;
+		lantiq,wan = <1>;
+		intel,dp-dev-port = <2>;
+		intel,dp-port-id = <2>;
+		mac = <&gsw_mac0>;
+		intel,lct-en = <0>;
+		intel,extra-subif = <0>;
+		avm,name = "VANI0";
+		avm,macname = "macdsl";
+
+		ethernet@5 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <5>;
+			phy-mode = "rgmii";
+		};
+	};
+};
+
+/delete-node/ &vuni;
+
+&gsw_mac1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_mdio0>;
+};
+
+&pon_eth {
+	status = "disabled";
+};
+
+&pon_ptp0 {
+	status = "disabled";
+};
+
+&pon_ptp1 {
+	status = "disabled";
+};
+
+&ponmbox1 {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+
+	status = "okay";
+	resets = <&rcu0 0x10 28>;
+	reset-names = "ponip";
+};
+
+&wan_xpcs_phy {
+	status = "okay";
+};
+
+&wan_xpcs {
+	status = "okay";
+	xpcs-mode = <0>;
+};
+
+&lan_xpcs0 {
+	status = "okay";
+	xpcs-mode = <3>; /* <0> - 10G_KR_MODE, <1> - 10G_XAUI_MODE, <2> - 1G_XAUI_MODE, <3> - 2P5G_GMII_MODE */
+	xpcs-conn = <0>; /* <0> - SFP, <1> - PHY */
+};
+
+&pcie1 {
+	intel,rst-interval = <200>;
+	reset-gpio = <&ssogpio 1 GPIO_ACTIVE_LOW>;
+};
+
+/ {
+	avm-gpio {
+		compatible = "simple-bus";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_uart1>;
+
+		gpio_avm_led_power {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_wlan {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_fon {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_connect {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_info {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_info_red {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_button_wlan {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 29 GPIO_ACTIVE_LOW>;
+			avm,input;
+		};
+		gpio_avm_button_dect {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 6 GPIO_ACTIVE_LOW>;
+			avm,input;
+		};
+		gpio_avm_button_connect {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 12 GPIO_ACTIVE_LOW>;
+			avm,input;
+		};
+		gpio_avm_piglet_noemif_prog {
+			compatible = "avm,avm_gpio_generic";
+			value-gpio = <&gpio0 28 GPIO_ACTIVE_HIGH>;
+		};
+		gpio_avm_piglet_noemif_clk {
+			compatible = "avm,avm_gpio_generic";
+			value-gpio = <&gpio0 12 GPIO_ACTIVE_HIGH>;
+		};
+		gpio_avm_piglet_noemif_data {
+			compatible = "avm,avm_gpio_generic";
+			value-gpio = <&gpio0 13 GPIO_ACTIVE_HIGH>;
+		};
+		gpio_avm_piglet_noemif_done {
+			compatible = "avm,avm_gpio_generic";
+			value-gpio = <&gpio0 21 GPIO_ACTIVE_HIGH>;
+		};
+	};
+};
+
+&ssogpio {
+	status = "ok";
+
+	ngpios = <16>;
+	intel,sso-update-rate = <100000>;
+	intel,sso-shift-clk-freq = <3125000>;
+	pinctrl-0 = <&pinctrl_ledc>, <&pinctrl_sso_oe>;
+};
+
+&ssoled {
+       status = "okay";
+
+       led2 {
+	       label = "avm:red:info";
+	       led-gpio = <&ssogpio 10 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <10>;
+	       linux,default-trigger = "gpio_avm_led_info_red";
+       };
+       led3 {
+	       label = "avm:green:info";
+	       led-gpio = <&ssogpio 11 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <11>;
+	       linux,default-trigger = "gpio_avm_led_info";
+       };
+       led4 {
+	       label = "avm:green:power";
+	       led-gpio = <&ssogpio 12 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <12>;
+	       linux,default-trigger = "gpio_avm_led_power";
+       };
+       led5 {
+	       label = "avm:green:wlan";
+	       led-gpio = <&ssogpio 13 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <13>;
+	       linux,default-trigger = "gpio_avm_led_wlan";
+       };
+       led6 {
+	       label = "avm:green:fon";
+	       led-gpio = <&ssogpio 14 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <14>;
+	       linux,default-trigger = "gpio_avm_led_fon";
+       };
+       led7 {
+	       label = "avm:green:connect";
+	       led-gpio = <&ssogpio 15 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <15>;
+	       linux,default-trigger = "gpio_avm_led_connect";
+       };
+};
+
+&pinctrl_ledc {
+	status="ok";
+};
+
+&pinctrl {
+	pinctrl_sso_oe: pinctrl_sso_oe {
+		intel,pins =  <17>;
+		intel,function = "sso_oe";
+		intel,mux = <EQBR_MUX_0>;
+		intel,groups = "sso_oe";
+		intel,output = <0>;
+	};
+};

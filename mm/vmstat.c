@@ -61,6 +61,15 @@ void all_vm_events(unsigned long *ret)
 	put_online_cpus();
 }
 EXPORT_SYMBOL_GPL(all_vm_events);
+#if defined(CONFIG_AVM_POWER)
+/**
+ * unprotected - for bh/irq-context
+ */
+void __all_vm_events(unsigned long *ret)
+{
+	sum_vm_events(ret);
+}
+#endif
 
 /*
  * Fold the foreign cpu events into our own.
@@ -1796,10 +1805,12 @@ static int __init setup_vmstat(void)
 	cpu_notifier_register_done();
 #endif
 #ifdef CONFIG_PROC_FS
-	proc_create("buddyinfo", S_IRUGO, NULL, &fragmentation_file_operations);
+	if (!IS_ENABLED(CONFIG_PROC_STRIPPED)) {
+		proc_create("buddyinfo", S_IRUGO, NULL, &fragmentation_file_operations);
+		proc_create("zoneinfo", S_IRUGO, NULL, &proc_zoneinfo_file_operations);
+	}
 	proc_create("pagetypeinfo", 0400, NULL, &pagetypeinfo_file_ops);
 	proc_create("vmstat", S_IRUGO, NULL, &proc_vmstat_file_operations);
-	proc_create("zoneinfo", S_IRUGO, NULL, &proc_zoneinfo_file_operations);
 #endif
 	return 0;
 }

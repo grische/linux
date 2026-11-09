@@ -1,0 +1,50 @@
+#include "unodue.dtsi"
+
+/ {
+	model = "AVM FRITZ!Box 5530";
+};
+
+&cb0phy0 {
+	status = "okay";
+	intel,mode = <1>; /*0-pcie, 1-xpcs*/
+};
+
+&gsw_mac1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_mdio0>;
+};
+
+&eth {
+	status = "okay";
+
+	lan1: interface@1 {
+		status = "okay";
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <1>;
+		intel,dp-dev-port = <3>;
+		intel,dp-port-id = <3>;
+		mac = <&gsw_mac1>;
+		intel,lct-en = <0>;
+		intel,extra-subif = <0>;
+		avm,name = "switch0";
+		avm,macname = "macb";
+
+		ethernet@1 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <1>;
+			fixed-link {
+				speed = <2500>;
+				full-duplex;
+				pause;
+			};
+		};
+	};
+};
+
+&lan_xpcs0 {
+	status = "okay";
+	xpcs-mode = <3>; /* <0> - 10G_KR_MODE, <1> - 10G_XAUI_MODE, <2> - 1G_XAUI_MODE, <3> - 2P5G_GMII_MODE */
+	xpcs-conn = <0>; /* <0> - SFP, <1> - PHY */
+};

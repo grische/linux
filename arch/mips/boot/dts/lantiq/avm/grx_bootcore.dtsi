@@ -1,0 +1,67 @@
+/include/ "../xrx500_bootcore.dtsi"
+
+/ {
+	chosen {
+		bootargs = "console=ttyLTQ0,115200n8r root=/dev/ram rw loglevel=8";
+		linux,initrd-start = <0x0e000000>;
+		linux,initrd-end = <0x0e400000>; /* must be the kernel load address */
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0e000000 0x02000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		shm_rng_seed_mem: shm-rng-seed-mem@3dfb0000 {
+			reg = <0x3dfb0000 0x00001000>;
+		};
+
+		cpunet_mempool: cpunet-mempool@dfc0000 {
+			reg = <0x0dfc0000 0x00040000>;
+		};
+	};
+
+	shm-rng-seed@3dfb0000 {
+		compatible = "avm,shm-rng-seed";
+		memory-region = <&shm_rng_seed_mem>;
+		avm,write;
+	};
+
+	ssx0@1e000000 {
+		mps2mbx: mps2mbx@1201000 {
+			reg = <0x1201000 0x400>;
+		};
+
+		cpunet {
+			compatible = "avm,cpunet";
+			reg = <0x1107400 0x400>;
+			mailbox-rx = <&mps2mbx 0x100 0x100>;
+			mailbox-tx = <&mps2mbx 0x0 0x100>;
+			mempool-rx = <&cpunet_mempool 0x20000 0x20000>;
+			mempool-tx = <&cpunet_mempool 0x0 0x20000>;
+		};
+
+		eip123@0 {
+			compatible = "verimatrix,eip123";
+			reg = <0x0 0xfffff>;
+			intel,syscon = <&sysconf>;
+		};
+	};
+
+	ssx4@16000000 {
+		sysconf: chiptop@00080000 {
+			compatible = "lantiq,chiptop-grx500", "syscon", "simple-mfd";
+			reg = <0x80000 0x1000>;
+			#reset-cells = <1>;
+		};
+	};
+
+	avm,ngi-protection {
+		bootcore = <0x2e000000 0x02000000>;
+	};
+};

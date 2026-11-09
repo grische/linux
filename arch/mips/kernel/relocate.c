@@ -15,13 +15,19 @@
 #include <asm/setup.h>
 #include <asm/timex.h>
 #include <linux/elf.h>
+#include <linux/initrd.h>
 #include <linux/kernel.h>
 #include <linux/libfdt.h>
+#include <linux/mtd/avm_mtdram.h>
 #include <linux/of_fdt.h>
+#include <linux/random.h>
 #include <linux/sched.h>
 #include <linux/start_kernel.h>
 #include <linux/string.h>
 #include <linux/printk.h>
+#include <linux/shm-rng-seed.h>
+
+#include <avm/enh/fw_info.h>
 
 #define RELOCATED(x) ((void *)((long)x + offset))
 
@@ -83,7 +89,7 @@ static int __init apply_r_mips_26_rel(u32 *loc_orig, u32 *loc_new, long offset)
 
 	/* Original target address */
 	target_addr <<= 2;
-	target_addr += (unsigned long)loc_orig & ~0x03ffffff;
+	target_addr += (unsigned long)loc_orig & ~0x0fffffff;
 
 	/* Get the new target address */
 	target_addr += offset;
@@ -93,7 +99,7 @@ static int __init apply_r_mips_26_rel(u32 *loc_orig, u32 *loc_new, long offset)
 		return -ENOEXEC;
 	}
 
-	target_addr -= (unsigned long)loc_new & ~0x03ffffff;
+	target_addr -= (unsigned long)loc_new & ~0x0fffffff;
 	target_addr >>= 2;
 
 	*loc_new = (*loc_new & ~0x03ffffff) | (target_addr & 0x03ffffff);
@@ -204,6 +210,12 @@ static inline __init unsigned long get_random_boot(void)
 	/* Add in any runtime entropy we can get */
 	hash = rotate_xor(hash, &entropy, sizeof(entropy));
 
+	/* Add in entropy from the kernel rng, as it may already be
+	 * initialized from early sources.
+	 */
+	entropy = get_random_long();
+	hash = rotate_xor(hash, &entropy, sizeof(entropy));
+
 #if defined(CONFIG_USE_OF)
 	/* Get any additional entropy passed in device tree */
 	if (initial_boot_params) {
@@ -242,24 +254,90 @@ static inline __init bool kaslr_disabled(void)
 	return false;
 }
 
+static inline int __init relocation_addr_valid(void *loc_new)
+{
+	unsigned long kernel_length, text_length;
+
+	if ((unsigned long)loc_new & 0x0000ffff) {
+		/* Inappropriately aligned new location */
+		return 0;
+	}
+	kernel_length = (long)_end - (long)(&_text);
+	text_length = (long)(&_etext) - (long)(&_text);
+
+	/* only relocate to addresses that ensure R_MIPS_26 relocations work */
+	if (((unsigned long)loc_new & 0xf0000000) !=
+	    (((unsigned long)loc_new + text_length) & 0xf0000000)) {
+		pr_err("location is not R_MIPS_26 safe for 0x%p\n", loc_new);
+		return 0;
+	}
+
+	/* do not relocate into reserved space */
+	if (!early_init_dt_is_available_memory(__pa(loc_new), kernel_length)) {
+		pr_err("location overlaps with reserved memory for 0x%p\n", loc_new);
+		return 0;
+	}
+
+	/* do not relocate into the initrd */
+	if (initrd_start) {
+		if (!(initrd_end < (unsigned long)loc_new ||
+		      initrd_start >= (unsigned long)loc_new + kernel_length)) {
+			pr_err("location overlaps with the initrd for 0x%p\n", loc_new);
+			return 0;
+		}
+	}
+
+	/* do not overwrite our mtdram */
+	if (avm_mtdram_check_overlap(arcs_cmdline, __pa(loc_new), kernel_length)) {
+		pr_err("location overlaps with an mtdram for 0x%p\n", loc_new);
+		return 0;
+	}
+
+	/* enough space before kernel */
+	if ((unsigned long)loc_new + kernel_length < (unsigned long)&_text)
+		return 1;
+
+	/* behind the original kernel */
+	if ((unsigned long)loc_new > (unsigned long)&_end)
+		return 1;
+
+	/* New location overlaps original kernel */
+	pr_err("location overlaps with the old kernel for 0x%p\n", loc_new);
+	return 0;
+}
+
 static inline void __init *determine_relocation_address(void)
 {
 	/* Choose a new address for the kernel */
 	unsigned long kernel_length;
 	void *dest = &_text;
-	unsigned long offset;
+	unsigned long offset = 0;
+	int count = 10;
+
+	if (CONFIG_RANDOMIZE_BASE_MIN_ADDR != 0)
+		dest = (void *)CONFIG_RANDOMIZE_BASE_MIN_ADDR;
 
 	if (kaslr_disabled())
 		return dest;
 
 	kernel_length = (long)_end - (long)(&_text);
 
-	offset = get_random_boot() << 16;
-	offset &= (CONFIG_RANDOMIZE_BASE_MAX_OFFSET - 1);
-	if (offset < kernel_length)
-		offset += ALIGN(kernel_length, 0xffff);
+	do {
+		offset = get_random_boot() << 16;
+		offset &= (CONFIG_RANDOMIZE_BASE_MAX_OFFSET - 1);
 
-	return RELOCATED(dest);
+		if (relocation_addr_valid(RELOCATED(dest)))
+			return RELOCATED(dest);
+
+		pr_debug("Relocation by 0x%lX not possible\n", offset);
+	} while (--count);
+
+	if (dest == &_text)
+		pr_err("Relocation not possible, did not find a working offset\n");
+	else
+		pr_err("Relocation to fixed offset\n");
+
+	return dest;
 }
 
 #else
@@ -275,17 +353,24 @@ static inline void __init *determine_relocation_address(void)
 
 #endif
 
-static inline int __init relocation_addr_valid(void *loc_new)
+static void __init relocate_clear_old(void)
 {
-	if ((unsigned long)loc_new & 0x0000ffff) {
-		/* Inappropriately aligned new location */
-		return 0;
+	void *kernel_start = (void *)VMLINUX_LOAD_ADDRESS;
+	unsigned long kernel_length = (long)(&_relocation_start) - (long)(&_text);
+	u32 *cur;
+
+	if (kernel_start == &_text) {
+		start_kernel();
+		return;
 	}
-	if ((unsigned long)loc_new < (unsigned long)&_end) {
-		/* New location overlaps original kernel */
-		return 0;
-	}
-	return 1;
+
+	for (cur = kernel_start;
+	     (char *)cur < (char *)kernel_start + kernel_length;
+	     ++cur)
+		*cur = 0xdeadbeef;
+
+	start_kernel();
+	unreachable();
 }
 
 void *__init relocate_kernel(void)
@@ -297,10 +382,20 @@ void *__init relocate_kernel(void)
 	int res = 1;
 	/* Default to original kernel entry point */
 	void *kernel_entry = start_kernel;
+	bool avm_use_embedded_dtb = false;
 
 	/* Get the command line */
 	fw_init_cmdline();
 #if defined(CONFIG_USE_OF)
+	/*
+	 * DTB was passed via firmware info so simulate
+	 * it was passed from the firmware
+	 */
+	if (!fw_passed_dtb && avm_fw_embedded_dtb()) {
+		avm_use_embedded_dtb = true;
+		fw_passed_dtb = (unsigned long)avm_fw_embedded_dtb();
+	}
+
 	/* Deal with the device tree */
 	early_init_dt_scan(plat_get_fdt());
 	if (boot_command_line[0]) {
@@ -309,14 +404,14 @@ void *__init relocate_kernel(void)
 	}
 #endif /* CONFIG_USE_OF */
 
+	early_init_shm_rng_seed();
+
 	kernel_length = (long)(&_relocation_start) - (long)(&_text);
 	bss_length = (long)&__bss_stop - (long)&__bss_start;
 
 	loc_new = determine_relocation_address();
 
-	/* Sanity check relocation address */
-	if (relocation_addr_valid(loc_new))
-		offset = (unsigned long)loc_new - (unsigned long)(&_text);
+	offset = (unsigned long)loc_new - (unsigned long)(&_text);
 
 	/* Reset the command line now so we don't end up with a duplicate */
 	arcs_cmdline[0] = '\0';
@@ -337,6 +432,35 @@ void *__init relocate_kernel(void)
 		if (res < 0)
 			goto out;
 
+#ifdef CONFIG_USE_OF
+#ifdef CONFIG_MIPS_RAW_APPENDED_DTB
+		/*
+		 * The appended DTB is not copied above, as it is located after
+		 * "_relocation_start" (see vmlinux.lds.S)
+		 * Copy the dtb block (size as specified in lds) and update the
+		 * pointer "fw_passed_dtb". The copy of .bss will update the
+		 * variable at the new location later.
+		 */
+		memcpy((void *)fw_passed_dtb + offset, (void *)fw_passed_dtb,
+		       0x100000);
+		fw_passed_dtb += offset;
+
+		/*
+		 * Reset the cached pointer from fdt to ensure the new address
+		 * is retrieved again, instead of continuing with the original
+		 * address.
+		 */
+		initial_boot_params = NULL;
+#endif
+#endif
+
+		avm_fw_info_embed_relocate(offset);
+
+		if (avm_use_embedded_dtb) {
+			fw_passed_dtb = 0;
+			initial_boot_params = NULL;
+		}
+
 		/*
 		 * The original .bss has already been cleared, and
 		 * some variables such as command line parameters
@@ -348,7 +472,7 @@ void *__init relocate_kernel(void)
 		__current_thread_info = RELOCATED(&init_thread_union);
 
 		/* Return the new kernel's entry point */
-		kernel_entry = RELOCATED(start_kernel);
+		kernel_entry = RELOCATED(relocate_clear_old);
 	}
 out:
 	return kernel_entry;
@@ -359,11 +483,11 @@ out:
  */
 void show_kernel_relocation(const char *level)
 {
-	unsigned long offset;
+	long offset;
 
 	offset = __pa_symbol(_text) - __pa_symbol(VMLINUX_LOAD_ADDRESS);
 
-	if (IS_ENABLED(CONFIG_RELOCATABLE) && offset > 0) {
+	if (IS_ENABLED(CONFIG_RELOCATABLE) && offset != 0) {
 		printk(level);
 		pr_cont("Kernel relocated by 0x%pK\n", (void *)offset);
 		pr_cont(" .text @ 0x%pK\n", _text);

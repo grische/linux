@@ -39,6 +39,8 @@
 #include <asm/mipsmtregs.h>
 #include <asm/setup.h>
 
+#include <avm/power/power.h>
+
 static inline void unmask_mips_irq(struct irq_data *d)
 {
 	set_c0_status(0x100 << (d->irq - MIPS_CPU_IRQ_BASE));
@@ -104,6 +106,8 @@ asmlinkage void __weak plat_irq_dispatch(void)
 {
 	unsigned long pending = read_c0_cause() & read_c0_status() & ST0_IM;
 	int irq;
+
+	avm_cpu_wait_end(); /*--- auch wenn es r4k_wait_irqoff gibt: trotzdem aufrufen, um system-load-Ausgabe zu triggern  ---*/
 
 	if (!pending) {
 		spurious_interrupt();

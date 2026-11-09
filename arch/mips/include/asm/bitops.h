@@ -58,7 +58,7 @@ static inline void set_bit(unsigned long nr, volatile unsigned long *addr)
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		__asm__ __volatile__(
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"1:	" __LL "%0, %1			# set_bit	\n"
 		"	or	%0, %2					\n"
 		"	" __SC	"%0, %1					\n"
@@ -110,7 +110,7 @@ static inline void clear_bit(unsigned long nr, volatile unsigned long *addr)
 
 	if (kernel_uses_llsc && R10000_LLSC_WAR) {
 		__asm__ __volatile__(
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"1:	" __LL "%0, %1			# clear_bit	\n"
 		"	and	%0, %2					\n"
 		"	" __SC "%0, %1					\n"
@@ -176,7 +176,7 @@ static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 		unsigned long temp;
 
 		__asm__ __volatile__(
-		"	.set	arch=r4000			\n"
+		"	.set	arch=mips32r2			\n"
 		"1:	" __LL "%0, %1		# change_bit	\n"
 		"	xor	%0, %2				\n"
 		"	" __SC	"%0, %1				\n"
@@ -223,7 +223,7 @@ static inline int test_and_set_bit(unsigned long nr,
 		unsigned long temp;
 
 		__asm__ __volatile__(
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"1:	" __LL "%0, %1		# test_and_set_bit	\n"
 		"	or	%2, %0, %3				\n"
 		"	" __SC	"%2, %1					\n"
@@ -277,7 +277,7 @@ static inline int test_and_set_bit_lock(unsigned long nr,
 		unsigned long temp;
 
 		__asm__ __volatile__(
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"1:	" __LL "%0, %1		# test_and_set_bit	\n"
 		"	or	%2, %0, %3				\n"
 		"	" __SC	"%2, %1					\n"
@@ -332,7 +332,7 @@ static inline int test_and_clear_bit(unsigned long nr,
 		unsigned long temp;
 
 		__asm__ __volatile__(
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"1:	" __LL	"%0, %1		# test_and_clear_bit	\n"
 		"	or	%2, %0, %3				\n"
 		"	xor	%2, %3					\n"
@@ -406,7 +406,7 @@ static inline int test_and_change_bit(unsigned long nr,
 		unsigned long temp;
 
 		__asm__ __volatile__(
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"1:	" __LL	"%0, %1		# test_and_change_bit	\n"
 		"	xor	%2, %0, %3				\n"
 		"	" __SC	"%2, %1					\n"

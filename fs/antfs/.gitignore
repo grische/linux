@@ -1,0 +1,18 @@
+# Normal rules
+.*
+*.ko
+*.o
+*.o.*
+*.mod.c
+*.order
+modules.builtin
+Kbuild.target
+Module.symvers
+
+# Top level generic files
+/tags
+
+# git files we don't want to exclude
+!.gitignore
+!.githooks
+!.mailmap

@@ -1289,3 +1289,15 @@ int tick_check_oneshot_change(int allow_nohz)
 	tick_nohz_switch_to_nohz();
 	return 0;
 }
+#if defined(CONFIG_AVM_ENHANCED)
+/**
+ * export fuer FASTIRQ-/NMI-Handler
+ *
+ * tick_check_idle() kann leider nicht genommen werden, da dort u.U.
+ * ts->idle_active, ts->tick_stopped ausgewertet wird und dann evtl. kein Update erfolgt
+ */
+void avm_tick_jiffies_update(void)
+{
+    tick_do_update_jiffies64(ktime_get());
+}
+#endif
