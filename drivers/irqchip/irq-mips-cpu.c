@@ -39,6 +39,10 @@
 #include <asm/mipsmtregs.h>
 #include <asm/setup.h>
 
+#if defined(CONFIG_AVM_POWER)
+#include <avm/power/power.h>
+#endif /*--- #if defined(CONFIG_AVM_POWER) ---*/
+
 static inline void unmask_mips_irq(struct irq_data *d)
 {
 	set_c0_status(0x100 << (d->irq - MIPS_CPU_IRQ_BASE));
@@ -104,6 +108,10 @@ asmlinkage void __weak plat_irq_dispatch(void)
 {
 	unsigned long pending = read_c0_cause() & read_c0_status() & ST0_IM;
 	int irq;
+
+#if defined(CONFIG_AVM_POWER)
+	avm_cpu_wait_end(); /*--- auch wenn es r4k_wait_irqoff gibt: trotzdem aufrufen, um system-load-Ausgabe zu triggern  ---*/
+#endif /*--- #if defined(CONFIG_AVM_POWER)  ---*/
 
 	if (!pending) {
 		spurious_interrupt();

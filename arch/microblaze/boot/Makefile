@@ -32,4 +32,4 @@ $(obj)/simpleImage.%: vmlinux FORCE
 	$(call if_changed,uimage)
 	$(call if_changed,strip,.strip)
 
-clean-files += simpleImage.*.unstrip linux.bin.ub dts/*.dtb
+clean-files += simpleImage.*.unstrip linux.bin.ub

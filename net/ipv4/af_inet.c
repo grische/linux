@@ -121,7 +121,6 @@
 #endif
 #include <net/l3mdev.h>
 
-
 /* The inetsw table contains everything that inet_create needs to
  * build a new socket.
  */
@@ -1833,6 +1832,8 @@ static int __init inet_init(void)
 	 */
 
 	ip_init();
+
+	ip_input_init();
 
 	tcp_v4_init();
 

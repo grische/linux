@@ -25,6 +25,12 @@ menuconfig NET
 
 if NET
 
+config ETHERNET_PACKET_MANGLE
+	bool
+	help
+	  This option can be selected by phy drivers that need to mangle
+	  packets going in or out of an ethernet device.
+
 config WANT_COMPAT_NETLINK_MESSAGES
 	bool
 	help
@@ -53,10 +59,21 @@ config NET_EGRESS
 
 menu "Networking options"
 
+source "net/avm_pa/Kconfig"
 source "net/packet/Kconfig"
 source "net/unix/Kconfig"
 source "net/xfrm/Kconfig"
 source "net/iucv/Kconfig"
+source "net/mcast_helper/Kconfig"
+
+config AVM_RECV_HOOKS
+	bool "Module hooks in for received packets (AVM)"
+	depends on AVM_ENHANCED
+	default y
+	help
+	  This option enables the receive and early receive hooks for incoming
+	  packets (in netif_receive_skb()). These are required for kdsldsmod to
+	  do anything useful.
 
 config INET
 	bool "TCP/IP networking"
@@ -82,6 +99,49 @@ config INET
 
 	  Short answer: say Y.
 
+config UDP_REDIRECT
+	bool "Kernel Packet Interface for UDP re-direction"
+	help
+	  You can say Y here if you want to use hooks from kernel for
+	  UDP re-direction (KPI2UDP redirection)
+
+config INTEL_IPQOS
+	bool "IPQOS support"
+	help
+	  Intel IPQOS support
+
+config INTEL_IPQOS_MARK_SKBPRIO
+	bool "Will derive skb prio from nfmark(0-31) bits 6-9"
+	depends on INTEL_IPQOS
+	help
+	  Select this to to derive skb priority from nfmark.
+
+	  If unsure, say N.
+
+config INTEL_IPQOS_ACCEL_DISABLE
+	bool "IPQOS Accelration Disable Support"
+	depends on INTEL_IPQOS
+	help
+	  Enable/Disable 'PPA session learning' using bit 13 in EXTMARK
+
+	  If unsure  say N
+
+config INTEL_IPQOS_MPE_DS_ACCEL
+	bool "Support for DS Ingress QOS with MPE Acceleration"
+	depends on INTEL_IPQOS
+	help
+	  QOS Downstream MPE Acceleration Support
+
+	  If unsure, say N.
+
+config VLAN_8021Q_COPY_TO_EXTMARK
+	bool "Will copy 8021Q vlan-id and vlan-prio into extmark"
+	depends on VLAN_8021Q && NETWORK_EXTMARK
+	help
+	  Select this to copy 8021Q valn-id and vlan-prio into extmark.
+
+	  If unsure, say N.
+
 if INET
 source "net/ipv4/Kconfig"
 source "net/ipv6/Kconfig"
@@ -98,6 +158,13 @@ config NETWORK_SECMARK
 
 config NET_PTP_CLASSIFY
 	def_bool n
+
+config NETWORK_EXTMARK
+	bool "Extended Marking"
+	help
+	  This enables extended marking in sk_buff strucure. This is
+	  extension of nfmark.
+	  If you are unsure how to answer this question, answer N.
 
 config NETWORK_PHY_TIMESTAMPING
 	bool "Timestamping in PHY devices"
@@ -238,6 +305,7 @@ source "net/switchdev/Kconfig"
 source "net/l3mdev/Kconfig"
 source "net/qrtr/Kconfig"
 source "net/ncsi/Kconfig"
+source "net/l2nat/Kconfig"
 
 config RPS
 	bool
@@ -421,6 +489,18 @@ config MAY_USE_DEVLINK
 	  Drivers using the devlink infrastructure should have a dependency
 	  on MAY_USE_DEVLINK to ensure they do not cause link errors when
 	  devlink is a loadable module and the driver using it is built-in.
+
+config AVM_SK_TC_INDEX
+	bool "Store tc_index in struct sock"
+	depends on AVM_ENHANCED
+	depends on NET_SCHED
+	default y
+	help
+	  This allows application to store a tc_index in the socket via SIOCSET_TC_INDEX.
+	  Skbs arriving on this socket will inherit this.
+	  We need this to automatically give voice traffic better priority.
+
+	  Say y
 
 endif   # if NET
 

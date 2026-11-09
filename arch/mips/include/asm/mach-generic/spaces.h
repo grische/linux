@@ -22,10 +22,12 @@
 #endif
 
 #ifdef CONFIG_32BIT
+#ifndef CAC_BASE
 #ifdef CONFIG_KVM_GUEST
 #define CAC_BASE		_AC(0x40000000, UL)
 #else
 #define CAC_BASE		_AC(0x80000000, UL)
+#endif
 #endif
 #ifndef IO_BASE
 #define IO_BASE			_AC(0xa0000000, UL)
@@ -46,7 +48,7 @@
  * Memory above this physical address will be considered highmem.
  */
 #ifndef HIGHMEM_START
-#define HIGHMEM_START		_AC(0x20000000, UL)
+#define HIGHMEM_START _AC(0x10000000, UL)
 #endif
 
 #endif /* CONFIG_32BIT */

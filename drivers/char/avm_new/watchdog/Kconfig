@@ -1,0 +1,49 @@
+config AVM_WATCHDOG
+	bool "Watchdog support"
+	depends on AVM_SAMMEL
+	default n
+	help
+	  This driver provides the watchdog support.
+
+if AVM_WATCHDOG
+
+config AVM_WATCHDOG_SHIM
+	bool "Watchdog driver shim for standard watchdog drivers"
+	depends on AVM_WATCHDOG_SHIM_SUPPORT
+	help
+	  This watchdog sub-driver adds support for attaching the AVM ar7
+	  watchdog driver to any standard watchdog device driver supported by
+	  the watchdog core.
+
+config AVM_WATCHDOG_SHIM_LOCKUP_PANIC
+	bool "Panic on lockups"
+	default y
+	depends on AVM_WATCHDOG_SHIM
+	help
+	  Panic when the watchdog shim driver detects a lockup.  The driver
+	  will trigger backtraces on all cpus before doing so.
+
+	  Say Y here unless the kernel does the backtracing on its own, e.g.
+	  when the machine dies.
+
+config AVM_LOCKUP_DETECTOR
+	bool "NMI timer based lockup detector"
+	depends on AVM_WATCHDOG_SHIM
+	help
+	  Let the shim driver do lockup detection in the NMI handler, assuming
+	  the NMI is triggered periodically.
+
+	  Enable this if the watchdog device on the system does not support
+	  triggering an NMI, but an NMI-capable timer is available. It is up
+	  to the platform kernel to setup such a timer.
+
+if !AVM_WATCHDOG_SHIM
+config AVM_WATCHDOG_GRX500
+	def_bool y
+	depends on LANTIQ && SOC_GRX500
+config AVM_WATCHDOG_IFXMIPS
+	def_bool y
+	depends on LANTIQ && !SOC_GRX500
+endif
+
+endif

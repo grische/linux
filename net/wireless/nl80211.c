@@ -247,7 +247,7 @@ err:
 static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_WIPHY] = { .type = NLA_U32 },
 	[NL80211_ATTR_WIPHY_NAME] = { .type = NLA_NUL_STRING,
-				      .len = 20-1 },
+				      .len = 20 - 1 },
 	[NL80211_ATTR_WIPHY_TXQ_PARAMS] = { .type = NLA_NESTED },
 
 	[NL80211_ATTR_WIPHY_FREQ] = { .type = NLA_U32 },
@@ -265,14 +265,15 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 
 	[NL80211_ATTR_IFTYPE] = { .type = NLA_U32 },
 	[NL80211_ATTR_IFINDEX] = { .type = NLA_U32 },
-	[NL80211_ATTR_IFNAME] = { .type = NLA_NUL_STRING, .len = IFNAMSIZ-1 },
+	[NL80211_ATTR_IFNAME] = { .type = NLA_NUL_STRING, .len = IFNAMSIZ - 1 },
 
 	[NL80211_ATTR_MAC] = { .len = ETH_ALEN },
 	[NL80211_ATTR_PREV_BSSID] = { .len = ETH_ALEN },
 
-	[NL80211_ATTR_KEY] = { .type = NLA_NESTED, },
-	[NL80211_ATTR_KEY_DATA] = { .type = NLA_BINARY,
-				    .len = WLAN_MAX_KEY_LEN },
+	[NL80211_ATTR_KEY] = {
+		.type = NLA_NESTED,
+	},
+	[NL80211_ATTR_KEY_DATA] = { .type = NLA_BINARY, .len = WLAN_MAX_KEY_LEN },
 	[NL80211_ATTR_KEY_IDX] = { .type = NLA_U8 },
 	[NL80211_ATTR_KEY_CIPHER] = { .type = NLA_U32 },
 	[NL80211_ATTR_KEY_DEFAULT] = { .type = NLA_FLAG },
@@ -281,22 +282,18 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 
 	[NL80211_ATTR_BEACON_INTERVAL] = { .type = NLA_U32 },
 	[NL80211_ATTR_DTIM_PERIOD] = { .type = NLA_U32 },
-	[NL80211_ATTR_BEACON_HEAD] = { .type = NLA_BINARY,
-				       .len = IEEE80211_MAX_DATA_LEN },
-	[NL80211_ATTR_BEACON_TAIL] = { .type = NLA_BINARY,
-				       .len = IEEE80211_MAX_DATA_LEN },
+	[NL80211_ATTR_BEACON_HEAD] = { .type = NLA_BINARY, .len = IEEE80211_MAX_DATA_LEN },
+	[NL80211_ATTR_BEACON_TAIL] = { .type = NLA_BINARY, .len = IEEE80211_MAX_DATA_LEN },
 	[NL80211_ATTR_STA_AID] = { .type = NLA_U16 },
+	[NL80211_ATTR_STA_RSSI] = { .type = NLA_U32 },
 	[NL80211_ATTR_STA_FLAGS] = { .type = NLA_NESTED },
 	[NL80211_ATTR_STA_LISTEN_INTERVAL] = { .type = NLA_U16 },
-	[NL80211_ATTR_STA_SUPPORTED_RATES] = { .type = NLA_BINARY,
-					       .len = NL80211_MAX_SUPP_RATES },
+	[NL80211_ATTR_STA_SUPPORTED_RATES] = { .type = NLA_BINARY, .len = NL80211_MAX_SUPP_RATES },
 	[NL80211_ATTR_STA_PLINK_ACTION] = { .type = NLA_U8 },
 	[NL80211_ATTR_STA_VLAN] = { .type = NLA_U32 },
 	[NL80211_ATTR_MNTR_FLAGS] = { /* NLA_NESTED can't be empty */ },
-	[NL80211_ATTR_MESH_ID] = { .type = NLA_BINARY,
-				   .len = IEEE80211_MAX_MESH_ID_LEN },
-	[NL80211_ATTR_MPATH_NEXT_HOP] = { .type = NLA_BINARY,
-					  .len = ETH_ALEN },
+	[NL80211_ATTR_MESH_ID] = { .type = NLA_BINARY, .len = IEEE80211_MAX_MESH_ID_LEN },
+	[NL80211_ATTR_MPATH_NEXT_HOP] = { .type = NLA_BINARY, .len = ETH_ALEN },
 
 	[NL80211_ATTR_REG_ALPHA2] = { .type = NLA_STRING, .len = 2 },
 	[NL80211_ATTR_REG_RULES] = { .type = NLA_NESTED },
@@ -304,8 +301,7 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_BSS_CTS_PROT] = { .type = NLA_U8 },
 	[NL80211_ATTR_BSS_SHORT_PREAMBLE] = { .type = NLA_U8 },
 	[NL80211_ATTR_BSS_SHORT_SLOT_TIME] = { .type = NLA_U8 },
-	[NL80211_ATTR_BSS_BASIC_RATES] = { .type = NLA_BINARY,
-					   .len = NL80211_MAX_SUPP_RATES },
+	[NL80211_ATTR_BSS_BASIC_RATES] = { .type = NLA_BINARY, .len = NL80211_MAX_SUPP_RATES },
 	[NL80211_ATTR_BSS_HT_OPMODE] = { .type = NLA_U16 },
 
 	[NL80211_ATTR_MESH_CONFIG] = { .type = NLA_NESTED },
@@ -314,13 +310,11 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_HT_CAPABILITY] = { .len = NL80211_HT_CAPABILITY_LEN },
 
 	[NL80211_ATTR_MGMT_SUBTYPE] = { .type = NLA_U8 },
-	[NL80211_ATTR_IE] = { .type = NLA_BINARY,
-			      .len = IEEE80211_MAX_DATA_LEN },
+	[NL80211_ATTR_IE] = { .type = NLA_BINARY, .len = IEEE80211_MAX_DATA_LEN },
 	[NL80211_ATTR_SCAN_FREQUENCIES] = { .type = NLA_NESTED },
 	[NL80211_ATTR_SCAN_SSIDS] = { .type = NLA_NESTED },
 
-	[NL80211_ATTR_SSID] = { .type = NLA_BINARY,
-				.len = IEEE80211_MAX_SSID_LEN },
+	[NL80211_ATTR_SSID] = { .type = NLA_BINARY, .len = IEEE80211_MAX_SSID_LEN },
 	[NL80211_ATTR_AUTH_TYPE] = { .type = NLA_U32 },
 	[NL80211_ATTR_REASON_CODE] = { .type = NLA_U16 },
 	[NL80211_ATTR_FREQ_FIXED] = { .type = NLA_FLAG },
@@ -342,11 +336,14 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_DURATION] = { .type = NLA_U32 },
 	[NL80211_ATTR_COOKIE] = { .type = NLA_U64 },
 	[NL80211_ATTR_TX_RATES] = { .type = NLA_NESTED },
-	[NL80211_ATTR_FRAME] = { .type = NLA_BINARY,
-				 .len = IEEE80211_MAX_DATA_LEN },
-	[NL80211_ATTR_FRAME_MATCH] = { .type = NLA_BINARY, },
+	[NL80211_ATTR_FRAME] = { .type = NLA_BINARY, .len = IEEE80211_MAX_DATA_LEN },
+	[NL80211_ATTR_FRAME_MATCH] = {
+		.type = NLA_BINARY,
+	},
 	[NL80211_ATTR_PS_STATE] = { .type = NLA_U32 },
-	[NL80211_ATTR_CQM] = { .type = NLA_NESTED, },
+	[NL80211_ATTR_CQM] = {
+		.type = NLA_NESTED,
+	},
 	[NL80211_ATTR_LOCAL_STATE_CHANGE] = { .type = NLA_FLAG },
 	[NL80211_ATTR_AP_ISOLATE] = { .type = NLA_U8 },
 	[NL80211_ATTR_WIPHY_TX_POWER_SETTING] = { .type = NLA_U32 },
@@ -365,10 +362,8 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_REKEY_DATA] = { .type = NLA_NESTED },
 	[NL80211_ATTR_SCAN_SUPP_RATES] = { .type = NLA_NESTED },
 	[NL80211_ATTR_HIDDEN_SSID] = { .type = NLA_U32 },
-	[NL80211_ATTR_IE_PROBE_RESP] = { .type = NLA_BINARY,
-					 .len = IEEE80211_MAX_DATA_LEN },
-	[NL80211_ATTR_IE_ASSOC_RESP] = { .type = NLA_BINARY,
-					 .len = IEEE80211_MAX_DATA_LEN },
+	[NL80211_ATTR_IE_PROBE_RESP] = { .type = NLA_BINARY, .len = IEEE80211_MAX_DATA_LEN },
+	[NL80211_ATTR_IE_ASSOC_RESP] = { .type = NLA_BINARY, .len = IEEE80211_MAX_DATA_LEN },
 	[NL80211_ATTR_ROAM_SUPPORT] = { .type = NLA_FLAG },
 	[NL80211_ATTR_SCHED_SCAN_MATCH] = { .type = NLA_NESTED },
 	[NL80211_ATTR_TX_NO_CCK_RATE] = { .type = NLA_FLAG },
@@ -379,36 +374,38 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_TDLS_EXTERNAL_SETUP] = { .type = NLA_FLAG },
 	[NL80211_ATTR_TDLS_INITIATOR] = { .type = NLA_FLAG },
 	[NL80211_ATTR_DONT_WAIT_FOR_ACK] = { .type = NLA_FLAG },
-	[NL80211_ATTR_PROBE_RESP] = { .type = NLA_BINARY,
-				      .len = IEEE80211_MAX_DATA_LEN },
+	[NL80211_ATTR_PROBE_RESP] = { .type = NLA_BINARY, .len = IEEE80211_MAX_DATA_LEN },
 	[NL80211_ATTR_DFS_REGION] = { .type = NLA_U8 },
 	[NL80211_ATTR_DISABLE_HT] = { .type = NLA_FLAG },
-	[NL80211_ATTR_HT_CAPABILITY_MASK] = {
-		.len = NL80211_HT_CAPABILITY_LEN
-	},
+	[NL80211_ATTR_HT_CAPABILITY_MASK] = { .len = NL80211_HT_CAPABILITY_LEN },
 	[NL80211_ATTR_NOACK_MAP] = { .type = NLA_U16 },
 	[NL80211_ATTR_INACTIVITY_TIMEOUT] = { .type = NLA_U16 },
 	[NL80211_ATTR_BG_SCAN_PERIOD] = { .type = NLA_U16 },
 	[NL80211_ATTR_WDEV] = { .type = NLA_U64 },
 	[NL80211_ATTR_USER_REG_HINT_TYPE] = { .type = NLA_U32 },
-	[NL80211_ATTR_SAE_DATA] = { .type = NLA_BINARY, },
+	[NL80211_ATTR_SAE_DATA] = {
+		.type = NLA_BINARY,
+	},
 	[NL80211_ATTR_VHT_CAPABILITY] = { .len = NL80211_VHT_CAPABILITY_LEN },
 	[NL80211_ATTR_SCAN_FLAGS] = { .type = NLA_U32 },
 	[NL80211_ATTR_P2P_CTWINDOW] = { .type = NLA_U8 },
 	[NL80211_ATTR_P2P_OPPPS] = { .type = NLA_U8 },
-	[NL80211_ATTR_LOCAL_MESH_POWER_MODE] = {. type = NLA_U32 },
-	[NL80211_ATTR_ACL_POLICY] = {. type = NLA_U32 },
+	[NL80211_ATTR_LOCAL_MESH_POWER_MODE] = { .type = NLA_U32 },
+	[NL80211_ATTR_ACL_POLICY] = { .type = NLA_U32 },
 	[NL80211_ATTR_MAC_ADDRS] = { .type = NLA_NESTED },
 	[NL80211_ATTR_STA_CAPABILITY] = { .type = NLA_U16 },
-	[NL80211_ATTR_STA_EXT_CAPABILITY] = { .type = NLA_BINARY, },
-	[NL80211_ATTR_SPLIT_WIPHY_DUMP] = { .type = NLA_FLAG, },
+	[NL80211_ATTR_STA_EXT_CAPABILITY] = {
+		.type = NLA_BINARY,
+	},
+	[NL80211_ATTR_SPLIT_WIPHY_DUMP] = {
+		.type = NLA_FLAG,
+	},
 	[NL80211_ATTR_DISABLE_VHT] = { .type = NLA_FLAG },
 	[NL80211_ATTR_VHT_CAPABILITY_MASK] = {
 		.len = NL80211_VHT_CAPABILITY_LEN,
 	},
 	[NL80211_ATTR_MDID] = { .type = NLA_U16 },
-	[NL80211_ATTR_IE_RIC] = { .type = NLA_BINARY,
-				  .len = IEEE80211_MAX_DATA_LEN },
+	[NL80211_ATTR_IE_RIC] = { .type = NLA_BINARY, .len = IEEE80211_MAX_DATA_LEN },
 	[NL80211_ATTR_CRIT_PROT_ID] = { .type = NLA_U16 },
 	[NL80211_ATTR_MAX_CRIT_PROT_DURATION] = { .type = NLA_U16 },
 	[NL80211_ATTR_PEER_AID] = { .type = NLA_U16 },
@@ -424,8 +421,8 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_VENDOR_ID] = { .type = NLA_U32 },
 	[NL80211_ATTR_VENDOR_SUBCMD] = { .type = NLA_U32 },
 	[NL80211_ATTR_VENDOR_DATA] = { .type = NLA_BINARY },
-	[NL80211_ATTR_QOS_MAP] = { .type = NLA_BINARY,
-				   .len = IEEE80211_QOS_MAP_LEN_MAX },
+	[NL80211_ATTR_QOS_MAP] = { .type = NLA_BINARY, .len = IEEE80211_QOS_MAP_LEN_MAX },
+	[NL80211_ATTR_VENDOR_WDS] = { .type = NLA_U32 },
 	[NL80211_ATTR_MAC_HINT] = { .len = ETH_ALEN },
 	[NL80211_ATTR_WIPHY_FREQ_HINT] = { .type = NLA_U32 },
 	[NL80211_ATTR_TDLS_PEER_CAPABILITY] = { .type = NLA_U32 },
@@ -445,9 +442,7 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_PBSS] = { .type = NLA_FLAG },
 	[NL80211_ATTR_BSS_SELECT] = { .type = NLA_NESTED },
 	[NL80211_ATTR_STA_SUPPORT_P2P_PS] = { .type = NLA_U8 },
-	[NL80211_ATTR_MU_MIMO_GROUP_DATA] = {
-		.len = VHT_MUMIMO_GROUPS_DATA_LEN
-	},
+	[NL80211_ATTR_MU_MIMO_GROUP_DATA] = { .len = VHT_MUMIMO_GROUPS_DATA_LEN },
 	[NL80211_ATTR_MU_MIMO_FOLLOW_MAC_ADDR] = { .len = ETH_ALEN },
 	[NL80211_ATTR_NAN_MASTER_PREF] = { .type = NLA_U8 },
 	[NL80211_ATTR_NAN_DUAL] = { .type = NLA_U8 },
@@ -4261,6 +4256,7 @@ static int nl80211_send_station(struct sk_buff *msg, u32 cmd, u32 portid,
 
 	PUT_SINFO(CONNECTED_TIME, connected_time, u32);
 	PUT_SINFO(INACTIVE_TIME, inactive_time, u32);
+	PUT_SINFO(MAX_RSSI, max_rssi, u32);
 
 	if (sinfo->filled & (BIT(NL80211_STA_INFO_RX_BYTES) |
 			     BIT(NL80211_STA_INFO_RX_BYTES64)) &&
@@ -4938,6 +4934,9 @@ static int nl80211_new_station(struct sk_buff *skb, struct genl_info *info)
 	    !info->attrs[NL80211_ATTR_PEER_AID])
 		return -EINVAL;
 
+	if (info->attrs[NL80211_ATTR_STA_RSSI])
+		params.rssi = nla_get_u32(info->attrs[NL80211_ATTR_STA_RSSI]);
+
 	mac_addr = nla_data(info->attrs[NL80211_ATTR_MAC]);
 	params.supported_rates =
 		nla_data(info->attrs[NL80211_ATTR_STA_SUPPORTED_RATES]);
@@ -4945,6 +4944,11 @@ static int nl80211_new_station(struct sk_buff *skb, struct genl_info *info)
 		nla_len(info->attrs[NL80211_ATTR_STA_SUPPORTED_RATES]);
 	params.listen_interval =
 		nla_get_u16(info->attrs[NL80211_ATTR_STA_LISTEN_INTERVAL]);
+
+	if (info->attrs[NL80211_ATTR_FRAME]) {
+		params.resp = nla_data(info->attrs[NL80211_ATTR_FRAME]);
+		params.resp_len = nla_len(info->attrs[NL80211_ATTR_FRAME]);
+	}
 
 	if (info->attrs[NL80211_ATTR_STA_SUPPORT_P2P_PS]) {
 		u8 tmp;
@@ -7262,33 +7266,51 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 	unsigned int cac_time_ms;
 	int err;
 
+	pr_debug("Starting radar detection\n");
+
 	dfs_region = reg_get_dfs_region(wdev->wiphy);
-	if (dfs_region == NL80211_DFS_UNSET)
+	if (dfs_region == NL80211_DFS_UNSET) {
+		pr_debug("DFS master region not specified\n");
 		return -EINVAL;
+	}
 
 	err = nl80211_parse_chandef(rdev, info, &chandef);
-	if (err)
+	if (err) {
+		pr_debug("Could not parse the channel definition\n");
 		return err;
+	}
 
-	if (netif_carrier_ok(dev))
+	if (netif_carrier_ok(dev)) {
+		pr_debug("Carrier isn't present on device\n");
 		return -EBUSY;
+	}
 
-	if (wdev->cac_started)
+	if (wdev->cac_started) {
+		pr_debug("CAC already started\n");
 		return -EBUSY;
+	}
 
 	err = cfg80211_chandef_dfs_required(wdev->wiphy, &chandef,
 					    wdev->iftype);
-	if (err < 0)
+	if (err < 0) {
+		pr_debug("Error looking for DFS-required channels\n");
 		return err;
+	}
 
-	if (err == 0)
+	if (err == 0) {
+		pr_debug("No DFS-required channels found\n");
 		return -EINVAL;
+	}
 
-	if (!cfg80211_chandef_dfs_usable(wdev->wiphy, &chandef))
+	if (!cfg80211_chandef_dfs_usable(wdev->wiphy, &chandef)) {
+		pr_debug("Channels are not all in DFS_USABLE state\n");
 		return -EINVAL;
+	}
 
-	if (!rdev->ops->start_radar_detection)
+	if (!rdev->ops->start_radar_detection) {
+		pr_debug("Device does not support radar detection\n");
 		return -EOPNOTSUPP;
+	}
 
 	cac_time_ms = cfg80211_chandef_dfs_cac_time(&rdev->wiphy, &chandef);
 	if (WARN_ON(!cac_time_ms))
@@ -7300,7 +7322,10 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 		wdev->cac_started = true;
 		wdev->cac_start_time = jiffies;
 		wdev->cac_time_ms = cac_time_ms;
+	} else {
+		pr_debug("Start radar detection in device failed\n");
 	}
+
 	return err;
 }
 
@@ -7438,6 +7463,12 @@ skip_beacons:
 	err = nl80211_parse_chandef(rdev, info, &params.chandef);
 	if (err)
 		return err;
+
+	if (info->attrs[NL80211_ATTR_SB_DFS_BW])
+		params.sb_dfs_bw = nla_get_u8(info->attrs[NL80211_ATTR_SB_DFS_BW]);
+
+	if (params.sb_dfs_bw)
+		cfg80211_set_dfs_state(&rdev->wiphy, &params.chandef, NL80211_DFS_AVAILABLE);
 
 	if (!cfg80211_reg_can_beacon_relax(&rdev->wiphy, &params.chandef,
 					   wdev->iftype))
@@ -8013,6 +8044,10 @@ static int nl80211_associate(struct sk_buff *skb, struct genl_info *info)
 			req.use_mfp = true;
 		else if (mfp != NL80211_MFP_NO)
 			return -EINVAL;
+	}
+
+	if (info->attrs[NL80211_ATTR_VENDOR_WDS]) {
+		req.vendor_wds = nla_get_u32(info->attrs[NL80211_ATTR_VENDOR_WDS]);
 	}
 
 	if (info->attrs[NL80211_ATTR_PREV_BSSID])
@@ -14093,11 +14128,11 @@ void cfg80211_ch_switch_started_notify(struct net_device *dev,
 }
 EXPORT_SYMBOL(cfg80211_ch_switch_started_notify);
 
-void
-nl80211_radar_notify(struct cfg80211_registered_device *rdev,
-		     const struct cfg80211_chan_def *chandef,
-		     enum nl80211_radar_event event,
-		     struct net_device *netdev, gfp_t gfp)
+void nl80211_radar_notify(struct cfg80211_registered_device *rdev,
+			  const struct cfg80211_chan_def *chandef,
+			  enum nl80211_radar_event event,
+			  struct net_device *netdev,
+			  u8 radar_bit_map, gfp_t gfp)
 {
 	struct sk_buff *msg;
 	void *hdr;
@@ -14131,6 +14166,12 @@ nl80211_radar_notify(struct cfg80211_registered_device *rdev,
 	if (nl80211_send_chandef(msg, chandef))
 		goto nla_put_failure;
 
+	if (radar_bit_map) {
+		if (NL80211_RADAR_DETECTED == event &&
+		    nla_put_u8(msg, NL80211_ATTR_RADAR_BIT_MAP, radar_bit_map))
+			goto nla_put_failure;
+	}
+
 	genlmsg_end(msg, hdr);
 
 	genlmsg_multicast_netns(&nl80211_fam, wiphy_net(&rdev->wiphy), msg, 0,
@@ -14141,6 +14182,7 @@ nl80211_radar_notify(struct cfg80211_registered_device *rdev,
 	genlmsg_cancel(msg, hdr);
 	nlmsg_free(msg);
 }
+EXPORT_SYMBOL(nl80211_radar_notify);
 
 void cfg80211_probe_status(struct net_device *dev, const u8 *addr,
 			   u64 cookie, bool acked, gfp_t gfp)

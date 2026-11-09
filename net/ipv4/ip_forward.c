@@ -39,6 +39,8 @@
 #include <net/route.h>
 #include <net/xfrm.h>
 
+#include <avm/pa/avm_pa.h>
+
 static bool ip_exceeds_mtu(const struct sk_buff *skb, unsigned int mtu)
 {
 	if (skb->len <= mtu)
@@ -70,6 +72,8 @@ static int ip_forward_finish(struct net *net, struct sock *sk, struct sk_buff *s
 
 	if (unlikely(opt->optlen))
 		ip_forward_options(skb);
+
+	avm_pa_mark_routed(skb);
 
 	return dst_output(net, sk, skb);
 }

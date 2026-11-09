@@ -162,6 +162,8 @@ struct mii_bus {
 	void *priv;
 	int (*read)(struct mii_bus *bus, int addr, int regnum);
 	int (*write)(struct mii_bus *bus, int addr, int regnum, u16 val);
+	int (*mmd_read)(struct mii_bus *bus, int addr, int regnum, int devad);
+	int (*mmd_write)(struct mii_bus *bus, int addr, int regnum, int devad, u16 val);
 	int (*reset)(struct mii_bus *bus);
 
 	/*
@@ -348,6 +350,8 @@ struct phy_c45_device_ids {
  * speed, duplex, pause, supported, advertising, lp_advertising,
  * and autoneg are used like in mii_if_info
  *
+ * port is the current port
+ *
  * interrupts currently only supports enabled or disabled,
  * but could be changed in the future to support enabling
  * and disabling specific interrupts
@@ -384,6 +388,7 @@ struct phy_device {
 	 */
 	int speed;
 	int duplex;
+	int port;
 	int pause;
 	int asym_pause;
 
@@ -398,6 +403,14 @@ struct phy_device {
 	u32 supported;
 	u32 advertising;
 	u32 lp_advertising;
+
+	/* Extended 64-bit support flag. These are added to add ethtool
+	 * support for 2.5GBaseT. Starting from linux 4.14, we may be
+	 * able to discard this, and use phylink support instead.
+	 */
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(extended_supported);
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(extended_advertising);
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(extended_lp_advertising);
 
 	/* Energy efficient ethernet modes which should be prohibited */
 	u32 eee_broken_modes;
@@ -426,6 +439,7 @@ struct phy_device {
 	struct net_device *attached_dev;
 
 	u8 mdix;
+	u8 mdix_ctrl;
 
 	void (*adjust_link)(struct net_device *dev);
 };
@@ -508,6 +522,12 @@ struct phy_driver {
 	 * For multi-PHY devices with shared PHY interrupt pin
 	 */
 	int (*did_interrupt)(struct phy_device *phydev);
+
+	/*
+	 * Called before an ethernet device is detached
+	 * from the PHY.
+	 */
+	void (*detach)(struct phy_device *phydev);
 
 	/* Clears up any memory if needed */
 	void (*remove)(struct phy_device *phydev);
@@ -829,6 +849,7 @@ int phy_ethtool_ksettings_get(struct phy_device *phydev,
 			      struct ethtool_link_ksettings *cmd);
 int phy_ethtool_ksettings_set(struct phy_device *phydev,
 			      const struct ethtool_link_ksettings *cmd);
+int phy_ethtool_ioctl(struct phy_device *phydev, void *useraddr);
 int phy_mii_ioctl(struct phy_device *phydev, struct ifreq *ifr, int cmd);
 int phy_start_interrupts(struct phy_device *phydev);
 void phy_print_status(struct phy_device *phydev);

@@ -54,6 +54,16 @@
 #include <uapi/linux/pkt_cls.h>
 #include <linux/hashtable.h>
 
+
+/* Do not include avm_pa.h to avoid include cycle. Since we can't determine
+ * the size here we reserve some space, including some extra space for future
+ * extensions without having to rebuild the world.
+ *
+ * avm_pa contains a BUILD_BUG_ON() in case the reserve is too small.
+ */
+#define AVM_PA_DEV_INFO_DEV_RESERVE 32
+struct avm_pa_dev_info;
+
 struct netpoll_info;
 struct device;
 struct phy_device;
@@ -790,6 +800,10 @@ enum {
 	TC_SETUP_CLSFLOWER,
 	TC_SETUP_MATCHALL,
 	TC_SETUP_CLSBPF,
+	TC_SETUP_QDISC_RED,
+	TC_SETUP_QDISC_PRIO,
+	TC_SETUP_DRR,
+	TC_SETUP_TBF,
 };
 
 struct tc_cls_u32_offload;
@@ -797,11 +811,15 @@ struct tc_cls_u32_offload;
 struct tc_to_netdev {
 	unsigned int type;
 	union {
-		u8 tc;
 		struct tc_cls_u32_offload *cls_u32;
 		struct tc_cls_flower_offload *cls_flower;
 		struct tc_cls_matchall_offload *cls_mall;
 		struct tc_cls_bpf_offload *cls_bpf;
+		struct tc_mqprio_qopt *mqprio;
+		struct tc_red_qopt_offload *sch_red;
+		struct tc_prio_qopt_offload *sch_prio;
+		struct tc_drr_qopt_offload *sch_drr;
+		struct tc_tbf_qopt_offload *sch_tbf;
 	};
 };
 
@@ -1371,35 +1389,36 @@ struct net_device_ops {
  * @IFF_L3MDEV_RX_HANDLER: only invoke the rx handler of L3 master device
  */
 enum netdev_priv_flags {
-	IFF_802_1Q_VLAN			= 1<<0,
-	IFF_EBRIDGE			= 1<<1,
-	IFF_BONDING			= 1<<2,
-	IFF_ISATAP			= 1<<3,
-	IFF_WAN_HDLC			= 1<<4,
-	IFF_XMIT_DST_RELEASE		= 1<<5,
-	IFF_DONT_BRIDGE			= 1<<6,
-	IFF_DISABLE_NETPOLL		= 1<<7,
-	IFF_MACVLAN_PORT		= 1<<8,
-	IFF_BRIDGE_PORT			= 1<<9,
-	IFF_OVS_DATAPATH		= 1<<10,
-	IFF_TX_SKB_SHARING		= 1<<11,
-	IFF_UNICAST_FLT			= 1<<12,
-	IFF_TEAM_PORT			= 1<<13,
-	IFF_SUPP_NOFCS			= 1<<14,
-	IFF_LIVE_ADDR_CHANGE		= 1<<15,
-	IFF_MACVLAN			= 1<<16,
-	IFF_XMIT_DST_RELEASE_PERM	= 1<<17,
-	IFF_IPVLAN_MASTER		= 1<<18,
-	IFF_IPVLAN_SLAVE		= 1<<19,
-	IFF_L3MDEV_MASTER		= 1<<20,
-	IFF_NO_QUEUE			= 1<<21,
-	IFF_OPENVSWITCH			= 1<<22,
-	IFF_L3MDEV_SLAVE		= 1<<23,
-	IFF_TEAM			= 1<<24,
-	IFF_RXFH_CONFIGURED		= 1<<25,
-	IFF_PHONY_HEADROOM		= 1<<26,
-	IFF_MACSEC			= 1<<27,
-	IFF_L3MDEV_RX_HANDLER		= 1<<28,
+	IFF_802_1Q_VLAN = 1 << 0,
+	IFF_EBRIDGE = 1 << 1,
+	IFF_BONDING = 1 << 2,
+	IFF_ISATAP = 1 << 3,
+	IFF_WAN_HDLC = 1 << 4,
+	IFF_XMIT_DST_RELEASE = 1 << 5,
+	IFF_DONT_BRIDGE = 1 << 6,
+	IFF_DISABLE_NETPOLL = 1 << 7,
+	IFF_MACVLAN_PORT = 1 << 8,
+	IFF_BRIDGE_PORT = 1 << 9,
+	IFF_OVS_DATAPATH = 1 << 10,
+	IFF_TX_SKB_SHARING = 1 << 11,
+	IFF_UNICAST_FLT = 1 << 12,
+	IFF_TEAM_PORT = 1 << 13,
+	IFF_SUPP_NOFCS = 1 << 14,
+	IFF_LIVE_ADDR_CHANGE = 1 << 15,
+	IFF_MACVLAN = 1 << 16,
+	IFF_XMIT_DST_RELEASE_PERM = 1 << 17,
+	IFF_IPVLAN_MASTER = 1 << 18,
+	IFF_IPVLAN_SLAVE = 1 << 19,
+	IFF_L3MDEV_MASTER = 1 << 20,
+	IFF_NO_QUEUE = 1 << 21,
+	IFF_OPENVSWITCH = 1 << 22,
+	IFF_L3MDEV_SLAVE = 1 << 23,
+	IFF_TEAM = 1 << 24,
+	IFF_RXFH_CONFIGURED = 1 << 25,
+	IFF_PHONY_HEADROOM = 1 << 26,
+	IFF_MACSEC = 1 << 27,
+	IFF_L3MDEV_RX_HANDLER = 1 << 28,
+	IFF_NO_IP_ALIGN = 1 << 29,
 };
 
 #define IFF_802_1Q_VLAN			IFF_802_1Q_VLAN
@@ -1430,6 +1449,7 @@ enum netdev_priv_flags {
 #define IFF_RXFH_CONFIGURED		IFF_RXFH_CONFIGURED
 #define IFF_MACSEC			IFF_MACSEC
 #define IFF_L3MDEV_RX_HANDLER		IFF_L3MDEV_RX_HANDLER
+#define IFF_NO_IP_ALIGN IFF_NO_IP_ALIGN
 
 /**
  *	struct net_device - The DEVICE structure.
@@ -1716,6 +1736,11 @@ struct net_device {
 	const struct ndisc_ops *ndisc_ops;
 #endif
 
+#ifdef CONFIG_ETHERNET_PACKET_MANGLE
+	void (*eth_mangle_rx)(struct net_device *dev, struct sk_buff *skb);
+	struct sk_buff *(*eth_mangle_tx)(struct net_device *dev, struct sk_buff *skb);
+#endif
+
 	const struct header_ops *header_ops;
 
 	unsigned int		flags;
@@ -1757,6 +1782,8 @@ struct net_device {
 	struct netdev_hw_addr_list	mc;
 	struct netdev_hw_addr_list	dev_addrs;
 
+	unsigned char local_addr_mask[MAX_ADDR_LEN];
+
 #ifdef CONFIG_SYSFS
 	struct kset		*queues_kset;
 #endif
@@ -1786,7 +1813,11 @@ struct net_device {
 	struct mpls_dev __rcu	*mpls_ptr;
 #endif
 
-/*
+#ifdef CONFIG_ETHERNET_PACKET_MANGLE
+	void *phy_ptr; /* PHY device specific data */
+#endif
+
+	/*
  * Cache lines mostly used on receive path (including eth_type_trans())
  */
 	unsigned long		last_rx;
@@ -1880,6 +1911,12 @@ struct net_device {
 		struct pcpu_vstats __percpu		*vstats;
 	};
 
+#ifdef CONFIG_AVM_PA
+	u8			avm_pa[AVM_PA_DEV_INFO_DEV_RESERVE];
+#define AVM_PA_DEVINFO(dev)	((struct avm_pa_dev_info *) (dev)->avm_pa)
+#else
+#define AVM_PA_DEVINFO(dev)	((struct avm_pa_dev_info *) NULL)
+#endif
 	struct garp_port __rcu	*garp_port;
 	struct mrp_port __rcu	*mrp_port;
 
@@ -2239,6 +2276,7 @@ struct packet_type {
 					    struct sock *sk);
 	struct net		*af_packet_net;
 	void			*af_packet_priv;
+
 	struct list_head	list;
 };
 

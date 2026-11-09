@@ -439,3 +439,12 @@ config UML_RANDOM
 	  (check your distro, or download from
 	  http://sourceforge.net/projects/gkernel/).  rngd periodically reads
 	  /dev/hwrng and injects the entropy into /dev/random.
+
+config SHM_RNG_SEED
+	tristate "Shared memory based rng seed communication"
+	select OF_RESERVED_MEM if (SHM_RNG_SEED=y)
+	help
+	 This option enables a shared memory based communication channel to
+	 be used to pass random data from one node to another. This can be
+	 used for e.g. a bootloader communicating a seed for KASLR to the
+	 loaded kernel.

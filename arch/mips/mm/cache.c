@@ -63,6 +63,8 @@ void (*_dma_cache_wback)(unsigned long start, unsigned long size);
 void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 
 EXPORT_SYMBOL(_dma_cache_wback_inv);
+EXPORT_SYMBOL(_dma_cache_wback);
+EXPORT_SYMBOL(_dma_cache_inv);
 
 #endif /* CONFIG_DMA_NONCOHERENT || CONFIG_DMA_MAYBE_COHERENT */
 
@@ -114,6 +116,13 @@ EXPORT_SYMBOL(__flush_dcache_page);
 void __flush_anon_page(struct page *page, unsigned long vmaddr)
 {
 	unsigned long addr = (unsigned long) page_address(page);
+
+	if (PageHighMem(page)) {
+		addr = (unsigned long)kmap_atomic(page);
+		flush_data_cache_page(addr);
+		__kunmap_atomic((void *)addr);
+		return;
+	}
 
 	if (pages_do_alias(addr, vmaddr)) {
 		if (page_mapcount(page) && !Page_dcache_dirty(page)) {

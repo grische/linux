@@ -33,6 +33,22 @@
 		.endm
 
 		.macro	SAVE_TEMP
+#ifdef CONFIG_CPU_HAS_DSP_ASE
+		rddsp   v1
+		LONG_S	v1, PT_DSPCTRL(sp)
+		mfhi	v1, $ac1
+		LONG_S	v1, PT_AC1HI(sp)
+		mflo	v1, $ac1
+		LONG_S	v1, PT_AC1LO(sp)
+		mfhi	v1, $ac2
+		LONG_S	v1, PT_AC2HI(sp)
+		mflo	v1, $ac2
+		LONG_S	v1, PT_AC2LO(sp)
+		mfhi	v1, $ac3
+		LONG_S	v1, PT_AC3HI(sp)
+		mflo	v1, $ac3
+		LONG_S	v1, PT_AC3LO(sp)
+#endif /* CONFIG_CPU_HAS_DSP_ASE */
 #ifdef CONFIG_CPU_HAS_SMARTMIPS
 		mflhxu	v1
 		LONG_S	v1, PT_LO(sp)
@@ -225,7 +241,7 @@
 		ori	$28, sp, _THREAD_MASK
 		xori	$28, _THREAD_MASK
 #ifdef CONFIG_CPU_CAVIUM_OCTEON
-		.set    mips64
+		.set    mips64r2
 		pref    0, 0($28)       /* Prefetch the current pointer */
 #endif
 9:
@@ -263,6 +279,22 @@
 		mtlo	$24
 		LONG_L	$24, PT_HI(sp)
 		mthi	$24
+#ifdef CONFIG_CPU_HAS_DSP_ASE
+		LONG_L	$24, PT_DSPCTRL(sp)
+		wrdsp   $24
+		LONG_L	$24, PT_AC1LO(sp)
+		mtlo	$24, $ac1
+		LONG_L	$24, PT_AC1HI(sp)
+		mthi	$24, $ac1
+		LONG_L	$24, PT_AC2LO(sp)
+		mtlo	$24, $ac2
+		LONG_L	$24, PT_AC2HI(sp)
+		mthi	$24, $ac2
+		LONG_L	$24, PT_AC3LO(sp)
+		mtlo	$24, $ac3
+		LONG_L	$24, PT_AC3HI(sp)
+		mthi	$24, $ac3
+#endif /* CONFIG_CPU_HAS_DSP_ASE */
 #endif
 #ifdef CONFIG_32BIT
 		LONG_L	$8, PT_R8(sp)
@@ -364,7 +396,7 @@
 
 		.macro	RESTORE_SP_AND_RET
 		LONG_L	sp, PT_R29(sp)
-		.set	arch=r4000
+		.set	arch=mips32r2
 		eret
 		.set	mips0
 		.endm

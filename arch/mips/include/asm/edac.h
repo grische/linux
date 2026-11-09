@@ -20,7 +20,7 @@ static inline void edac_atomic_scrub(void *va, u32 size)
 		 */
 
 		__asm__ __volatile__ (
-		"	.set	mips2					\n"
+		"	.set	mips32r2				\n"
 		"1:	ll	%0, %1		# edac_atomic_scrub	\n"
 		"	addu	%0, $0					\n"
 		"	sc	%0, %1					\n"

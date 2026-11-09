@@ -2,6 +2,11 @@ config FSNOTIFY
 	def_bool n
 	select SRCU
 
+config FSNOTIFY_RECURSIVE
+	bool "Recursive FSNOTIFY support"
+	depends on FSNOTIFY
+	default n
+
 source "fs/notify/dnotify/Kconfig"
 source "fs/notify/inotify/Kconfig"
 source "fs/notify/fanotify/Kconfig"

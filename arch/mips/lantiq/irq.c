@@ -21,6 +21,10 @@
 #include <lantiq_soc.h>
 #include <irq.h>
 
+#if defined(CONFIG_AVM_POWER)
+#include <avm/power/power.h>
+#endif /*--- #if defined(CONFIG_AVM_POWER) ---*/
+
 /* register definitions - internal irqs */
 #define LTQ_ICU_IM0_ISR		0x0000
 #define LTQ_ICU_IM0_IER		0x0008
@@ -315,6 +319,10 @@ asmlinkage void plat_irq_dispatch(void)
 {
 	unsigned int pending = read_c0_status() & read_c0_cause() & ST0_IM;
 	unsigned int i;
+
+#if defined(CONFIG_AVM_POWER)
+	avm_cpu_wait_end(); /*--- auch wenn es r4k_wait_irqoff gibt: trotzdem aufrufen, um system-load-Ausgabe zu triggern  ---*/
+#endif /*--- #if defined(CONFIG_AVM_POWER)  ---*/
 
 	if ((MIPS_CPU_TIMER_IRQ == 7) && (pending & CAUSEF_IP7)) {
 		do_IRQ(MIPS_CPU_TIMER_IRQ);

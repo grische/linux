@@ -55,14 +55,14 @@ int squashfs_get_id(struct super_block *sb, unsigned int index,
 	if (index >= msblk->ids)
 		return -EINVAL;
 
-	start_block = le64_to_cpu(msblk->id_table[block]);
+	start_block = squash_le64_to_cpu(msblk->id_table[block]);
 
 	err = squashfs_read_metadata(sb, &disk_id, &start_block, &offset,
 							sizeof(disk_id));
 	if (err < 0)
 		return err;
 
-	*id = le32_to_cpu(disk_id);
+	*id = squash_le32_to_cpu(disk_id);
 	return 0;
 }
 
@@ -107,8 +107,8 @@ __le64 *squashfs_read_id_index_table(struct super_block *sb,
 	 * should be SQUASHFS_METADATA_SIZE or less
 	 */
 	for (n = 0; n < (indexes - 1); n++) {
-		start = le64_to_cpu(table[n]);
-		end = le64_to_cpu(table[n + 1]);
+		start = squash_le64_to_cpu(table[n]);
+		end = squash_le64_to_cpu(table[n + 1]);
 
 		if (start >= end || (end - start) >
 				(SQUASHFS_METADATA_SIZE + SQUASHFS_BLOCK_OFFSET)) {
@@ -117,7 +117,7 @@ __le64 *squashfs_read_id_index_table(struct super_block *sb,
 		}
 	}
 
-	start = le64_to_cpu(table[indexes - 1]);
+	start = squash_le64_to_cpu(table[indexes - 1]);
 	if (start >= id_table_start || (id_table_start - start) >
 				(SQUASHFS_METADATA_SIZE + SQUASHFS_BLOCK_OFFSET)) {
 		kfree(table);

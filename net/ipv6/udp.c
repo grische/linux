@@ -55,6 +55,8 @@
 #include <trace/events/skb.h>
 #include "udp_impl.h"
 
+#include <avm/pa/avm_pa.h>
+
 static u32 udp6_ehashfn(const struct net *net,
 			const struct in6_addr *laddr,
 			const u16 lport,
@@ -557,11 +559,14 @@ EXPORT_SYMBOL(udpv6_encap_enable);
 int udpv6_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 {
 	struct udp_sock *up = udp_sk(sk);
+	struct net *net = dev_net(skb->dev);
 	int rc;
 	int is_udplite = IS_UDPLITE(sk);
 
 	if (!xfrm6_policy_check(sk, XFRM_POLICY_IN, skb))
 		goto drop;
+
+	avm_pa_add_local_session(AVM_PA_NET_IP6_DEVINFO(net), skb, sk);
 
 	if (static_key_false(&udpv6_encap_needed) && up->encap_type) {
 		int (*encap_rcv)(struct sock *sk, struct sk_buff *skb);
@@ -1162,6 +1167,7 @@ do_udp_sendmsg:
 		fl6.flowi6_oif = np->sticky_pktinfo.ipi6_ifindex;
 
 	fl6.flowi6_mark = sk->sk_mark;
+	fl6.flowi6_uid = sk->sk_uid;
 
 	if (msg->msg_controllen) {
 		opt = &opt_space;

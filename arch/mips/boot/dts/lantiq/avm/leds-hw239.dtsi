@@ -1,0 +1,114 @@
+/* LEDs & Buttons für die 7583 und 7583 VDSL */
+
+&avm_gpio {
+	gpio_avm_ambientbrightness {
+		compatible = "avm,avm_gpio_led";
+	};
+};
+
+&ssoled {
+	status = "okay";
+
+	led2: led2 {
+		label = "avm:green:info";
+		led-gpio = <&ssogpio 2 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <2>;
+	};
+
+	led3: led3 {
+		label = "avm:red:info";
+		led-gpio = <&ssogpio 3 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <3>;
+	};
+
+	led4: led4 {
+		label = "avm:green:internet";
+		led-gpio = <&ssogpio 4 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <4>;
+	};
+
+	led5: led5 {
+		label = "avm:green:wlan";
+		led-gpio = <&ssogpio 5 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <5>;
+	};
+
+	led6: led6 {
+		label = "avm:green:fon";
+		led-gpio = <&ssogpio 6 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <6>;
+	};
+
+	led7: led7 {
+		label = "avm:green:power";
+		led-gpio = <&ssogpio 7 GPIO_ACTIVE_LOW>;
+		intel,led-pin = <7>;
+	};
+};
+
+/ {
+	avm_hui {
+		compatible = "avm,hui";
+
+		box-power {
+			compatible = "avm,hui-generic-led-class";
+			dimmable;
+			leds = <&led7>;
+			location = <1>;
+		};
+
+		box-internet {
+			compatible = "avm,hui-generic-led-class";
+			dimmable;
+			leds = <&led4>;
+			location = <4>;
+		};
+
+		box-wlan-connect {
+			compatible = "avm,hui-generic-led-class";
+			dimmable;
+			leds = <&led5>;
+			location = <3>;
+		};
+
+		box-fon@0 {
+			compatible = "avm,hui-generic-led-class";
+			dimmable;
+			leds = <&led6>;
+			location = <4>;
+		};
+
+		box_info: info-connect {
+			compatible = "avm,hui-generic-led-class";
+			dimmable;
+			leds = <&led3>, <&led2>;
+			location = <5>;
+			colors {
+				error  = <0xff>, <0>, <0>;
+				warn   = <0xff>, <0>, <0>;
+				normal = <0>, <0xff>, <0>;
+			};
+		};
+
+		led-enable {
+			compatible = "avm,hui-generic-led-gpio";
+			led-type = "always-on";
+			gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
+		};
+
+		box-wlan@1 {
+			compatible = "avm,hui-generic-button-gpio";
+			gpios = <&gpio1 0 GPIO_ACTIVE_LOW>;
+		};
+
+		box-fon@1 {
+			compatible = "avm,hui-generic-button-gpio";
+			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		};
+
+		box-connect@1 {
+			compatible = "avm,hui-generic-button-gpio";
+			gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
+		};
+	};
+};

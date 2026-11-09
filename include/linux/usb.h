@@ -620,6 +620,11 @@ struct usb_device {
 	unsigned usb2_hw_lpm_allowed:1;
 	unsigned usb3_lpm_u1_enabled:1;
 	unsigned usb3_lpm_u2_enabled:1;
+
+#if 1 /* == 20160222 AVM/VGJ - CHANGESET: noprobe Extension for AURA == */
+	unsigned noprobe:1;
+#endif
+
 	int string_langid;
 
 	/* static strings from the device */
@@ -638,11 +643,26 @@ struct usb_device {
 
 #ifdef CONFIG_PM
 	unsigned long connect_time;
+#endif
 
+#if defined (CONFIG_PM) || defined (CONFIG_AVM_USB_SUSPEND)
 	unsigned do_remote_wakeup:1;
 	unsigned reset_resume:1;
 	unsigned port_is_suspended:1;
 #endif
+
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	unsigned avm_usb_suspend_enable;
+	unsigned long avm_usb_suspend_delay; // Delay for autosuspend in jiffies
+	unsigned long avm_usb_suspend_timestamp;
+	unsigned long avm_usb_suspend_last_busy;
+
+	atomic_t avm_use_count;
+
+	struct timer_list	suspend_timer;
+	struct work_struct avm_usb_suspend_ws;	/* for suspend in atomic context */
+#endif
+
 	struct wusb_dev *wusb_dev;
 	int slot_id;
 	enum usb_device_removable removable;

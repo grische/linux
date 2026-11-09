@@ -290,22 +290,24 @@ enum {
 	BRIDGE_MODE_HAIRPIN,
 };
 
+#define BRPORT_LEARNING_LIMIT_UNLIMITED -1
+
 enum {
 	IFLA_BRPORT_UNSPEC,
-	IFLA_BRPORT_STATE,	/* Spanning tree state     */
-	IFLA_BRPORT_PRIORITY,	/* "             priority  */
-	IFLA_BRPORT_COST,	/* "             cost      */
-	IFLA_BRPORT_MODE,	/* mode (hairpin)          */
-	IFLA_BRPORT_GUARD,	/* bpdu guard              */
-	IFLA_BRPORT_PROTECT,	/* root port protection    */
-	IFLA_BRPORT_FAST_LEAVE,	/* multicast fast leave    */
-	IFLA_BRPORT_LEARNING,	/* mac learning */
+	IFLA_BRPORT_STATE, /* Spanning tree state     */
+	IFLA_BRPORT_PRIORITY, /* "             priority  */
+	IFLA_BRPORT_COST, /* "             cost      */
+	IFLA_BRPORT_MODE, /* mode (hairpin)          */
+	IFLA_BRPORT_GUARD, /* bpdu guard              */
+	IFLA_BRPORT_PROTECT, /* root port protection    */
+	IFLA_BRPORT_FAST_LEAVE, /* multicast fast leave    */
+	IFLA_BRPORT_LEARNING, /* mac learning */
 	IFLA_BRPORT_UNICAST_FLOOD, /* flood unicast traffic */
-	IFLA_BRPORT_PROXYARP,	/* proxy ARP */
+	IFLA_BRPORT_PROXYARP, /* proxy ARP */
 	IFLA_BRPORT_LEARNING_SYNC, /* mac learning sync from device */
 	IFLA_BRPORT_PROXYARP_WIFI, /* proxy ARP for Wi-Fi */
-	IFLA_BRPORT_ROOT_ID,	/* designated root */
-	IFLA_BRPORT_BRIDGE_ID,	/* designated bridge */
+	IFLA_BRPORT_ROOT_ID, /* designated root */
+	IFLA_BRPORT_BRIDGE_ID, /* designated bridge */
 	IFLA_BRPORT_DESIGNATED_PORT,
 	IFLA_BRPORT_DESIGNATED_COST,
 	IFLA_BRPORT_ID,
@@ -319,6 +321,17 @@ enum {
 	IFLA_BRPORT_MULTICAST_ROUTER,
 	IFLA_BRPORT_PAD,
 	IFLA_BRPORT_MCAST_FLOOD,
+	IFLA_BRPORT_MCAST_TO_UCAST,
+	IFLA_BRPORT_VLAN_TUNNEL,
+	IFLA_BRPORT_BCAST_FLOOD,
+	IFLA_BRPORT_GROUP_FWD_MASK,
+	IFLA_BRPORT_NEIGH_SUPPRESS,
+	IFLA_BRPORT_ISOLATED,
+	IFLA_BRPORT_BACKUP_PORT,
+	__IFLA_BRPORT_MAX_5_18 = 40,
+	__IFLA_BRPORT_FUTURE_PROOF = __IFLA_BRPORT_MAX_5_18 + 5,
+	IFLA_BRPORT_LEARNING_LIMIT,
+	IFLA_BRPORT_SOFTWARE_FWD,
 	__IFLA_BRPORT_MAX
 };
 #define IFLA_BRPORT_MAX (__IFLA_BRPORT_MAX - 1)
@@ -443,6 +456,16 @@ enum {
 };
 
 #define IFLA_MACSEC_MAX (__IFLA_MACSEC_MAX - 1)
+
+/* XFRM section */
+enum {
+	IFLA_XFRM_UNSPEC,
+	IFLA_XFRM_LINK,
+	IFLA_XFRM_IF_ID,
+	__IFLA_XFRM_MAX
+};
+
+#define IFLA_XFRM_MAX (__IFLA_XFRM_MAX - 1)
 
 enum macsec_validation_type {
 	MACSEC_VALIDATE_DISABLED = 0,

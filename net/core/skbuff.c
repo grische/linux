@@ -64,6 +64,7 @@
 #include <linux/errqueue.h>
 #include <linux/prefetch.h>
 #include <linux/if_vlan.h>
+#include <linux/if.h>
 
 #include <net/protocol.h>
 #include <net/dst.h>
@@ -77,6 +78,25 @@
 #include <linux/highmem.h>
 #include <linux/capability.h>
 #include <linux/user_namespace.h>
+
+#ifdef CONFIG_LTQ_CBM
+#include <net/lantiq_cbm_api.h>
+#endif
+
+#if IS_ENABLED(CONFIG_PPA)
+#include <net/ppa/ppa_api.h>
+#endif
+
+#if defined(CONFIG_SLUB_AVM_ALLOC_LIST)
+#include <linux/oom.h>
+#include <linux/ctype.h>
+#include <linux/slub_def.h>
+#include <avm/sammel/debug.h>
+#include <avm/sammel/simple_proc.h>
+#include <avm/enh/semi_seq.h>
+#endif
+
+#include <avm/pa/avm_pa.h>
 
 struct kmem_cache *skbuff_head_cache __read_mostly;
 static struct kmem_cache *skbuff_fclone_cache __read_mostly;
@@ -228,6 +248,7 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	 */
 	size = SKB_DATA_ALIGN(size);
 	size += SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+
 	data = kmalloc_reserve(size, gfp_mask, node, &pfmemalloc);
 	if (!data)
 		goto nodata;
@@ -252,6 +273,9 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	skb->data = data;
 	skb_reset_tail_pointer(skb);
 	skb->end = skb->tail + size;
+#if IS_ENABLED(CONFIG_PPA)
+	skb->ptr_ppa_pitem = NULL;
+#endif
 	skb->mac_header = (typeof(skb->mac_header))~0U;
 	skb->transport_header = (typeof(skb->transport_header))~0U;
 
@@ -307,6 +331,7 @@ struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 	struct sk_buff *skb;
 	unsigned int size = frag_size ? : ksize(data);
 
+	/*printk("%s data 0x%x size %d\r\n",__func__, data, frag_size);*/
 	skb = kmem_cache_alloc(skbuff_head_cache, GFP_ATOMIC);
 	if (!skb)
 		return NULL;
@@ -542,6 +567,22 @@ skb_fail:
 }
 EXPORT_SYMBOL(__napi_alloc_skb);
 
+struct sk_buff *__netdev_alloc_skb_ip_align(struct net_device *dev,
+					    unsigned int length, gfp_t gfp)
+{
+	struct sk_buff *skb = __netdev_alloc_skb(dev, length + NET_IP_ALIGN, gfp);
+
+#ifdef CONFIG_ETHERNET_PACKET_MANGLE
+	if (dev && (dev->priv_flags & IFF_NO_IP_ALIGN))
+		return skb;
+#endif
+
+	if (NET_IP_ALIGN && skb)
+		skb_reserve(skb, NET_IP_ALIGN);
+	return skb;
+}
+EXPORT_SYMBOL(__netdev_alloc_skb_ip_align);
+
 void skb_add_rx_frag(struct sk_buff *skb, int i, struct page *page, int off,
 		     int size, unsigned int truesize)
 {
@@ -589,8 +630,17 @@ static void skb_free_head(struct sk_buff *skb)
 
 	if (skb->head_frag)
 		skb_free_frag(head);
-	else
+	else {
+#ifdef CONFIG_LTQ_CBM
+		if (!check_ptr_validation((u32)(skb->head))) {
+			kfree(skb->head);
+		} else {
+			cbm_buffer_free(smp_processor_id(), skb->head, 0);
+		}
+#else
 		kfree(head);
+#endif
+	}
 }
 
 static void skb_release_data(struct sk_buff *skb)
@@ -631,6 +681,9 @@ static void kfree_skbmem(struct sk_buff *skb)
 {
 	struct sk_buff_fclones *fclones;
 
+#ifdef CONFIG_LTQ_DATAPATH_SKB
+	dp_skb_free(skb);
+#endif
 	switch (skb->fclone) {
 	case SKB_FCLONE_UNAVAILABLE:
 		kmem_cache_free(skbuff_head_cache, skb);
@@ -670,6 +723,9 @@ static void skb_release_head_state(struct sk_buff *skb)
 #if IS_ENABLED(CONFIG_NF_CONNTRACK)
 	nf_conntrack_put(skb->nfct);
 #endif
+#if IS_ENABLED(CONFIG_AVM_PA_GENERIC_CT)
+	generic_ct_put(SKB_GENERIC_CT(skb));
+#endif
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
 	nf_bridge_put(skb->nf_bridge);
 #endif
@@ -694,6 +750,10 @@ static void skb_release_all(struct sk_buff *skb)
 
 void __kfree_skb(struct sk_buff *skb)
 {
+#if IS_ENABLED(CONFIG_PPA)
+	if (ppa_hook_pitem_refcnt_dec_fn && skb->ptr_ppa_pitem)
+		ppa_hook_pitem_refcnt_dec_fn(skb);
+#endif
 	skb_release_all(skb);
 	kfree_skbmem(skb);
 }
@@ -865,6 +925,10 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 	memcpy(&new->headers_start, &old->headers_start,
 	       offsetof(struct sk_buff, headers_end) -
 	       offsetof(struct sk_buff, headers_start));
+#if IS_ENABLED(CONFIG_PPA)
+	if (ppa_hook_pitem_refcnt_inc_fn && new->ptr_ppa_pitem)
+		ppa_hook_pitem_refcnt_inc_fn(new);
+#endif
 	CHECK_SKB_FIELD(protocol);
 	CHECK_SKB_FIELD(csum);
 	CHECK_SKB_FIELD(hash);
@@ -889,6 +953,15 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 #ifdef CONFIG_XPS
 	CHECK_SKB_FIELD(sender_cpu);
 #endif
+#ifdef CONFIG_LTQ_DATAPATH_SKB
+	dp_skb_cp(&old->dp_skb_info, &new->dp_skb_info);
+#endif
+#if defined(CONFIG_LTQ_CBM) || IS_ENABLED(CONFIG_DIRECTCONNECT_DP_API)
+	CHECK_SKB_FIELD(DW0);
+	CHECK_SKB_FIELD(DW1);
+	CHECK_SKB_FIELD(DW2);
+	CHECK_SKB_FIELD(DW3);
+#endif
 #ifdef CONFIG_NET_SCHED
 	CHECK_SKB_FIELD(tc_index);
 #ifdef CONFIG_NET_CLS_ACT
@@ -909,6 +982,12 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 	n->next = n->prev = NULL;
 	n->sk = NULL;
 	__copy_skb_header(n, skb);
+	/* Not to be copied by __copy_skb_header(). __copy_skb_header() is used
+	 * during segmentation. Copies created by that function may not inherit
+	 * the same pkt_info because avm_pa cannot tell them apart.
+	 */
+	if (IS_ENABLED(CONFIG_AVM_PA))
+		memcpy(AVM_PKT_INFO(n), AVM_PKT_INFO(skb), sizeof(struct avm_pa_pkt_info));
 
 	C(len);
 	C(data_len);
@@ -929,7 +1008,6 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 
 	atomic_inc(&(skb_shinfo(skb)->dataref));
 	skb->cloned = 1;
-
 	return n;
 #undef C
 }
@@ -1074,12 +1152,25 @@ static void skb_headers_offset_update(struct sk_buff *skb, int off)
 void skb_copy_header(struct sk_buff *new, const struct sk_buff *old)
 {
 	__copy_skb_header(new, old);
+	/* Not to be copied by __copy_skb_header(). __copy_skb_header() is used
+	 * during segmentation. Copies created by that function may not inherit
+	 * the same pkt_info because avm_pa cannot tell them apart.
+	 */
+	if (IS_ENABLED(CONFIG_AVM_PA))
+		memcpy(AVM_PKT_INFO(new), AVM_PKT_INFO(old), sizeof(struct avm_pa_pkt_info));
 
 	skb_shinfo(new)->gso_size = skb_shinfo(old)->gso_size;
 	skb_shinfo(new)->gso_segs = skb_shinfo(old)->gso_segs;
 	skb_shinfo(new)->gso_type = skb_shinfo(old)->gso_type;
 }
 EXPORT_SYMBOL(skb_copy_header);
+
+#ifdef CONFIG_LTQ_CBM
+void ltq_copy_skb_header(struct sk_buff *n, const struct sk_buff *skb)
+{
+	skb_copy_header(n, skb);
+}
+#endif
 
 static inline int skb_alloc_rx_flag(const struct sk_buff *skb)
 {
@@ -1275,6 +1366,7 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 	skb->cloned   = 0;
 	skb->hdr_len  = 0;
 	skb->nohdr    = 0;
+
 	atomic_set(&skb_shinfo(skb)->dataref, 1);
 	return 0;
 
@@ -3552,6 +3644,9 @@ void __init skb_init(void)
 						0,
 						SLAB_HWCACHE_ALIGN|SLAB_PANIC,
 						NULL);
+#if IS_ENABLED(CONFIG_AVM_PA_GENERIC_CT)
+	generic_ct_init();
+#endif
 }
 
 static int
@@ -4472,7 +4567,10 @@ void skb_scrub_packet(struct sk_buff *skb, bool xnet)
 	skb->ignore_df = 0;
 	skb_dst_drop(skb);
 	secpath_reset(skb);
-	nf_reset(skb);
+	/* TMA/MQU 20170411: Is this the right thing for namespace
+	 * changes? We think so. See JZ-30001.
+	 */
+	nf_reset_no_generic_ct(skb);
 	nf_reset_trace(skb);
 
 #ifdef CONFIG_NET_SWITCHDEV
@@ -5080,3 +5178,402 @@ struct sk_buff *pskb_extract(struct sk_buff *skb, int off,
 	return clone;
 }
 EXPORT_SYMBOL(pskb_extract);
+
+#if defined(CONFIG_SLUB_AVM_ALLOC_LIST)
+#undef pr_fmt
+#define pr_fmt(fmt) fmt
+
+struct _skb_id_countlist {
+	unsigned long id;
+	unsigned long count;
+};
+
+enum _format_type {
+	is_proto = 0,
+	is_symbol,
+	is_skblen,
+	is_netdev,
+	is_slab,
+};
+
+#define SKB_COUNT_ID_ENTRIES 32
+struct _skb_class {
+	struct _skb_id_countlist countlist[SKB_COUNT_ID_ENTRIES];
+	void (*skb_class_cb)(struct sk_buff *skb, struct _skb_id_countlist *countlist);
+	const char *name;
+	enum _format_type type;
+};
+
+static char devname[SKB_COUNT_ID_ENTRIES][IFNAMSIZ];
+
+/**
+ * return id
+ * careful access/analyze/copy of dev->name (dev maybe invalid)!
+ * id == 0: devname is zero
+ * id < 0:  inval pointer/device (-EINVAL) entrytable full (-ENOMEM)
+ */
+static int devname_to_id(struct net_device *dev)
+{
+	char devname_tmp[IFNAMSIZ];
+	unsigned int i;
+	const char *p = &dev->name[0];
+
+	if (virt_addr_valid(p) == 0)
+		return dev ? -EINVAL : 0;
+	if (virt_addr_valid(p + IFNAMSIZ - 1) == 0)
+		return -EINVAL;
+
+	if (!PageSlab(virt_to_head_page(p)))
+		/* support only kmalloc-alloced devices else some cases occur misunderstood DBE */
+		return -EINVAL;
+
+	for (i = 0; i < IFNAMSIZ; i++) {
+		devname_tmp[i] = *p;
+		if (*p == 0)
+			break;
+		if (isascii(*p++))
+			continue;
+		break;
+	}
+	if (*p != 0) {
+		return -EINVAL;
+	}
+	for (i = 0; i < ARRAY_SIZE(devname); i++) {
+		if (devname[i][0] == 0)
+			break;
+		if (strncmp(devname[i], devname_tmp, IFNAMSIZ) == 0)
+			/* entry found */
+			return i + 1;
+	}
+	if (i < ARRAY_SIZE(devname)) {
+		/* append */
+		strncpy(devname[i], devname_tmp, IFNAMSIZ);
+		return i + 1;
+	}
+	return -ENOMEM;
+}
+
+static int count_skb_id(unsigned long id, struct _skb_id_countlist *countlist)
+{
+	unsigned int entry;
+
+	for (entry = 0; entry < SKB_COUNT_ID_ENTRIES; entry++) {
+		if (countlist[entry].id == id ||
+		    countlist[entry].count == 0) {
+			countlist[entry].id = id;
+			countlist[entry].count++;
+			return 0;
+		}
+	}
+	return -ENOMEM;
+}
+
+/**
+ * @brief count all skb with same protocol
+ */
+static void skb_class_list_cb_protocol(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	count_skb_id(skb->protocol, countlist);
+}
+
+/**
+ * @brief count all skb with same netdev
+ * set reference for netdevice because we have to access to the name later
+ */
+static void skb_class_list_cb_netdev(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	unsigned long id = devname_to_id(skb->dev);
+
+	count_skb_id(id, countlist);
+}
+
+/**
+ * @brief count all skb's with same destructor
+ */
+static void skb_class_list_cb_destructor(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	count_skb_id((unsigned long)skb->destructor, countlist);
+}
+
+/**
+ * @brief count all skb with same vlan_proto
+ */
+static void skb_class_list_cb_vlan_proto(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	count_skb_id(skb->vlan_proto, countlist);
+}
+
+/**
+ * @brief count all skb with valid sk or sk == null
+ * careful try to get slab-cachepool-name-pointer as id if sk == slab
+ *
+ */
+static void skb_class_list_cb_socket(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	struct kmem_cache *s;
+	struct page *page;
+	void *sk = READ_ONCE(skb->sk);
+
+	if (sk == 0) {
+		count_skb_id(0, countlist);
+		return;
+	}
+	if (!virt_addr_valid(sk)) {
+		count_skb_id(-EINVAL, countlist);
+		return;
+	}
+	page = virt_to_head_page(sk);
+	if (virt_addr_valid(page) && PageSlab(page)) {
+		s = page->slab_cache;
+
+		if (virt_addr_valid(s) && virt_addr_valid(s->name)) {
+			count_skb_id((unsigned long)s->name, countlist);
+			return;
+		}
+	}
+	count_skb_id(-EINVAL, countlist);
+}
+
+/**
+ * @brief count all skb with skb_iif
+ */
+static void skb_class_list_cb_iif(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	count_skb_id(skb->skb_iif, countlist);
+}
+
+#define PACKET_LEN_AREA  (ETH_FRAME_LEN + ETH_FCS_LEN)
+#define PACKET_LEN_OFFSET SKB_DATA_ALIGN(sizeof(struct skb_shared_info))
+/**
+ * @brief count all skb len (areas)
+ */
+static void skb_class_list_cb_len(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	int len = skb->len;
+
+	if (len >= PACKET_LEN_OFFSET) {
+		len -= PACKET_LEN_OFFSET;
+		count_skb_id((len / PACKET_LEN_AREA) + 1, countlist);
+		return;
+	}
+	count_skb_id(0, countlist);
+}
+
+#ifdef CONFIG_AVM_PA
+/**
+ * @brief count all skb with pktinfo.ingress_pid_handle
+ */
+static void skb_class_list_cb_avm_pa_ingress_pid_handle(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	count_skb_id(AVM_PKT_INFO(skb)->ingress_pid_handle, countlist);
+}
+
+/**
+ * @brief count all skb with pktinfo.egress_pid_handle
+ */
+static void skb_class_list_cb_avm_pa_egress_pid_handle(struct sk_buff *skb, struct _skb_id_countlist *countlist)
+{
+	count_skb_id(AVM_PKT_INFO(skb)->egress_pid_handle, countlist);
+}
+#endif
+
+static struct _skb_class skb_class_list[] = {
+	{ .skb_class_cb = skb_class_list_cb_protocol,			.name = "protocol",           .type = is_proto },
+	{ .skb_class_cb = skb_class_list_cb_vlan_proto,			.name = "vlan_proto",         .type = is_proto },
+	{ .skb_class_cb = skb_class_list_cb_netdev,			.name = "netdev",             .type = is_netdev },
+	{ .skb_class_cb = skb_class_list_cb_socket,			.name = "socket",             .type = is_slab},
+	{ .skb_class_cb = skb_class_list_cb_iif,			.name = "skb_iif",            .type = is_proto},
+	{ .skb_class_cb = skb_class_list_cb_len,			.name = "len",		      .type = is_skblen},
+#ifdef CONFIG_AVM_PA
+	{ .skb_class_cb = skb_class_list_cb_avm_pa_ingress_pid_handle,	.name = "avm_pa_ingress_pid", .type = is_proto},
+	{ .skb_class_cb = skb_class_list_cb_avm_pa_egress_pid_handle,	.name = "avm_pa_egress_pid ", .type = is_proto},
+#endif
+	{ .skb_class_cb = skb_class_list_cb_destructor,			.name = "destructor",         .type = is_symbol },
+};
+
+atomic_t busy_skb_pending_statistic;
+
+/**
+ * @ clean data and put refs for netdevices
+ */
+static void skb_class_list_clean(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(skb_class_list); i++) {
+		memset(&skb_class_list[i].countlist, 0, sizeof(skb_class_list[i].countlist));
+	}
+
+	memset(&devname, 0, sizeof(devname));
+}
+
+/**
+ * @brief callback for all pending skb's
+ */
+static int sk_buff_pointer_cb(void *ref, void *p)
+{
+	unsigned long *sum_skbs = (unsigned long *)ref;
+	unsigned int i;
+	struct sk_buff *skb = (struct sk_buff *)p;
+
+	for (i = 0; i < ARRAY_SIZE(skb_class_list); i++) {
+		struct _skb_class *pscl = &skb_class_list[i];
+
+		pscl->skb_class_cb(skb, pscl->countlist);
+	}
+	*sum_skbs += 1;
+#if 0
+	if (skb->protocol)
+		pr_err("%s: (ref=%p) %p: ts=%llu netdev:%s destructor=%pS protocol=%x vlan_proto=%x mac=%pM avm_pa: pid=%x hsession=%x\n",
+		       __func__,
+		       ref,
+		       skb,
+		       skb_get_ktime(skb).tv64,
+		       skb->dev ? netdev_name(skb->dev) : "?",
+		       skb->destructor,
+		       skb->protocol,
+		       skb->vlan_proto,
+		       skb_mac_header(skb),
+		       AVM_PKT_INFO(skb)->ingress_pid_handle,
+		       AVM_PKT_INFO(skb)->session_handle);
+#endif
+	return 0;
+}
+
+/**
+ * @brief show pending skbs-statistic on oom or /proc/avm/skb_pending
+ */
+static void display_skb_class_counts(struct seq_file *seq, unsigned long sum_skbs,
+				     struct kmem_cache *s, unsigned int threshcount)
+{
+	unsigned int i, entry;
+	unsigned long len_idx, len_start;
+	char txt[64];
+
+	if (threshcount) {
+		snprintf(txt, sizeof(txt), " - show all counters more/equal %u", threshcount);
+	} else
+		txt[0] = 0;
+
+	sseq_printf(seq, "%s: pending sk_buffs: %lu (%5lu KiB)%s\n",
+		    s->name, sum_skbs, (sum_skbs * s->object_size) >> 10, txt);
+
+	for (i = 0; i < ARRAY_SIZE(skb_class_list); i++) {
+		struct _skb_class *pscl = &skb_class_list[i];
+
+		for (entry = 0; entry < SKB_COUNT_ID_ENTRIES; entry++) {
+			if (pscl->countlist[entry].count == 0)
+				break;
+			if (pscl->countlist[entry].count < threshcount)
+				continue;
+			switch (pscl->type) {
+			case is_netdev:
+				sseq_printf(seq, "%s: %-18s: %6lu\n", pscl->name,
+					    pscl->countlist[entry].id == 0 ? "no-dev" :
+					    pscl->countlist[entry].id <= ARRAY_SIZE(devname) ?  devname[pscl->countlist[entry].id - 1] :
+					    pscl->countlist[entry].id == (unsigned long)-ENOMEM ? "devlist-full" :
+					    pscl->countlist[entry].id == (unsigned long)-EINVAL ? "dev-freed" : "dev-?",
+					    pscl->countlist[entry].count);
+				break;
+			case is_slab:
+				sseq_printf(seq, "%s: %-18s: %6lu\n", pscl->name,
+					    (pscl->countlist[entry].id == 0 ? "(null)" :
+					    virt_addr_valid(pscl->countlist[entry].id) ? (char *)pscl->countlist[entry].id :
+					    "unknown"),
+					    pscl->countlist[entry].count);
+				break;
+			case is_symbol:
+				sseq_printf(seq, "%s: %-48pS: %6lu\n", pscl->name,
+					    (void *)pscl->countlist[entry].id,
+					    pscl->countlist[entry].count);
+				break;
+			case is_proto:
+				sseq_printf(seq, "%s: 0x%04lx: %6lu\n", pscl->name,
+					    pscl->countlist[entry].id,
+					    pscl->countlist[entry].count);
+				break;
+			case is_skblen:
+				len_idx = pscl->countlist[entry].id;
+				if (len_idx == 0) {
+					sseq_printf(seq, "%s: %6u -%6u bytes: %6lu\n", pscl->name,
+						    0, PACKET_LEN_OFFSET - 1,
+						    pscl->countlist[entry].count);
+					break;
+				}
+				len_idx--;
+				len_start = PACKET_LEN_OFFSET + (len_idx * PACKET_LEN_AREA);
+				sseq_printf(seq, "%s: %6lu -%6lu bytes: %6lu\n", pscl->name,
+					    len_start, len_start + PACKET_LEN_AREA - 1,
+					    pscl->countlist[entry].count);
+				break;
+			}
+		}
+		if (pscl->countlist[SKB_COUNT_ID_ENTRIES - 1].count)
+			sseq_printf(seq, "... (not all %s counted)\n",
+				    pscl->type == is_netdev ? "netdevs" :
+				    pscl->type == is_symbol ? "symbols" :
+				    pscl->type == is_slab ?   "sockets" :
+				    pscl->type == is_proto  ? "protocols" : "id");
+	}
+}
+
+#define SK_BUFF_THRESH_COUNT 50000
+/**
+ */
+static void avm_proc_skb_pending_statistic(struct seq_file *seq, void *priv)
+{
+	struct kmem_cache *cachetab[] = {skbuff_head_cache, skbuff_fclone_cache};
+	unsigned int i, active_objs;
+	unsigned int *ptreshsize = priv;
+
+	if (atomic_add_return(1, &busy_skb_pending_statistic) != 1) {
+		return;
+	}
+	for (i = 0; i < ARRAY_SIZE(cachetab); i++) {
+		unsigned long sum_skbs = 0;
+		struct kmem_cache *s = cachetab[i];
+
+		active_objs = kmem_cache_active_objects(s);
+		if (active_objs >= SK_BUFF_THRESH_COUNT || seq) {
+			kmem_cache_list_all_objects(s, &sum_skbs, sk_buff_pointer_cb);
+			if (!seq)
+				pr_err("mem-error: suspiciously much %s sk_buff's %u\n",
+				       s->name, active_objs);
+			if (sum_skbs)
+				display_skb_class_counts(seq, sum_skbs, s,
+							 ptreshsize ? *ptreshsize : 0);
+			skb_class_list_clean();
+		}
+	}
+	atomic_set(&busy_skb_pending_statistic, 0);
+}
+
+/**
+ */
+static int skb_oom_notify(struct notifier_block *block,
+			  unsigned long event, void *_data)
+{
+	struct seq_file *seq = _data;
+	unsigned int threshcount = SK_BUFF_THRESH_COUNT / SKB_COUNT_ID_ENTRIES;
+
+	avm_proc_skb_pending_statistic(seq, &threshcount);
+	return NOTIFY_OK;
+}
+
+static struct notifier_block skb_oom_nb = {
+	.notifier_call = skb_oom_notify,
+	.priority = 1,
+};
+
+/**
+ */
+static __init int init_skb_oom(void)
+{
+	add_simple_proc_file("avm/skb_pending", NULL,
+			     avm_proc_skb_pending_statistic, NULL);
+
+	avm_oom_info_chain_register(&skb_oom_nb);
+	return 0;
+}
+late_initcall(init_skb_oom);
+#endif

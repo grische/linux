@@ -359,7 +359,7 @@ int phy_ethtool_sset(struct phy_device *phydev, struct ethtool_cmd *cmd)
 
 	phydev->duplex = cmd->duplex;
 
-	phydev->mdix = cmd->eth_tp_mdix_ctrl;
+	phydev->mdix_ctrl = cmd->eth_tp_mdix_ctrl;
 
 	/* Restart the PHY */
 	phy_start_aneg(phydev);
@@ -413,7 +413,7 @@ int phy_ethtool_ksettings_set(struct phy_device *phydev,
 
 	phydev->duplex = duplex;
 
-	phydev->mdix = cmd->base.eth_tp_mdix_ctrl;
+	phydev->mdix_ctrl = cmd->base.eth_tp_mdix_ctrl;
 
 	/* Restart the PHY */
 	phy_start_aneg(phydev);
@@ -439,7 +439,8 @@ int phy_ethtool_gset(struct phy_device *phydev, struct ethtool_cmd *cmd)
 	cmd->transceiver = phy_is_internal(phydev) ?
 		XCVR_INTERNAL : XCVR_EXTERNAL;
 	cmd->autoneg = phydev->autoneg;
-	cmd->eth_tp_mdix_ctrl = phydev->mdix;
+	cmd->eth_tp_mdix_ctrl = phydev->mdix_ctrl;
+	cmd->eth_tp_mdix = phydev->mdix;
 
 	return 0;
 }
@@ -462,16 +463,64 @@ int phy_ethtool_ksettings_get(struct phy_device *phydev,
 	if (phydev->interface == PHY_INTERFACE_MODE_MOCA)
 		cmd->base.port = PORT_BNC;
 	else
-		cmd->base.port = PORT_MII;
+		cmd->base.port = phydev->port;
 	cmd->base.transceiver = phy_is_internal(phydev) ?
 				XCVR_INTERNAL : XCVR_EXTERNAL;
 	cmd->base.phy_address = phydev->mdio.addr;
 	cmd->base.autoneg = phydev->autoneg;
-	cmd->base.eth_tp_mdix_ctrl = phydev->mdix;
+	cmd->base.eth_tp_mdix_ctrl = phydev->mdix_ctrl;
+	cmd->base.eth_tp_mdix = phydev->mdix;
 
 	return 0;
 }
 EXPORT_SYMBOL(phy_ethtool_ksettings_get);
+
+int phy_ethtool_ioctl(struct phy_device *phydev, void *useraddr)
+{
+	u32 cmd;
+	int tmp;
+	struct ethtool_cmd ecmd = { ETHTOOL_GSET };
+	struct ethtool_value edata = { ETHTOOL_GLINK };
+
+	if (get_user(cmd, (u32 *)useraddr))
+		return -EFAULT;
+
+	switch (cmd) {
+	case ETHTOOL_GSET:
+		phy_ethtool_gset(phydev, &ecmd);
+		if (copy_to_user(useraddr, &ecmd, sizeof(ecmd)))
+			return -EFAULT;
+		return 0;
+
+	case ETHTOOL_SSET:
+		if (copy_from_user(&ecmd, useraddr, sizeof(ecmd)))
+			return -EFAULT;
+		return phy_ethtool_sset(phydev, &ecmd);
+
+	case ETHTOOL_NWAY_RST:
+		/* if autoneg is off, it's an error */
+		tmp = phy_read(phydev, MII_BMCR);
+		if (tmp & BMCR_ANENABLE) {
+			tmp |= (BMCR_ANRESTART);
+			phy_write(phydev, MII_BMCR, tmp);
+			return 0;
+		}
+		return -EINVAL;
+
+	case ETHTOOL_GLINK:
+		edata.data = (phy_read(phydev,
+				       MII_BMSR) &
+			      BMSR_LSTATUS) ?
+				     1 :
+				     0;
+		if (copy_to_user(useraddr, &edata, sizeof(edata)))
+			return -EFAULT;
+		return 0;
+	}
+
+	return -EOPNOTSUPP;
+}
+EXPORT_SYMBOL(phy_ethtool_ioctl);
 
 /**
  * phy_mii_ioctl - generic PHY MII ioctl interface
@@ -1213,12 +1262,16 @@ int phy_read_mmd_indirect(struct phy_device *phydev, int prtad, int devad)
 	if (!phydrv->read_mmd_indirect) {
 		struct mii_bus *bus = phydev->mdio.bus;
 
-		mutex_lock(&bus->mdio_lock);
-		mmd_phy_indirect(bus, prtad, devad, addr);
+		if (!bus->mmd_read) {
+			mutex_lock(&bus->mdio_lock);
+			mmd_phy_indirect(bus, prtad, devad, addr);
 
-		/* Read the content of the MMD's selected register */
-		value = bus->read(bus, addr, MII_MMD_DATA);
-		mutex_unlock(&bus->mdio_lock);
+			/* Read the content of the MMD's selected register */
+			value = bus->read(bus, addr, MII_MMD_DATA);
+			mutex_unlock(&bus->mdio_lock);
+		} else {
+			value = bus->mmd_read(bus, addr, prtad, devad);
+		}
 	} else {
 		value = phydrv->read_mmd_indirect(phydev, prtad, devad, addr);
 	}
@@ -1250,12 +1303,16 @@ void phy_write_mmd_indirect(struct phy_device *phydev, int prtad,
 	if (!phydrv->write_mmd_indirect) {
 		struct mii_bus *bus = phydev->mdio.bus;
 
-		mutex_lock(&bus->mdio_lock);
-		mmd_phy_indirect(bus, prtad, devad, addr);
+		if (!bus->mmd_write) {
+			mutex_lock(&bus->mdio_lock);
+			mmd_phy_indirect(bus, prtad, devad, addr);
 
-		/* Write the data into MMD's selected register */
-		bus->write(bus, addr, MII_MMD_DATA, data);
-		mutex_unlock(&bus->mdio_lock);
+			/* Write the data into MMD's selected register */
+			bus->write(bus, addr, MII_MMD_DATA, data);
+			mutex_unlock(&bus->mdio_lock);
+		} else {
+			bus->mmd_write(bus, addr, prtad, devad, data);
+		}
 	} else {
 		phydrv->write_mmd_indirect(phydev, prtad, devad, addr, data);
 	}

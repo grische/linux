@@ -235,6 +235,7 @@ static struct htb_class *htb_classify(struct sk_buff *skb, struct Qdisc *sch,
 		switch (result) {
 		case TC_ACT_QUEUED:
 		case TC_ACT_STOLEN:
+		case TC_ACT_TRAP:
 			*qerr = NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
 		case TC_ACT_SHOT:
 			return NULL;
@@ -1179,8 +1180,7 @@ static void htb_qlen_notify(struct Qdisc *sch, unsigned long arg)
 {
 	struct htb_class *cl = (struct htb_class *)arg;
 
-	if (cl->un.leaf.q->q.qlen == 0)
-		htb_deactivate(qdisc_priv(sch), cl);
+	htb_deactivate(qdisc_priv(sch), cl);
 }
 
 static unsigned long htb_get(struct Qdisc *sch, u32 classid)

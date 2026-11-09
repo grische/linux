@@ -689,6 +689,21 @@ int ieee80211_key_link(struct ieee80211_key *key,
 	key->sdata = sdata;
 	key->sta = sta;
 
+	/*
+	 * Silently accept key re-installation without really installing the
+	 * new version of the key to avoid nonce reuse or replay issues.
+	 */
+	if (old_key && key->conf.keylen == old_key->conf.keylen &&
+	    !memcmp(key->conf.key, old_key->conf.key, key->conf.keylen)) {
+		ieee80211_key_free_unused(key);
+		ret = 0;
+		goto out;
+	}
+
+	key->local = sdata->local;
+	key->sdata = sdata;
+	key->sta = sta;
+
 	increment_tailroom_need_count(sdata);
 
 	ieee80211_key_replace(sdata, sta, pairwise, old_key, key);

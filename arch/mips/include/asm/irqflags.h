@@ -18,25 +18,38 @@
 #include <asm/compiler.h>
 #include <asm/hazards.h>
 
+#if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS)
+#include <avm/profile/profile.h>
+
+#define  _local_RET_IP_	((unsigned long)__builtin_return_address(0))
+#endif/*--- #if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS)  ---*/
+
 #if defined(CONFIG_CPU_MIPSR2) || defined (CONFIG_CPU_MIPSR6)
 
-static inline void arch_local_irq_disable(void)
-{
-	__asm__ __volatile__(
-	"	.set	push						\n"
-	"	.set	noat						\n"
-	"	di							\n"
-	"	" __stringify(__irq_disable_hazard) "			\n"
-	"	.set	pop						\n"
-	: /* no outputs */
-	: /* no inputs */
-	: "memory");
-}
 
 static inline unsigned long arch_local_irq_save(void)
 {
 	unsigned long flags;
+#if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS)
+	unsigned long pc_addr;
 
+	asm __volatile__(
+	"	.set	push						\n"
+	"	.set	reorder						\n"
+	"	.set	noat						\n"
+	"	la %[pc_addr],  1f				        \n"
+	"1:	di	%[flags]					\n"
+	"	andi	%[flags], 1					\n"
+	"	" __stringify(__irq_disable_hazard) "			\n"
+	"	.set	pop						\n"
+	: [flags] "=r" (flags), [pc_addr] "=r" (pc_addr)
+	: /* no inputs */
+	: "memory");
+
+	avm_simple_profiling_irq_disabled(pc_addr, _local_RET_IP_,
+					  !flags,  /* old-disable-status */
+					  0x1	   /* new-disable-status */);
+#else
 	asm __volatile__(
 	"	.set	push						\n"
 	"	.set	reorder						\n"
@@ -53,13 +66,35 @@ static inline unsigned long arch_local_irq_save(void)
 	: [flags] "=r" (flags)
 	: /* no inputs */
 	: "memory");
-
+#endif
 	return flags;
+}
+static inline void arch_local_irq_disable(void)
+{
+#if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS)
+	arch_local_irq_save();
+	return;
+#endif/*--- #if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS) ---*/
+	__asm__ __volatile__(
+	"	.set	push						\n"
+	"	.set	noat						\n"
+	"	di							\n"
+	"	" __stringify(__irq_disable_hazard) "			\n"
+	"	.set	pop						\n"
+	: /* no outputs */
+	: /* no inputs */
+	: "memory");
 }
 
 static inline void arch_local_irq_restore(unsigned long flags)
 {
 	unsigned long __tmp1;
+#if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS)
+	avm_simple_profiling_irq_disabled((unsigned long)&&here, _local_RET_IP_,
+					  0x1,		 /* old-disable-status */
+					  !(flags & 0x1) /* new-disable-status */);
+here:
+#endif/*--- #if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS) ---*/
 
 	__asm__ __volatile__(
 	"	.set	push						\n"
@@ -96,8 +131,31 @@ unsigned long arch_local_irq_save(void);
 void arch_local_irq_restore(unsigned long flags);
 #endif /* CONFIG_CPU_MIPSR2 || CONFIG_CPU_MIPSR6 */
 
+
+static inline unsigned long arch_local_save_flags(void)
+{
+	unsigned long flags;
+
+	asm __volatile__(
+	"	.set	push						\n"
+	"	.set	reorder						\n"
+	"	mfc0	%[flags], $12					\n"
+	"	.set	pop						\n"
+	: [flags] "=r" (flags));
+
+	return flags;
+}
+
 static inline void arch_local_irq_enable(void)
 {
+#if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS)
+	unsigned long flags = arch_local_save_flags();
+
+	avm_simple_profiling_irq_disabled((unsigned long)&&here, _local_RET_IP_,
+					  !(flags & 1), /* old-disable-status */
+					  0x0		/* new-disable-status */);
+here:
+#endif/*--- #if defined(CONFIG_ENABLE_IRQ_PROFILING_HOOKS) ---*/
 	__asm__ __volatile__(
 	"	.set	push						\n"
 	"	.set	reorder						\n"
@@ -115,20 +173,6 @@ static inline void arch_local_irq_enable(void)
 	: /* no outputs */
 	: /* no inputs */
 	: "memory");
-}
-
-static inline unsigned long arch_local_save_flags(void)
-{
-	unsigned long flags;
-
-	asm __volatile__(
-	"	.set	push						\n"
-	"	.set	reorder						\n"
-	"	mfc0	%[flags], $12					\n"
-	"	.set	pop						\n"
-	: [flags] "=r" (flags));
-
-	return flags;
 }
 
 

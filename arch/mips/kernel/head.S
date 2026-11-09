@@ -37,6 +37,9 @@
 	mfc0	t0, CP0_STATUS
 	or	t0, ST0_CU0|\set|0x1f|\clr
 	xor	t0, 0x1f|\clr
+#ifdef CONFIG_CPU_HAS_DSP_ASE
+	or      t0, ST0_MX
+#endif
 	mtc0	t0, CP0_STATUS
 	.set	noreorder
 	sll	zero,3				# ehb
@@ -47,7 +50,11 @@
 #ifdef CONFIG_64BIT
 	setup_c0_status ST0_KX 0
 #else
+#ifdef CONFIG_CPU_HAS_DSP_ASE
+	setup_c0_status ST0_MX 0
+#else
 	setup_c0_status 0 0
+#endif
 #endif
 	.endm
 
@@ -79,10 +86,24 @@ FEXPORT(__kernel_entry)
 	j	kernel_entry
 #endif
 
+#ifdef CONFIG_IMAGE_CMDLINE_HACK
+	.ascii	"CMDLINE:"
+EXPORT(__image_cmdline)
+	.fill	0x400
+#endif /* CONFIG_IMAGE_CMDLINE_HACK */
+
 	__REF
 
 NESTED(kernel_entry, 16, sp)			# kernel entry point
+#ifdef CONFIG_AVM_FW_INFO_EMBED
+	b   9f
+	nop
 
+	.word	__avm_kernel_config_start
+
+
+9:
+#endif
 	kernel_entry_setup			# cpu specific setup
 
 	setup_c0_status_pri
@@ -166,9 +187,18 @@ dtb_found:
  * SMP slave cpus entry point.	Board specific code for bootstrap calls this
  * function after setting up the stack and gp registers.
  */
+.global smp_bootstrap_end
+
 NESTED(smp_bootstrap, 16, sp)
 	smp_slave_setup
 	setup_c0_status_sec
-	j	start_secondary
-	END(smp_bootstrap)
+#ifdef CONFIG_EVA
+	PTR_LA  t9, start_secondary
+	jr      t9
+	.align  8
+#else
+	j       start_secondary
+#endif /* CONFIG_EVA */
+        END(smp_bootstrap)
+smp_bootstrap_end:
 #endif /* CONFIG_SMP */

@@ -1,0 +1,166 @@
+#
+# AVM general functions
+#
+#
+menu "AVM Sammeltreiber"
+
+config AVM_SAMMEL
+	bool "AVM general support (Event, Watchdog, Debug, Profiling)"
+	default y
+	help
+	  This driver provides general functions for AVMs own drivers.
+
+	  To compile this driver as a module, choose M here. The module
+	  will be called avm.
+
+source "drivers/char/avm_new/event/Kconfig"
+
+config AVM_PWM
+	bool "AVM pwm support"
+	depends on AVM_SAMMEL
+	default n
+	help
+	  This driver enables PWM support for LEDs.
+
+source "drivers/char/avm_new/watchdog/Kconfig"
+
+config AVM_DEBUG
+	bool "support for AVM Debug"
+	depends on AVM_SAMMEL
+	default y
+
+config AVM_DEBUG_BUF_SHIFT
+    int "debug log buffer size (16 => 64KB, 17 => 128KB)"
+    range 16 25
+    default 19
+    depends on AVM_DEBUG
+    help
+      Selects the debug buffer size
+
+config AVM_DEBUG_CONSOLE
+	bool "support for AVM Debug console"
+	depends on AVM_DEBUG
+	default n
+	help
+	  Implements the console bending via a console driver and
+	  CON_MUTED (avm-only) support.
+
+config AVM_LED_EVENTS
+	bool "support for AVM Led event based version"
+	depends on AVM_SAMMEL
+	default n
+
+source "drivers/char/avm_new/profiling/Kconfig"
+
+config AVM_PAGE_TRACE
+	bool "Enhanced Page-Tracing"
+	depends on AVM_SAMMEL
+	default y
+	help
+      get summary of information about page-using
+
+config AVM_NET_EVENT
+        bool "AVM Network Event Source"
+	depends on AVM_EVENT || AVM_LED_EVENTS || AVM_POWER
+	depends on AVM_KERNEL
+	select AVM_PROM_ENVIRONMENT
+	default n
+	help
+            generic event source (hardware independent) for AVM_EVENT, AVM_LED and AVM_POWER
+            generic ethernet port handler for AVM_POWER. This driver relays on ethtool_ops.
+
+config AVM_KPI
+        bool "KPI Subsystem"
+	depends on AVM_SAMMEL
+	depends on SYSFS
+	default y
+	help
+	    This allows creating key performance indicators from kernel
+	    space. They are exposed at /sys/kernel/kpi. Consult
+	    include/linux/avm_kpi.h for usage information.
+
+config AVM_FW_INFO
+	bool "AVM FW Info"
+	default n
+	help
+	    This enables the API to retrieve information about the firmware inside the kernel.
+	    Usually this information contains the firmware version and the required module sizes.
+	    Multiple backends exists to provide this information, currently a legacy embedded and
+	    a devicetree based variant exists.
+
+config AVM_FW_INFO_EMBED
+	bool "Embedded FW info"
+	depends on AVM_FW_INFO
+	help
+	    Allows to retrieve the firmware information from a patched kernel section.
+
+	    A patched kernel contains a special linker section. During the firmware build the
+	    kernel will be relinked with this section provided. The maximum size of this section
+	    must be defined during build time.
+
+config AVM_FW_INFO_EMBED_DTB
+	bool "Embedded FW info may contain DT"
+	depends on AVM_FW_INFO_EMBED
+	default n
+	help
+	    Use the devicetree contained in the firmware info.
+
+	    On older platforms the Urlader does not pass the dt directly to the kernel. Instead
+	    it edits the device trees embedded in the kernel and the kernel uses these.
+	    The correct devicetree is always the dt at index 0 regardless of the actual subrev.
+
+config AVM_FW_INFO_DT
+	bool "DeviceTree FW info"
+	depends on AVM_FW_INFO
+	depends on OF
+	default n
+	help
+	    Allows to retrieve the firmware information from the device tree.
+
+	    Devicetrees may contain a "avm,fw-info" section describing the firmware version and
+	    the required module sizes. It can (obviously) not contain another devicetree. This
+	    is the preferred method for new kernels.
+
+config AVM_MODULE_MEM
+	bool "AVM Module Memory"
+	select AVM_FW_INFO
+	default n
+	help
+	    Provides an allocator for module memory which avoids fragmentation and is RTE hard.
+
+	    On low-end platforms (ram <= 64mb) fragmentation is a big concern and fragmentation
+	    quickly prohibits the allocation of contiguous memory for modules. The subsequent
+	    vmalloc-allocation however has a very negative performance impacts on MIPS platforms.
+
+	    Secondly on platforms employing RTE modules are prohibited from generating tlb-misses
+	    and must therefore reside in physical memory and can not be vmapped.
+
+config AVM_PROMCONFIG_FORCE_WORDALIGNED_ACCESS
+	bool "Word-align all prom config flash access"
+	depends on AVM_SAMMEL
+	default y
+	help
+	    Force word-alignment for all reads of the prom-config flash area.
+	    You should not need this on new F!Boxen.
+
+config AVM_COMPANION_PANIC
+	tristate "AVM helper for synchronized panics via GPIOs"
+	depends on GPIOLIB
+	help
+	    Say Y to enable support for the avm,companion-panic platform
+	    device.
+
+	    This driver will notify the companion CPU of a panic via GPIO and
+	    react to panics of the companion CPUs as notified by them by
+	    panicking.
+
+config AVM_DT_URLADER_ENV
+       bool "AVM Urlader environment via Device Tree"
+       default n
+       help
+	   This option enables access to the AVM bootloader (Urlader)
+           environment, which is stored in the device tree, using the usual
+           "/proc/sys/urlader" path. Enabling this driver at runtime
+           disables and replaces TFFS, which would otherwise provide
+           "/proc/sys/urlader"
+endmenu

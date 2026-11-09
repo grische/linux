@@ -20,7 +20,7 @@
 #include <linux/skbuff.h>
 #include <net/netlink.h>
 #include <net/pkt_sched.h>
-
+#include <net/pkt_cls.h>
 
 struct prio_sched_data {
 	int bands;
@@ -47,6 +47,7 @@ prio_classify(struct sk_buff *skb, struct Qdisc *sch, int *qerr)
 		switch (err) {
 		case TC_ACT_STOLEN:
 		case TC_ACT_QUEUED:
+		case TC_ACT_TRAP:
 			*qerr = NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
 		case TC_ACT_SHOT:
 			return NULL;
@@ -139,6 +140,33 @@ prio_reset(struct Qdisc *sch)
 	sch->q.qlen = 0;
 }
 
+static int prio_offload(struct Qdisc *sch, bool enable)
+{
+	struct prio_sched_data *q = qdisc_priv(sch);
+	struct net_device *dev = qdisc_dev(sch);
+	struct tc_prio_qopt_offload opt = {
+		.handle = sch->handle,
+		.parent = sch->parent,
+	};
+	struct tc_to_netdev tc = { .type = TC_SETUP_QDISC_PRIO,
+				   { .sch_prio = &opt } };
+
+	if (!(dev->features & NETIF_F_HW_TC) || !dev->netdev_ops->ndo_setup_tc)
+		return -EOPNOTSUPP;
+
+	if (enable) {
+		opt.command = TC_PRIO_REPLACE;
+		opt.replace_params.bands = q->bands;
+		memcpy(&opt.replace_params.priomap, q->prio2band,
+		       TC_PRIO_MAX + 1);
+		opt.replace_params.qstats = &sch->qstats;
+	} else {
+		opt.command = TC_PRIO_DESTROY;
+	}
+
+	return dev->netdev_ops->ndo_setup_tc(dev, sch->handle, 0, &tc);
+}
+
 static void
 prio_destroy(struct Qdisc *sch)
 {
@@ -146,6 +174,7 @@ prio_destroy(struct Qdisc *sch)
 	struct prio_sched_data *q = qdisc_priv(sch);
 
 	tcf_destroy_chain(&q->filter_list);
+	prio_offload(sch, false);
 	for (prio = 0; prio < q->bands; prio++)
 		qdisc_destroy(q->queues[prio]);
 }
@@ -196,6 +225,7 @@ static int prio_tune(struct Qdisc *sch, struct nlattr *opt)
 		q->queues[i] = queues[i];
 
 	sch_tree_unlock(sch);
+	prio_offload(sch, true);
 	return 0;
 }
 
@@ -207,14 +237,51 @@ static int prio_init(struct Qdisc *sch, struct nlattr *opt)
 	return prio_tune(sch, opt);
 }
 
+static int prio_dump_offload(struct Qdisc *sch)
+{
+	struct net_device *dev = qdisc_dev(sch);
+	struct tc_prio_qopt_offload hw_stats = {
+		.command = TC_PRIO_STATS,
+		.handle = sch->handle,
+		.parent = sch->parent,
+		{
+			.stats = {
+				.bstats = &sch->bstats,
+				.qstats = &sch->qstats,
+			},
+		},
+	};
+	struct tc_to_netdev tc = { .type = TC_SETUP_QDISC_PRIO,
+				   { .sch_prio = &hw_stats } };
+	int err;
+
+	sch->flags &= ~TCQ_F_OFFLOADED;
+	if (!(dev->features & NETIF_F_HW_TC) || !dev->netdev_ops->ndo_setup_tc)
+		return 0;
+
+	err = dev->netdev_ops->ndo_setup_tc(dev, sch->handle, 0, &tc);
+	if (err == -EOPNOTSUPP)
+		return 0;
+
+	if (!err)
+		sch->flags |= TCQ_F_OFFLOADED;
+
+	return err;
+}
+
 static int prio_dump(struct Qdisc *sch, struct sk_buff *skb)
 {
 	struct prio_sched_data *q = qdisc_priv(sch);
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tc_prio_qopt opt;
+	int err;
 
 	opt.bands = q->bands;
 	memcpy(&opt.priomap, q->prio2band, TC_PRIO_MAX + 1);
+
+	err = prio_dump_offload(sch);
+	if (err)
+		goto nla_put_failure;
 
 	if (nla_put(skb, TCA_OPTIONS, sizeof(opt), &opt))
 		goto nla_put_failure;
@@ -230,7 +297,13 @@ static int prio_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
 		      struct Qdisc **old)
 {
 	struct prio_sched_data *q = qdisc_priv(sch);
+	struct tc_prio_qopt_offload graft_offload;
+	struct net_device *dev = qdisc_dev(sch);
 	unsigned long band = arg - 1;
+	bool any_qdisc_is_offloaded;
+	int err;
+	struct tc_to_netdev tc = { .type = TC_SETUP_QDISC_PRIO,
+				   { .sch_prio = &graft_offload } };
 
 	if (!new) {
 		new = qdisc_create_dflt(sch->dev_queue, &pfifo_qdisc_ops,
@@ -242,6 +315,33 @@ static int prio_graft(struct Qdisc *sch, unsigned long arg, struct Qdisc *new,
 	}
 
 	*old = qdisc_replace(sch, new, &q->queues[band]);
+
+	if (!(dev->features & NETIF_F_HW_TC) || !dev->netdev_ops->ndo_setup_tc)
+		return -EOPNOTSUPP;
+
+	graft_offload.handle = sch->handle;
+	graft_offload.parent = sch->parent;
+	graft_offload.graft_params.band = band;
+	graft_offload.graft_params.child_handle = new->handle;
+	graft_offload.command = TC_PRIO_GRAFT;
+
+	err = dev->netdev_ops->ndo_setup_tc(dev, sch->handle, 0, &tc);
+
+	/* Don't report error if the graft is part of destroy operation. */
+	if (err && new != &noop_qdisc) {
+		/* Don't report error if the parent, the old child and the new
+		 * one are not offloaded.
+		 */
+		any_qdisc_is_offloaded = sch->flags & TCQ_F_OFFLOADED;
+		any_qdisc_is_offloaded |= new->flags &TCQ_F_OFFLOADED;
+		if (*old)
+			any_qdisc_is_offloaded |= (*old)->flags &
+						  TCQ_F_OFFLOADED;
+
+		if (any_qdisc_is_offloaded)
+			pr_err("Offloading graft operation failed.");
+	}
+
 	return 0;
 }
 

@@ -58,6 +58,8 @@
 #include <net/l3mdev.h>
 #include <net/lwtunnel.h>
 
+#include <avm/pa/avm_pa.h>
+
 static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb_dst(skb);
@@ -250,6 +252,10 @@ int ip6_xmit(const struct sock *sk, struct sk_buff *skb, struct flowi6 *fl6,
 		if (unlikely(!skb))
 			return 0;
 
+		/* For UDP, ICMPv6 and XFRM, see  __ip6_local_out() */
+		if (avm_pa_dev_local_out(AVM_PA_NET_IP6_DEVINFO(net), skb) == AVM_PA_RX_STOLEN)
+			return 0;
+
 		/* hooks should never assume socket lock is held.
 		 * we promote our socket to non const
 		 */
@@ -358,6 +364,8 @@ static inline int ip6_forward_finish(struct net *net, struct sock *sk,
 
 	__IP6_INC_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTFORWDATAGRAMS);
 	__IP6_ADD_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTOCTETS, skb->len);
+
+	avm_pa_mark_routed(skb);
 
 	return dst_output(net, sk, skb);
 }
@@ -578,6 +586,9 @@ static void ip6_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 
 #ifdef CONFIG_NET_SCHED
 	to->tc_index = from->tc_index;
+#endif
+#ifdef CONFIG_AVM_PA
+	memcpy(AVM_PKT_INFO(to), AVM_PKT_INFO(from), sizeof(*AVM_PKT_INFO(to)));
 #endif
 	nf_copy(to, from);
 	skb_copy_secmark(to, from);

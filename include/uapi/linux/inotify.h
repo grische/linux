@@ -56,6 +56,8 @@ struct inotify_event {
 #define IN_ISDIR		0x40000000	/* event occurred against dir */
 #define IN_ONESHOT		0x80000000	/* only send event once */
 
+#define IN_RECURSIVE	0x10000000	/* use recursive events */
+
 /*
  * All of the events - we build the list by hand so that we can add flags in
  * the future and not break backward compatibility.  Apps will get only the

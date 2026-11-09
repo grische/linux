@@ -1,0 +1,60 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+
+DUMP_DIR="/var/tmp/tffs-dump"
+ENC_CERT="/var/flash/test.cert"
+ENC_EXE="/bin/openssl_smime"
+
+if [ "`echo emailnotify.supportdata_enhanced | ar7cfgctl -s`" = yes ]
+then
+    parts=$(sed -nr 'y/ /_/;s/^(mtd[0-9]+):.+"((nand-)*tffs(_\([12]\))*)"$/\2#\1/p' /proc/mtd)
+    if [ -z "$parts" ]; then
+        for disk in /dev/disk/by-partlabel/AVM_TFFS*; do
+            parts=$(printf "%s\n%s#%s" "$parts" "$(basename "$disk")" "$(basename "$(readlink -f "$disk")")")
+        done
+    fi
+
+    for tffs in $parts
+    do
+        mtd_dev="/dev/${tffs##*#}"
+        mtd_name="${tffs%%#*}"
+
+        mkdir -p "${DUMP_DIR}"
+        
+        case "${mtd_name}" in
+        nand-tffs*)
+            nanddump --bb=dumpbad --forcebinary --oob ${mtd_dev} | gzip -1 -c > "${DUMP_DIR}/${mtd_name}.dump.gz"
+            ;;
+        *)
+            cat ${mtd_dev} | gzip -1 -c  > "${DUMP_DIR}/${mtd_name}.dump.gz"
+            ;;
+        esac
+
+    done
+    
+    if [ -d "${DUMP_DIR}" ]
+    then
+        echo "##### BEGIN SECTION TFFS_DUMP TFFS Dump"
+        if [ -x "${ENC_EXE}" -a -e "${ENC_CERT}" ]
+        then
+            tar -c "${DUMP_DIR}" 2>/dev/null | \
+            ${ENC_EXE} -encrypt -binary -aes256 -subject tffs-dump.tar -outform SMIME "${ENC_CERT}"
+        else
+            tar -c "${DUMP_DIR}" 2>/dev/null | base64
+        fi
+        echo "##### END SECTION TFFS_DUMP"
+        rm -rf "${DUMP_DIR}"
+    fi
+fi
+
+if [ -e /proc/tffs -a -e /dev/debug ] ; then
+	echo index > /proc/tffs
+	
+	echo AVMDBG_EOF 1 >/dev/debug
+	
+	grep -E '\[TFFS\]' /dev/debug
+
+	echo AVMDBG_EOF 0 >/dev/debug
+
+fi
+

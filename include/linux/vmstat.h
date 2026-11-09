@@ -53,6 +53,10 @@ static inline void count_vm_events(enum vm_event_item item, long delta)
 
 extern void all_vm_events(unsigned long *);
 
+#if defined(CONFIG_AVM_POWER)
+extern void __all_vm_events(unsigned long *ret);
+#endif
+
 extern void vm_events_fold_cpu(int cpu);
 
 #else

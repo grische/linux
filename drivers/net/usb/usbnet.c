@@ -46,6 +46,8 @@
 #include <linux/kernel.h>
 #include <linux/pm_runtime.h>
 
+#include <avm/pa/avm_pa.h>
+
 #define DRIVER_VERSION		"22-Aug-2005"
 
 
@@ -1698,6 +1700,8 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 		if (status < 0)
 			goto out1;
 
+/*--- 20160222 AVM/VGJ - CHANGESET: AVM-TWEAK: we always want usb0, not eth4  ---*/
+#if 0
 		// heuristic:  "usb%d" for links we know are two-host,
 		// else "eth%d" when there's reasonable doubt.  userspace
 		// can rename the link if it knows better.
@@ -1705,12 +1709,18 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 		    ((dev->driver_info->flags & FLAG_POINTTOPOINT) == 0 ||
 		     (net->dev_addr [0] & 0x02) == 0))
 			strcpy (net->name, "eth%d");
+#endif
+
 		/* WLAN devices should always be named "wlan%d" */
 		if ((dev->driver_info->flags & FLAG_WLAN) != 0)
 			strcpy(net->name, "wlan%d");
+
+/*--- 20160926 AVM/WKR - CHANGESET: AVM-TWEAK: use usb0 for cdc_ncm  ---*/
+#if 0
 		/* WWAN devices should always be named "wwan%d" */
 		if ((dev->driver_info->flags & FLAG_WWAN) != 0)
 			strcpy(net->name, "wwan%d");
+#endif
 
 		/* devices that cannot do ARP */
 		if ((dev->driver_info->flags & FLAG_NOARP) != 0)
@@ -1784,6 +1794,8 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 
 	if (dev->driver_info->flags & FLAG_LINK_INTR)
 		usbnet_link_change(dev, 0, 0);
+
+	avm_pa_dev_register(dev->net);
 
 	return 0;
 

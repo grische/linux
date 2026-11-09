@@ -278,6 +278,7 @@ next_opt:
 	}
 	return ndopts;
 }
+EXPORT_SYMBOL(ndisc_parse_options);
 
 int ndisc_mc_map(const struct in6_addr *addr, char *buf, struct net_device *dev, int dir)
 {

@@ -11,3 +11,6 @@ obj-$(CONFIG_ISDN_DRV_HISAX)		+= hisax/
 obj-$(CONFIG_ISDN_DRV_LOOP)		+= isdnloop/
 obj-$(CONFIG_HYSDN)			+= hysdn/
 obj-$(CONFIG_ISDN_DRV_GIGASET)		+= gigaset/
+
+# AVM Driver
+obj-$(CONFIG_CAPI_OSLIB)        		+= capi_oslib/

@@ -38,6 +38,15 @@ struct pt_regs {
 	unsigned long cp0_status;
 	unsigned long hi;
 	unsigned long lo;
+#ifdef CONFIG_CPU_HAS_DSP_ASE
+	unsigned long ac1hi;
+	unsigned long ac1lo;
+	unsigned long ac2hi;
+	unsigned long ac2lo;
+	unsigned long ac3hi;
+	unsigned long ac3lo;
+	unsigned long dspctrl;
+#endif /* CONFIG_CPU_HAS_DSP_ASE */
 #ifdef CONFIG_CPU_HAS_SMARTMIPS
 	unsigned long acx;
 #endif

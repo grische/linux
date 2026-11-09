@@ -1,0 +1,194 @@
+#include "grx_common.dtsi"
+
+/{
+	aliases {
+		wan = &wan;
+	};
+
+	gphy_fw: gphy-fw {
+		compatible = "lantiq,xway-phy-fw";
+		fw-mode = "11G-FW"; /*"11G-FW"*/ /*22F-FW*/
+		no_of_phys = <5>;
+	};
+};
+
+&phy_fw {
+	status = "okay";
+};
+
+&eth {
+
+	wan: interface@5 {
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <5>;
+		lantiq,wan = <1>;
+		intel,dp-dev-port = <15>;
+		intel,dp-port-id = <15>;
+
+		avm,name = "wan";
+		avm,macname = "macdsl";
+		avm,eee-adv = <0>;
+
+		ethernet@5 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <1>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SHARED 111 IRQ_TYPE_LEVEL_HIGH>;
+			phy-mode = "rgmii";
+			phy-handle = <&phy1>;
+		};
+	};
+};
+
+&avm_netdev_map {
+	wan {
+		netdev = "wan";
+		wanport;
+	};
+};
+
+&cpu_opp_table {
+	opp@1000000000 {
+		opp-hz = /bits/ 64 <1000000000>;
+		opp-supported-hw = <0x00000010>; // TODO
+		opp-microvolt-slow_default = <1150000 1000000 1200000>;
+		opp-microvolt-not_defined = <1150000 1000000 1200000>;
+		opp-microvolt-slow0 = <1150000 1000000 1200000>;
+		opp-microvolt-slow1 = <1150000 1000000 1200000>;
+		opp-microvolt-slow2 = <1150000 1000000 1200000>;
+		opp-microvolt-slow3 = <1150000 1000000 1200000>;
+		opp-microvolt-typ0  = <1150000 1000000 1200000>;
+		opp-microvolt-typ1  = <1150000 1000000 1200000>;
+		opp-microvolt-typ2  = <1100000 1000000 1200000>;
+		opp-microvolt-typ3  = <1150000 1000000 1200000>;
+		opp-microvolt-fast0 = <1150000 1000000 1200000>;
+		opp-microvolt-fast1 = <1150000 1000000 1200000>;
+		opp-microvolt-fast2 = <1100000 1000000 1200000>;
+		opp-microvolt-fast3 = <1150000 1000000 1200000>;
+	};
+
+	opp@666666666 {
+		opp-hz = /bits/ 64 <666666666>;
+		opp-supported-hw = <0xffffffff>; // TODO
+		opp-microvolt-slow_default = <1150000 1000000 1200000>;
+		opp-microvolt-not_defined = <1150000 1000000 1200000>;
+		opp-microvolt-slow0 = <1150000 1000000 1200000>;
+		opp-microvolt-slow1 = <1150000 1000000 1200000>;
+		opp-microvolt-slow2 = <1150000 1000000 1200000>;
+		opp-microvolt-slow3 = <1150000 1000000 1200000>;
+		opp-microvolt-typ0  = <1050000 1000000 1200000>;
+		opp-microvolt-typ1  = <1050000 1000000 1200000>;
+		opp-microvolt-typ2  = <1050000 1000000 1200000>;
+		opp-microvolt-typ3  = <1150000 1000000 1200000>;
+		opp-microvolt-fast0 = <1050000 1000000 1200000>;
+		opp-microvolt-fast1 = <1050000 1000000 1200000>;
+		opp-microvolt-fast2 = <1000000 1000000 1200000>;
+		opp-microvolt-fast3 = <1150000 1000000 1200000>;
+	};
+
+	opp@333333333 {
+		opp-hz = /bits/ 64 <333333333>;
+		opp-supported-hw = <0xffffffff>; // TODO
+		opp-microvolt-slow_default = <1150000 1000000 1200000>;
+		opp-microvolt-not_defined = <1150000 1000000 1200000>;
+		opp-microvolt-slow0 = <1150000 1000000 1200000>;
+		opp-microvolt-slow1 = <1150000 1000000 1200000>;
+		opp-microvolt-slow2 = <1150000 1000000 1200000>;
+		opp-microvolt-slow3 = <1150000 1000000 1200000>;
+		opp-microvolt-typ0  = <1050000 1000000 1200000>;
+		opp-microvolt-typ1  = <1050000 1000000 1200000>;
+		opp-microvolt-typ2  = <1050000 1000000 1200000>;
+		opp-microvolt-typ3  = <1150000 1000000 1200000>;
+		opp-microvolt-fast0 = <1050000 1000000 1200000>;
+		opp-microvolt-fast1 = <1050000 1000000 1200000>;
+		opp-microvolt-fast2 = <1000000 1000000 1200000>;
+		opp-microvolt-fast3 = <1150000 1000000 1200000>;
+	};
+
+	opp@200000000 {
+		opp-hz = /bits/ 64 <200000000>;
+		opp-supported-hw = <0xffffffff>; // TODO
+		opp-microvolt-slow_default = <1150000 1000000 1200000>;
+		opp-microvolt-not_defined = <1150000 1000000 1200000>;
+		opp-microvolt-slow0 = <1150000 1000000 1200000>;
+		opp-microvolt-slow1 = <1150000 1000000 1200000>;
+		opp-microvolt-slow2 = <1150000 1000000 1200000>;
+		opp-microvolt-slow3 = <1150000 1000000 1200000>;
+		opp-microvolt-typ0  = <1050000 1000000 1200000>;
+		opp-microvolt-typ1  = <1050000 1000000 1200000>;
+		opp-microvolt-typ2  = <1050000 1000000 1200000>;
+		opp-microvolt-typ3  = <1150000 1000000 1200000>;
+		opp-microvolt-fast0 = <1050000 1000000 1200000>;
+		opp-microvolt-fast1 = <1050000 1000000 1200000>;
+		opp-microvolt-fast2 = <1000000 1000000 1200000>;
+		opp-microvolt-fast3 = <1150000 1000000 1200000>;
+	};
+};
+
+&ssogpio {
+	status = "ok";
+	ngpios = <8>;
+	intel,sso-update-rate = <250000>;
+	intel,sso-shift-clk-freq = <25000000>;
+};
+
+&pinctrl_ledc {
+	status="ok";
+};
+
+/ {
+	yield {
+		/* Hack: gehört eigentlich zu tdm bzw. piglet, die Linux aber
+		 * nicht als Device bekannt sind ... */
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_tdm_di &pinctrl_tdm_do &pinctrl_clkout1>;
+	};
+};
+
+&avm_gpio {
+	gpio_avm_dect_reset {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio0 0 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_piglet_noemif_prog {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio0 17 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_piglet_noemif_clk {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_piglet_noemif_data {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio0 18 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_piglet_noemif_done {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio1 4 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_piglet_noemif_te_found {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio1 10 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_usb_power_enable {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio1 2 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+};
+
+&toe {
+	avm,lro-disable;
+};
+
+&asc1 {
+	status = "ok";
+};

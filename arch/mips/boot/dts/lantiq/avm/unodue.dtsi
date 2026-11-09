@@ -1,0 +1,146 @@
+#include "prx_common.dtsi"
+
+/ {
+	avm-gpio {
+		compatible = "simple-bus";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_uart1>;
+
+		gpio_avm_led_power {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_wlan {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_fon {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_connect {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_info {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_led_info_red {
+			compatible = "avm,avm_gpio_led";
+		};
+		gpio_avm_button_wlan {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 29 GPIO_ACTIVE_LOW>;
+			avm,input;
+		};
+		gpio_avm_button_dect {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 6 GPIO_ACTIVE_LOW>;
+			avm,input;
+		};
+		gpio_avm_button_connect {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 12 GPIO_ACTIVE_LOW>;
+			avm,input;
+		};
+		gpio_avm_dect_reset {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 23 GPIO_ACTIVE_HIGH>;
+			avm,output;
+		};
+		gpio_avm_dect_rd {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 21 GPIO_ACTIVE_HIGH>;
+			avm,output;
+		};
+	};
+};
+
+&pcie1 {
+	reset-gpio = <&gpio0 17 GPIO_ACTIVE_LOW>;
+};
+
+&ssogpio {
+	status = "ok";
+	ngpios = <8>;
+	intel,sso-update-rate = <250000>;
+	intel,sso-shift-clk-freq = <3125000>;
+};
+
+&ssoled {
+       status = "okay";
+
+       led2 {
+	       label = "avm:red:info";
+	       led-gpio = <&ssogpio 2 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <2>;
+	       linux,default-trigger = "gpio_avm_led_info_red";
+       };
+       led3 {
+	       label = "avm:green:info";
+	       led-gpio = <&ssogpio 3 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <3>;
+	       linux,default-trigger = "gpio_avm_led_info";
+       };
+       led4 {
+	       label = "avm:green:power";
+	       led-gpio = <&ssogpio 4 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <4>;
+	       linux,default-trigger = "gpio_avm_led_power";
+       };
+       led5 {
+	       label = "avm:green:wlan";
+	       led-gpio = <&ssogpio 5 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <5>;
+	       linux,default-trigger = "gpio_avm_led_wlan";
+       };
+       led6 {
+	       label = "avm:green:fon";
+	       led-gpio = <&ssogpio 6 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <6>;
+	       linux,default-trigger = "gpio_avm_led_fon";
+       };
+       led7 {
+	       label = "avm:green:connect";
+	       led-gpio = <&ssogpio 7 GPIO_ACTIVE_LOW>;
+	       intel,led-pin = <7>;
+	       linux,default-trigger = "gpio_avm_led_connect";
+       };
+};
+
+&pinctrl_ledc {
+	status="ok";
+};
+
+/ {
+	tdm {
+		compatible = "avm,ltq_tdm";
+
+		clocks = <&cgu0 PRX300_GCLK_TDM>;
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 52 IRQ_TYPE_LEVEL_HIGH>,
+			<GIC_SHARED 51 IRQ_TYPE_EDGE_RISING>;
+	};
+
+	yield {
+		compatible = "avm,yield";
+
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 0 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 1 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 2 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 3 IRQ_TYPE_EDGE_RISING>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_tdm &pinctrl_gpc1>;
+	};
+
+	bthelper {
+		compatible = "avm,bthelper";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 200 IRQ_TYPE_EDGE_RISING>,
+			<GIC_SHARED 201 IRQ_TYPE_EDGE_RISING>;
+	};
+};
+
+&pinctrl_pon_ip {
+intel,pins =  <20>, /* OPT_RX_LOS / PONIP GPIO16 */
+     <22>; /* OPT_TX_FAULT / PONIP GPIO18 */
+};

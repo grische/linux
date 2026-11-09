@@ -61,7 +61,8 @@ struct usb_hub {
 	struct usb_tt		tt;		/* Transaction Translator */
 
 	unsigned		mA_per_port;	/* current for each child */
-#ifdef	CONFIG_PM
+#if defined (CONFIG_PM) || defined (CONFIG_AVM_USB_SUSPEND)
+//#ifdef	CONFIG_PM
 	unsigned		wakeup_enabled_descendants;
 #endif
 

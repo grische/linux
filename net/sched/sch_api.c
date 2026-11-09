@@ -329,7 +329,7 @@ static struct Qdisc *qdisc_leaf(struct Qdisc *p, u32 classid)
 
 /* Find queueing discipline by name */
 
-static struct Qdisc_ops *qdisc_lookup_ops(struct nlattr *kind)
+struct Qdisc_ops *qdisc_lookup_ops(struct nlattr *kind)
 {
 	struct Qdisc_ops *q = NULL;
 
@@ -346,6 +346,7 @@ static struct Qdisc_ops *qdisc_lookup_ops(struct nlattr *kind)
 	}
 	return q;
 }
+EXPORT_SYMBOL(qdisc_lookup_ops);
 
 /* The linklayer setting were not transferred from iproute2, in older
  * versions, and the rate tables lookup systems have been dropped in
@@ -750,9 +751,11 @@ static u32 qdisc_alloc_handle(struct net_device *dev)
 void qdisc_tree_reduce_backlog(struct Qdisc *sch, unsigned int n,
 			       unsigned int len)
 {
+	bool qdisc_is_offloaded = sch->flags & TCQ_F_OFFLOADED;
 	const struct Qdisc_class_ops *cops;
 	unsigned long cl;
 	u32 parentid;
+	bool notify;
 	int drops;
 
 	if (n == 0 && len == 0)
@@ -765,6 +768,17 @@ void qdisc_tree_reduce_backlog(struct Qdisc *sch, unsigned int n,
 
 		if (sch->flags & TCQ_F_NOPARENT)
 			break;
+		/* Notify parent qdisc only if child qdisc becomes empty.
+		 *
+		 * If child was empty even before update then backlog
+		 * counter is screwed and we skip notification because
+		 * parent class is already passive.
+		 *
+		 * If the original child was offloaded then it is allowed
+		 * to be seem as empty, so the parent is notified anyway.
+		 */
+		notify = !sch->q.qlen && !WARN_ON_ONCE(!n &&
+						       !qdisc_is_offloaded);
 		/* TODO: perform the search on a per txq basis */
 		sch = qdisc_lookup(qdisc_dev(sch), TC_H_MAJ(parentid));
 		if (sch == NULL) {
@@ -772,7 +786,7 @@ void qdisc_tree_reduce_backlog(struct Qdisc *sch, unsigned int n,
 			break;
 		}
 		cops = sch->ops->cl_ops;
-		if (cops->qlen_notify) {
+		if (notify && cops->qlen_notify) {
 			cl = cops->get(sch, parentid);
 			cops->qlen_notify(sch, cl);
 			cops->put(sch, cl);
@@ -960,32 +974,33 @@ static struct Qdisc *qdisc_create(struct net_device *dev,
 
 	sch->handle = handle;
 
+	if (tca[TCA_STAB]) {
+		stab = qdisc_get_stab(tca[TCA_STAB]);
+		if (IS_ERR(stab)) {
+			err = PTR_ERR(stab);
+			goto err_out4;
+		}
+		rcu_assign_pointer(sch->stab, stab);
+	}
 	if (!ops->init || (err = ops->init(sch, tca[TCA_OPTIONS])) == 0) {
 		if (qdisc_is_percpu_stats(sch)) {
 			sch->cpu_bstats =
 				netdev_alloc_pcpu_stats(struct gnet_stats_basic_cpu);
 			if (!sch->cpu_bstats)
-				goto err_out4;
+				goto err_out5;
 
 			sch->cpu_qstats = alloc_percpu(struct gnet_stats_queue);
 			if (!sch->cpu_qstats)
-				goto err_out4;
+				goto err_out5;
 		}
 
-		if (tca[TCA_STAB]) {
-			stab = qdisc_get_stab(tca[TCA_STAB]);
-			if (IS_ERR(stab)) {
-				err = PTR_ERR(stab);
-				goto err_out4;
-			}
-			rcu_assign_pointer(sch->stab, stab);
-		}
+
 		if (tca[TCA_RATE]) {
 			seqcount_t *running;
 
 			err = -EOPNOTSUPP;
 			if (sch->flags & TCQ_F_MQROOT)
-				goto err_out4;
+				goto err_out5;
 
 			if ((sch->parent != TC_H_ROOT) &&
 			    !(sch->flags & TCQ_F_INGRESS) &&
@@ -1001,7 +1016,7 @@ static struct Qdisc *qdisc_create(struct net_device *dev,
 						running,
 						tca[TCA_RATE]);
 			if (err)
-				goto err_out4;
+				goto err_out5;
 		}
 
 		qdisc_hash_add(sch);
@@ -1011,6 +1026,8 @@ static struct Qdisc *qdisc_create(struct net_device *dev,
 	/* ops->init() failed, we call ->destroy() like qdisc_create_dflt() */
 	if (ops->destroy)
 		ops->destroy(sch);
+err_out4:
+	qdisc_put_stab(rtnl_dereference(sch->stab));
 err_out3:
 	dev_put(dev);
 	kfree((char *) sch - sch->padded);
@@ -1020,31 +1037,22 @@ err_out:
 	*errp = err;
 	return NULL;
 
-err_out4:
+err_out5:
 	free_percpu(sch->cpu_bstats);
 	free_percpu(sch->cpu_qstats);
 	/*
 	 * Any broken qdiscs that would require a ops->reset() here?
 	 * The qdisc was never in action so it shouldn't be necessary.
 	 */
-	qdisc_put_stab(rtnl_dereference(sch->stab));
 	if (ops->destroy)
 		ops->destroy(sch);
-	goto err_out3;
+	goto err_out4;
 }
 
 static int qdisc_change(struct Qdisc *sch, struct nlattr **tca)
 {
 	struct qdisc_size_table *ostab, *stab = NULL;
 	int err = 0;
-
-	if (tca[TCA_OPTIONS]) {
-		if (sch->ops->change == NULL)
-			return -EINVAL;
-		err = sch->ops->change(sch, tca[TCA_OPTIONS]);
-		if (err)
-			return err;
-	}
 
 	if (tca[TCA_STAB]) {
 		stab = qdisc_get_stab(tca[TCA_STAB]);
@@ -1055,6 +1063,14 @@ static int qdisc_change(struct Qdisc *sch, struct nlattr **tca)
 	ostab = rtnl_dereference(sch->stab);
 	rcu_assign_pointer(sch->stab, stab);
 	qdisc_put_stab(ostab);
+
+	if (tca[TCA_OPTIONS]) {
+		if (sch->ops->change == NULL)
+			return -EINVAL;
+		err = sch->ops->change(sch, tca[TCA_OPTIONS]);
+		if (err)
+			return err;
+	}
 
 	if (tca[TCA_RATE]) {
 		/* NB: ignores errors from replace_estimator
@@ -1366,6 +1382,8 @@ static int tc_fill_qdisc(struct sk_buff *skb, struct Qdisc *q, u32 clid,
 	if (nla_put_string(skb, TCA_KIND, q->ops->id))
 		goto nla_put_failure;
 	if (q->ops->dump && q->ops->dump(q, skb) < 0)
+		goto nla_put_failure;
+	if (nla_put_u8(skb, TCA_HW_OFFLOAD, !!(q->flags & TCQ_F_OFFLOADED)))
 		goto nla_put_failure;
 	qlen = q->q.qlen;
 

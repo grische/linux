@@ -32,6 +32,11 @@ struct user_struct;
 struct writeback_control;
 struct bdi_writeback;
 
+#if defined(CONFIG_AVM_PAGE_TRACE)
+unsigned long avm_get_page_current_pc(struct page *page);
+void avm_set_page_current_pc(struct page *page, unsigned long pc);
+#endif/*--- #if defined(CONFIG_AVM_PAGE_TRACE)  ---*/
+
 #ifndef CONFIG_NEED_MULTIPLE_NODES	/* Don't use mapnrs, do it properly */
 extern unsigned long max_mapnr;
 
@@ -572,7 +577,18 @@ void __put_page(struct page *page);
 
 void put_pages_list(struct list_head *pages);
 
-void split_page(struct page *page, unsigned int order);
+
+void __split_page(struct page *page, unsigned int order
+#if defined(CONFIG_AVM_PAGE_TRACE)
+		 , unsigned long pc
+#endif
+		);
+
+#if defined(CONFIG_AVM_PAGE_TRACE)
+#define split_page(page, order)	__split_page(page, order, _RET_IP_)
+#else
+#define split_page(page, order)	__split_page(page, order)
+#endif
 
 /*
  * Compound pages have a destructor function.  Provide a
@@ -2145,7 +2161,12 @@ int write_one_page(struct page *page, int wait);
 void task_dirty_inc(struct task_struct *tsk);
 
 /* readahead.c */
-#define VM_MAX_READAHEAD	128	/* kbytes */
+#if defined (CONFIG_AVM_KERNEL)
+	/* 20160420 AVM/WK larger USB storage transfers for more speed */
+	#define VM_MAX_READAHEAD	512	/* kbytes */
+#else
+	#define VM_MAX_READAHEAD	128	/* kbytes */
+#endif
 #define VM_MIN_READAHEAD	16	/* kbytes (includes current page) */
 
 int force_page_cache_readahead(struct address_space *mapping, struct file *filp,

@@ -1,0 +1,6 @@
+.*
+*.o
+*.o.*
+*.mod.c
+modules.builtin
+*.order

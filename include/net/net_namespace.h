@@ -40,6 +40,14 @@ struct net_generic;
 struct sock;
 struct netns_ipvs;
 
+/* Do not include avm_pa.h to avoid include cycle. Since we can't determine
+ * the size here we reserve some space, including some extra space for future
+ * extensions without having to rebuild the world.
+ *
+ * avm_pa contains a BUILD_BUG_ON() in case the reserve is too small.
+ */
+#define AVM_PA_DEV_INFO_NET_RESERVE 8
+struct avm_pa_dev_info;
 
 #define NETDEV_HASHBITS    8
 #define NETDEV_HASHENTRIES (1 << NETDEV_HASHBITS)
@@ -142,6 +150,15 @@ struct net {
 #endif
 #if IS_ENABLED(CONFIG_MPLS)
 	struct netns_mpls	mpls;
+#endif
+#if IS_ENABLED(CONFIG_AVM_PA)
+	u8				avm_pa[AVM_PA_DEV_INFO_NET_RESERVE * 2];
+#define AVM_PA_NET_IP_DEVINFO(net)	((struct avm_pa_dev_info *) &(net)->avm_pa[0])
+#define AVM_PA_NET_IP6_DEVINFO(net)	((struct avm_pa_dev_info *) (IS_ENABLED(CONFIG_IPV6) ? \
+		&(net)->avm_pa[AVM_PA_DEV_INFO_NET_RESERVE] : ((void)(net), NULL)))
+#else
+#define AVM_PA_NET_IP_DEVINFO(net)	((struct avm_pa_dev_info *) ((void)(net), NULL))
+#define AVM_PA_NET_IP6_DEVINFO(net)	((struct avm_pa_dev_info *) ((void)(net), NULL))
 #endif
 	struct sock		*diag_nlsk;
 	atomic_t		fnhe_genid;

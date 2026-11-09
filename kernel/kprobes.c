@@ -122,12 +122,20 @@ enum kprobe_slot_state {
 
 static void *alloc_insn_page(void)
 {
+#if defined(CONFIG_AVM_ENHANCED)
+	return kmalloc(PAGE_SIZE, GFP_KERNEL);
+#else
 	return module_alloc(PAGE_SIZE);
+#endif
 }
 
 void __weak free_insn_page(void *page)
 {
+#if defined(CONFIG_AVM_ENHANCED)
+	kfree(page);
+#else
 	module_memfree(page);
+#endif
 }
 
 struct kprobe_insn_cache kprobe_insn_slots = {

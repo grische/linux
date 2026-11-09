@@ -335,10 +335,25 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 			}
 		}
 
+#if defined(CONFIG_AVM_ENHANCED)
+		if (softlockup_panic) {
+			console_verbose();
+			printk_avm_console_bend(0); /* force serial-output */
+		}
+#endif /*--- #if defined(CONFIG_AVM_ENHANCED) ---*/
+
 		pr_emerg("BUG: soft lockup - CPU#%d stuck for %us! [%s:%d]\n",
 			smp_processor_id(), duration,
 			current->comm, task_pid_nr(current));
 		__this_cpu_write(softlockup_task_ptr_saved, current);
+#if defined(CONFIG_AVM_ENHANCED)
+#ifdef CONFIG_SMP
+		if (softlockup_panic) {
+			/*--- get information about all cpus ! ---*/
+			BUG();
+		}
+#endif
+#endif /*--- #if defined(CONFIG_AVM_ENHANCED) ---*/
 		print_modules();
 		print_irqtrace_events(current);
 		if (regs)

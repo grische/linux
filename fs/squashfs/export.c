@@ -63,16 +63,16 @@ static long long squashfs_inode_lookup(struct super_block *sb, int ino_num)
 	if (ino_num == 0 || (ino_num - 1) >= msblk->inodes)
 		return -EINVAL;
 
-	start = le64_to_cpu(msblk->inode_lookup_table[blk]);
+	start = squash_le64_to_cpu(msblk->inode_lookup_table[blk]);
 
 	err = squashfs_read_metadata(sb, &ino, &start, &offset, sizeof(ino));
 	if (err < 0)
 		return err;
 
 	TRACE("squashfs_inode_lookup, inode = 0x%llx\n",
-		(u64) le64_to_cpu(ino));
+		(u64) squash_le64_to_cpu(ino));
 
-	return le64_to_cpu(ino);
+	return squash_le64_to_cpu(ino);
 }
 
 
@@ -162,8 +162,8 @@ __le64 *squashfs_read_inode_lookup_table(struct super_block *sb,
 	 * again the difference should be SQUASHFS_METADATA_SIZE or less
 	 */
 	for (n = 0; n < (indexes - 1); n++) {
-		start = le64_to_cpu(table[n]);
-		end = le64_to_cpu(table[n + 1]);
+		start = squash_le64_to_cpu(table[n]);
+		end = squash_le64_to_cpu(table[n + 1]);
 
 		if (start >= end
 		    || (end - start) >
@@ -173,7 +173,7 @@ __le64 *squashfs_read_inode_lookup_table(struct super_block *sb,
 		}
 	}
 
-	start = le64_to_cpu(table[indexes - 1]);
+	start = squash_le64_to_cpu(table[indexes - 1]);
 	if (start >= lookup_table_start ||
 	    (lookup_table_start - start) >
 	    (SQUASHFS_METADATA_SIZE + SQUASHFS_BLOCK_OFFSET)) {

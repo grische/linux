@@ -135,6 +135,12 @@ struct cpufreq_policy {
 
 	/* For cpufreq driver's internal use */
 	void			*driver_data;
+
+	/* For AVM cpufreq kick */
+	unsigned int		kick_locked;
+	char			*kicked_gov;
+	struct delayed_work	kick_dwork;
+	struct mutex		kick_lock;
 };
 
 /* Only for ACPI */

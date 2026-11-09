@@ -578,6 +578,12 @@ config DEVPORT
 	  Say Y here if you want to support the /dev/port device. The /dev/port
 	  device is similar to /dev/mem, but for I/O ports.
 
+source "drivers/char/tffs/Kconfig"
+
+source "drivers/char/avm_new/Kconfig"
+source "drivers/char/avm_net_trace/Kconfig"
+source "drivers/char/avm_power/Kconfig"
+
 source "drivers/s390/char/Kconfig"
 
 config TILE_SROM
@@ -629,5 +635,28 @@ config RANDOM_TRUST_BOOTLOADER
 	  Say Y here unless you have reason to mistrust your bootloader or
 	  believe its RNG facilities may be faulty. This may also be configured
 	  at boot time with "random.trust_bootloader=on/off".
+
+config LTQ_MPS2
+	tristate "Lantiq mps2 driver"
+	depends on SOC_GRX500||SOC_TYPE_GRX500_TEP
+	default y
+	---help---
+	  Turn on this option to enable mps2 driver.
+
+config LTQ_ICC
+	tristate "Lantiq icc driver"
+	depends on LTQ_MPS2
+	default y
+	---help---
+	  Turn on this option to enable icc driver.
+
+config LTQ_SYSTEM_RESET
+	tristate "Lantiq system reset driver (DEPRECATED)"
+	depends on LTQ_ICC
+	default y
+	---help---
+	  Turn on this option to enable system reset driver.
+	  This driver is deprecated. Use standard linux reset
+	  interface with INTEL_SYSCON_RESET instead.
 
 endmenu

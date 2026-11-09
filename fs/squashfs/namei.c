@@ -103,7 +103,7 @@ static int get_dir_index_using_name(struct super_block *sb,
 			break;
 
 
-		size = le32_to_cpu(index->size) + 1;
+		size = squash_le32_to_cpu(index->size) + 1;
 		if (size > SQUASHFS_NAME_LEN)
 			break;
 
@@ -117,8 +117,8 @@ static int get_dir_index_using_name(struct super_block *sb,
 		if (strcmp(index->name, str) > 0)
 			break;
 
-		length = le32_to_cpu(index->index);
-		*next_block = le32_to_cpu(index->start_block) +
+		length = squash_le32_to_cpu(index->index);
+		*next_block = squash_le32_to_cpu(index->start_block) +
 					msblk->directory_table;
 	}
 
@@ -179,7 +179,7 @@ static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
 
 		length += sizeof(dirh);
 
-		dir_count = le32_to_cpu(dirh.count) + 1;
+		dir_count = squash_le32_to_cpu(dirh.count) + 1;
 
 		if (dir_count > SQUASHFS_DIR_COUNT)
 			goto data_error;
@@ -193,7 +193,7 @@ static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
 			if (err < 0)
 				goto read_failure;
 
-			size = le16_to_cpu(dire->size) + 1;
+			size = squash_le16_to_cpu(dire->size) + 1;
 
 			/* size should never be larger than SQUASHFS_NAME_LEN */
 			if (size > SQUASHFS_NAME_LEN)
@@ -212,10 +212,10 @@ static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
 			if (len == size && !strncmp(name, dire->name, len)) {
 				unsigned int blk, off, ino_num;
 				long long ino;
-				blk = le32_to_cpu(dirh.start_block);
-				off = le16_to_cpu(dire->offset);
-				ino_num = le32_to_cpu(dirh.inode_number) +
-					(short) le16_to_cpu(dire->inode_number);
+				blk = squash_le32_to_cpu(dirh.start_block);
+				off = squash_le16_to_cpu(dire->offset);
+				ino_num = squash_le32_to_cpu(dirh.inode_number) +
+					(short) squash_le16_to_cpu(dire->inode_number);
 				ino = SQUASHFS_MKINODE(blk, off);
 
 				TRACE("calling squashfs_iget for directory "

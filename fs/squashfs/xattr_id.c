@@ -51,16 +51,16 @@ int squashfs_xattr_lookup(struct super_block *sb, unsigned int index,
 	if (index >= msblk->xattr_ids)
 		return -EINVAL;
 
-	start_block = le64_to_cpu(msblk->xattr_id_table[block]);
+	start_block = squash_le64_to_cpu(msblk->xattr_id_table[block]);
 
 	err = squashfs_read_metadata(sb, &id, &start_block, &offset,
 							sizeof(id));
 	if (err < 0)
 		return err;
 
-	*xattr = le64_to_cpu(id.xattr);
-	*size = le32_to_cpu(id.size);
-	*count = le32_to_cpu(id.count);
+	*xattr = squash_le64_to_cpu(id.xattr);
+	*size = squash_le32_to_cpu(id.size);
+	*count = squash_le32_to_cpu(id.count);
 	return 0;
 }
 
@@ -82,8 +82,8 @@ __le64 *squashfs_read_xattr_id_table(struct super_block *sb, u64 table_start,
 	if (IS_ERR(id_table))
 		return (__le64 *) id_table;
 
-	*xattr_table_start = le64_to_cpu(id_table->xattr_table_start);
-	*xattr_ids = le32_to_cpu(id_table->xattr_ids);
+	*xattr_table_start = squash_le64_to_cpu(id_table->xattr_table_start);
+	*xattr_ids = squash_le32_to_cpu(id_table->xattr_ids);
 	kfree(id_table);
 
 	/* Sanity check values */

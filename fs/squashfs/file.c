@@ -194,7 +194,7 @@ static long long read_indexes(struct super_block *sb, int n,
 		}
 
 		for (i = 0; i < blocks; i++) {
-			int size = squashfs_block_size(blist[i]);
+			int size = squash_le32_to_cpu(blist[i]);
 			if (size < 0) {
 				err = size;
 				goto failure;

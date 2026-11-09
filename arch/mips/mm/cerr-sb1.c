@@ -191,7 +191,7 @@ asmlinkage void sb1_cache_error(void)
 
 	__asm__ __volatile__ (
 	"	.set	push\n\t"
-	"	.set	mips64\n\t"
+	"	.set	mips64r2\n\t"
 	"	.set	noat\n\t"
 	"	mfc0	%0, $26\n\t"
 	"	mfc0	%1, $27\n\t"
@@ -345,7 +345,7 @@ static uint32_t extract_ic(unsigned short addr, int data)
 		__asm__ __volatile__ (
 		"	.set	push		\n\t"
 		"	.set	noreorder	\n\t"
-		"	.set	mips64		\n\t"
+		"	.set	mips64r2		\n\t"
 		"	.set	noat		\n\t"
 		"	cache	4, 0(%3)	\n\t"
 		"	mfc0	%0, $29		\n\t"
@@ -400,7 +400,7 @@ static uint32_t extract_ic(unsigned short addr, int data)
 				__asm__ __volatile__ (
 				"	.set	push\n\t"
 				"	.set	noreorder\n\t"
-				"	.set	mips64\n\t"
+				"	.set	mips64r2\n\t"
 				"	.set	noat\n\t"
 				"	cache	6, 0(%3)  \n\t"
 				"	mfc0	%0, $29, 1\n\t"
@@ -499,7 +499,7 @@ static uint32_t extract_dc(unsigned short addr, int data)
 		__asm__ __volatile__ (
 		"	.set	push\n\t"
 		"	.set	noreorder\n\t"
-		"	.set	mips64\n\t"
+		"	.set	mips64r2\n\t"
 		"	.set	noat\n\t"
 		"	cache	5, 0(%3)\n\t"	/* Index-load-tag-D */
 		"	mfc0	%0, $29, 2\n\t"
@@ -550,7 +550,7 @@ static uint32_t extract_dc(unsigned short addr, int data)
 				__asm__ __volatile__ (
 				"	.set	push\n\t"
 				"	.set	noreorder\n\t"
-				"	.set	mips64\n\t"
+				"	.set	mips64r2\n\t"
 				"	.set	noat\n\t"
 				"	cache	7, 0(%3)\n\t" /* Index-load-data-D */
 				"	mfc0	%0, $29, 3\n\t"

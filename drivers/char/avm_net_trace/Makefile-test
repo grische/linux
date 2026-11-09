@@ -1,0 +1,15 @@
+#
+# The test program is for development purpose only, and it's not part of the normal build. 
+# Please call this make file manually in a build shell. And copy it to your box.
+# E.g.: 
+#   Open build box with './firmware build_menu xterm'
+#   Build with 'make -f Makefile-test'
+#
+export CC               := $(CROSS_COMPILE)gcc
+export GU_PATH_LIBS     := $(shell for i in $(FRITZ_BOX_LIB_PATH) ; do echo "-Wl,-rpath-link -Wl,$$i" ; done)
+export GU_PATH_LIBS     += $(shell for i in $(FRITZ_BOX_LIB_PATH) ; do echo "-L $$i" ; done)
+export GU_PATH_INCLUDES := $(shell for i in $(FRITZ_BOX_INCLUDE_PATH) ; do echo "-I$$i" ; done)
+
+
+all:
+	$(CC) avm_net_trace_test.c $(CLAGS) $(LDFLAGS) $(GU_PATH_LIBS) $(GU_PATH_INCLUDES) -o avm_net_trace_test

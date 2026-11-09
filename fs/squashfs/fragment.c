@@ -58,14 +58,14 @@ int squashfs_frag_lookup(struct super_block *sb, unsigned int fragment,
 	block = SQUASHFS_FRAGMENT_INDEX(fragment);
 	offset = SQUASHFS_FRAGMENT_INDEX_OFFSET(fragment);
 
-	start_block = le64_to_cpu(msblk->fragment_index[block]);
+	start_block = squash_le64_to_cpu(msblk->fragment_index[block]);
 
 	size = squashfs_read_metadata(sb, &fragment_entry, &start_block,
 					&offset, sizeof(fragment_entry));
 	if (size < 0)
 		return size;
 
-	*fragment_block = le64_to_cpu(fragment_entry.start_block);
+	*fragment_block = squash_le64_to_cpu(fragment_entry.start_block);
 	return squashfs_block_size(fragment_entry.size);
 }
 
@@ -93,7 +93,7 @@ __le64 *squashfs_read_fragment_index_table(struct super_block *sb,
 	 * table[0] points to the first fragment table metadata block, this
 	 * should be less than fragment_table_start
 	 */
-	if (!IS_ERR(table) && le64_to_cpu(table[0]) >= fragment_table_start) {
+	if (!IS_ERR(table) && squash_le64_to_cpu(table[0]) >= fragment_table_start) {
 		kfree(table);
 		return ERR_PTR(-EINVAL);
 	}

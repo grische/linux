@@ -1,0 +1,15 @@
+/dts-v1/;
+
+#include "hw260.dtsi"
+
+/ {
+
+    model = "AVM7583 VDSL (GRX550, HW260) Main model";
+
+    avm-hw-revision{
+        compatible = "avm,avm_hw_revision";
+        revision = "260";
+        subrevision = "0";
+    };
+
+};

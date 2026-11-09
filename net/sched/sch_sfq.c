@@ -185,6 +185,7 @@ static unsigned int sfq_classify(struct sk_buff *skb, struct Qdisc *sch,
 		switch (result) {
 		case TC_ACT_STOLEN:
 		case TC_ACT_QUEUED:
+		case TC_ACT_TRAP:
 			*qerr = NET_XMIT_SUCCESS | __NET_XMIT_STOLEN;
 		case TC_ACT_SHOT:
 			return 0;
@@ -485,8 +486,9 @@ sfq_dequeue(struct Qdisc *sch)
 	struct sfq_slot *slot;
 
 	/* No active slots */
-	if (q->tail == NULL)
+	if (q->cur_depth == 0) {
 		return NULL;
+	}
 
 next_slot:
 	a = q->tail->next;

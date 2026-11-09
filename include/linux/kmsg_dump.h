@@ -64,6 +64,11 @@ bool kmsg_dump_get_line(struct kmsg_dumper *dumper, bool syslog,
 bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 			  char *buf, size_t size, size_t *len);
 
+#if defined(CONFIG_AVM_DEBUG)
+bool kmsg_dump_get_buffer_nocontext(bool syslog, char *buf, size_t size,
+				    size_t *len);
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) ---*/
+
 void kmsg_dump_rewind_nolock(struct kmsg_dumper *dumper);
 
 void kmsg_dump_rewind(struct kmsg_dumper *dumper);
@@ -112,6 +117,14 @@ static inline int kmsg_dump_unregister(struct kmsg_dumper *dumper)
 {
 	return -EINVAL;
 }
+
+#if defined(CONFIG_AVM_DEBUG)
+static inline bool kmsg_dump_get_buffer_nocontext(bool syslog, char *buf,
+						  size_t size, size_t *len)
+{
+	return false;
+}
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) ---*/
 #endif
 
 #endif /* _LINUX_KMSG_DUMP_H */

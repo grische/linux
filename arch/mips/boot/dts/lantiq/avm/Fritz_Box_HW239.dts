@@ -1,0 +1,15 @@
+/dts-v1/;
+
+#include "hw239.dtsi"
+
+/ {
+
+    model = "AVM7583 (GRX550, HW239) Main model";
+
+    avm-hw-revision{
+        compatible = "avm,avm_hw_revision";
+        revision = "239";
+        subrevision = "0";
+    };
+
+};

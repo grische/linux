@@ -11,6 +11,7 @@
 #include <linux/hash.h>
 #include <linux/kthread.h>
 #include <linux/poll.h>
+#include <asm/yield_context_os.h>
 
 void __init_waitqueue_head(wait_queue_head_t *q, const char *name, struct lock_class_key *key)
 {
@@ -92,6 +93,7 @@ void __wake_up(wait_queue_head_t *q, unsigned int mode,
 {
 	unsigned long flags;
 
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	spin_lock_irqsave(&q->lock, flags);
 	__wake_up_common(q, mode, nr_exclusive, 0, key);
 	spin_unlock_irqrestore(&q->lock, flags);
@@ -103,12 +105,14 @@ EXPORT_SYMBOL(__wake_up);
  */
 void __wake_up_locked(wait_queue_head_t *q, unsigned int mode, int nr)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	__wake_up_common(q, mode, nr, 0, NULL);
 }
 EXPORT_SYMBOL_GPL(__wake_up_locked);
 
 void __wake_up_locked_key(wait_queue_head_t *q, unsigned int mode, void *key)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	__wake_up_common(q, mode, 1, 0, key);
 }
 EXPORT_SYMBOL_GPL(__wake_up_locked_key);
@@ -136,6 +140,7 @@ void __wake_up_sync_key(wait_queue_head_t *q, unsigned int mode,
 	unsigned long flags;
 	int wake_flags = 1; /* XXX WF_SYNC */
 
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	if (unlikely(!q))
 		return;
 
@@ -153,6 +158,7 @@ EXPORT_SYMBOL_GPL(__wake_up_sync_key);
  */
 void __wake_up_sync(wait_queue_head_t *q, unsigned int mode, int nr_exclusive)
 {
+	BUG_ON_YIELDTHREAD_NOT_ALLOWED();
 	__wake_up_sync_key(q, mode, nr_exclusive, NULL);
 }
 EXPORT_SYMBOL_GPL(__wake_up_sync);	/* For internal use only */

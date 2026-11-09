@@ -203,8 +203,8 @@ static void vsmp_boot_secondary(int cpu, struct task_struct *idle)
 	/* restart */
 	write_tc_c0_tcrestart((unsigned long)&smp_bootstrap);
 
-	/* enable the tc this vpe/cpu will be running */
-	write_tc_c0_tcstatus((read_tc_c0_tcstatus() & ~TCSTATUS_IXMT) | TCSTATUS_A);
+	/* enable the tc this vpe/cpu will be running & allow DSP instructions */
+	write_tc_c0_tcstatus((read_tc_c0_tcstatus() & ~TCSTATUS_IXMT) | TCSTATUS_A | TCSTATUS_TMX);
 
 	write_tc_c0_tchalt(0);
 

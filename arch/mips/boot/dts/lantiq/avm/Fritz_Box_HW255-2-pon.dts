@@ -1,0 +1,11 @@
+/dts-v1/;
+#include "hw255.dtsi"
+#include "unodue-pon.dtsi"
+
+/ {
+	avm-hw-revision {
+		compatible = "avm,avm_hw_revision";
+		revision = "255";
+		subrevision = "2";
+	};
+};

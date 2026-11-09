@@ -1,0 +1,48 @@
+#include "grx550_common.dtsi"
+#include "leds-hw226.dtsi"
+
+&pcie0 {
+	bridge@0,0 {
+		reg = <0x00000000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		wifi_5ghz: wifi@1,0 {
+			reg = <0x00010000 0 0 0 0>;
+			#thermal-sensor-cells = <0>;
+		};
+	};
+};
+
+&pcie1 {
+	bridge@0,0 {
+		reg = <0x00000000 0 0 0 0>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		wifi_2_4ghz: wifi@1,0 {
+			reg = <0x00010000 0 0 0 0>;
+			#thermal-sensor-cells = <0>;
+		};
+	};
+};
+
+/ {
+	thermal-zones {
+		thermal-wifi_2_4ghz {
+			polling-delay-passive = <500>; /* milliseconds */
+			polling-delay = <1000>; /* milliseconds */
+
+			thermal-sensors = <&wifi_2_4ghz>;
+		};
+
+		thermal-wifi_5ghz {
+			polling-delay-passive = <500>; /* milliseconds */
+			polling-delay = <1000>; /* milliseconds */
+
+			thermal-sensors = <&wifi_5ghz>;
+		};
+	};
+};

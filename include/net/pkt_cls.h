@@ -391,6 +391,22 @@ tcf_match_indev(struct sk_buff *skb, int ifindex)
 }
 #endif /* CONFIG_NET_CLS_IND */
 
+struct tc_cls_common_offload {
+	u32 chain_index;
+	__be16 protocol;
+	u32 prio;
+	u32 classid;
+};
+
+static inline void
+tc_cls_common_offload_init(struct tc_cls_common_offload *cls_common,
+			   const struct tcf_proto *tp)
+{
+	cls_common->protocol = tp->protocol;
+	cls_common->prio = tp->prio;
+	cls_common->classid = tp->classid;
+}
+
 struct tc_cls_u32_knode {
 	struct tcf_exts *exts;
 	struct tc_u32_sel *sel;
@@ -467,8 +483,10 @@ enum tc_fl_command {
 };
 
 struct tc_cls_flower_offload {
+	struct tc_cls_common_offload common;
 	enum tc_fl_command command;
 	unsigned long cookie;
+	unsigned int classid;
 	struct flow_dissector *dissector;
 	struct fl_flow_key *mask;
 	struct fl_flow_key *key;
@@ -500,6 +518,144 @@ struct tc_cls_bpf_offload {
 	const char *name;
 	bool exts_integrated;
 	u32 gen_flags;
+};
+
+struct tc_qopt_offload_stats {
+	struct gnet_stats_basic_packed *bstats;
+	struct gnet_stats_queue *qstats;
+};
+
+enum tc_red_command {
+	TC_RED_REPLACE,
+	TC_RED_DESTROY,
+	TC_RED_STATS,
+	TC_RED_XSTATS,
+};
+
+struct tc_red_qopt_offload_params {
+	u32 min;
+	u32 max;
+	u32 probability;
+	bool is_ecn;
+	struct gnet_stats_queue *qstats;
+};
+struct tc_red_qopt_offload_stats {
+	struct gnet_stats_basic_packed *bstats;
+	struct gnet_stats_queue *qstats;
+};
+
+struct tc_red_qopt_offload {
+	enum tc_red_command command;
+	u32 handle;
+	u32 parent;
+	union {
+		struct tc_red_qopt_offload_params set;
+		struct tc_red_qopt_offload_stats stats;
+		struct red_stats *xstats;
+	};
+};
+
+enum tc_prio_command {
+	TC_PRIO_REPLACE,
+	TC_PRIO_DESTROY,
+	TC_PRIO_STATS,
+	TC_PRIO_GRAFT,
+};
+
+struct tc_prio_qopt_offload_params {
+	int bands;
+	u8 priomap[TC_PRIO_MAX + 1];
+	/* In case that a prio qdisc is offloaded and now is changed to a
+	 * non-offloadedable config, it needs to update the backlog & qlen
+	 * values to negate the HW backlog & qlen values (and only them).
+	 */
+	struct gnet_stats_queue *qstats;
+};
+
+struct tc_prio_qopt_offload_graft_params {
+	u8 band;
+	u32 child_handle;
+};
+
+struct tc_prio_qopt_offload {
+	enum tc_prio_command command;
+	u32 handle;
+	u32 parent;
+	union {
+		struct tc_prio_qopt_offload_params replace_params;
+		struct tc_qopt_offload_stats stats;
+		struct tc_prio_qopt_offload_graft_params graft_params;
+	};
+};
+
+enum tc_drr_command {
+	TC_DRR_REPLACE,
+	TC_DRR_DESTROY,
+	TC_DRR_STATS,
+	TC_DRR_GRAFT,
+};
+
+struct tc_drr_qopt_offload_params {
+	int quantum;
+	struct gnet_stats_queue *qstats;
+};
+
+struct tc_drr_qopt_offload_stats {
+	struct gnet_stats_basic_packed *bstats;
+	struct gnet_stats_queue *qstats;
+};
+
+struct tc_drr_qopt_offload_graft_params {
+	u8 id;
+	u32 child_handle;
+};
+
+struct tc_drr_qopt_offload {
+	enum tc_drr_command command;
+	u32 handle;
+	u32 parent;
+	union {
+		struct tc_drr_qopt_offload_params set_params;
+		struct tc_drr_qopt_offload_stats stats;
+		struct tc_drr_qopt_offload_graft_params graft_params;
+	};
+};
+
+/* This structure holds cookie structure that is passed from user
+ * to the kernel for actions and classifiers
+ */
+struct tc_cookie {
+	u8 *data;
+	u32 len;
+};
+
+enum tc_tbf_command {
+	TC_TBF_REPLACE,
+	TC_TBF_DESTROY,
+	TC_TBF_STATS,
+};
+
+struct tc_tbf_qopt_offload_params {
+	u64 rate;
+	u64 prate;
+	u32 burst;
+	u32 pburst;
+	struct gnet_stats_queue *qstats;
+};
+
+struct tc_tbf_qopt_offload_stats {
+	struct gnet_stats_basic_packed *bstats;
+	struct gnet_stats_queue *qstats;
+};
+
+struct tc_tbf_qopt_offload {
+	enum tc_tbf_command command;
+	u32 handle;
+	u32 parent;
+	union {
+		struct tc_tbf_qopt_offload_params set_params;
+		struct tc_tbf_qopt_offload_stats stats;
+	};
 };
 
 #endif

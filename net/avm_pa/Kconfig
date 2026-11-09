@@ -1,0 +1,127 @@
+#
+# Packet configuration
+#
+
+config AVM_PA
+	bool "AVM Packet acceleration"
+	depends on AVM_ENHANCED
+	depends on (L2TP || L2TP=n)
+	help
+	  The AVM Packet acceleration can be used to let packets travel
+	  directly from input device to output device.
+
+	  If unsure, say N.
+
+config AVM_PA_RPS
+	bool "AVM PA Receive Packet Steering"
+	depends on AVM_PA
+	help
+	  The AVM Packet acceleration can be used to let packets travel
+	  directly from input device to output device.
+
+	  If unsure, say N.
+
+config AVM_PA_RPS_QUEUES
+	int "Number of queues for RPS"
+	range 2 32
+	default 4
+	depends on AVM_PA_RPS
+	help
+	  The number of queues for RPS. Should be larger or equal to the number of CPUs for
+	  best packet distribution. Must be a power of 2. If less then the number of CPUs,
+	  then higher-numbered CPUs will not be considered for RPS.
+
+	  4 seems to be a good value for our routers. The hash function used has yet to
+	  show that it gives a good distribution for larger amounts of RPS queues.
+
+config AVM_PA_MAX_PID
+	int "AVM Packet acceleration max PIDs"
+	depends on AVM_PA
+	range 8 256
+	default 32
+	help
+	  Max number of interfaces supported by AVM_PA
+	  allowed range:     8 - 256
+	  reasonable range:  8 -  64
+
+config AVM_PA_MAX_VPID
+	int "AVM Packet acceleration max VPIDs"
+	depends on AVM_PA
+	range 8 256
+	default 32
+	help
+	  Max number of virtual interfaces supported by AVM_PA
+	  allowed range:     8 - 256
+	  reasonable range:  8 -  64
+
+config AVM_PA_MAX_SESSION
+	int "AVM Packet acceleration max Sessions"
+	depends on AVM_PA
+	range 16 32678
+	default 256
+	help
+	  Max number of sessions supported by AVM_PA
+	  allowed range:     16 - 32678
+	  reasonable range:  64 -  4096
+
+config AVM_PA_TX_NAPI
+	bool "Call tx_func via NAPI"
+	depends on AVM_PA
+	default n
+	help
+	  This makes AVM_PA set up a NAPI context to call the tx_func given by egress
+	  devices. This can be helpful for load balancing. It is most effective on CONFIG_SMP
+	  because the napi_poll function will be offloaded to a different core, thereby
+	  moving distributing CPU load. If dev_queue_xmit() is called in the tx_func then
+	  the entire QoS layer will be run on another core.
+
+config AVM_PA_SCH_LLQ
+	tristate "LLQ Queue (CBWFQ with strict priorities)"
+	depends on NET_SCHED
+	depends on !(NET_SCH_LLQ=m || NET_SCH_LLQ=y)
+	depends on AVM_ENHANCED
+	default m
+	help
+	  If you say Y here, you will be able to schedule packets
+	  with strict priorities and weight.
+	  (Class-Bases Weighted Fair Queuing with strict priorities)
+	  If unsure, say Y.
+
+	  To compile this code as a module, choose M here: the
+	  module will be called sch_llq.
+
+config AVM_PA_SCH_TACK
+	tristate "Ack compression accelerator (Turbo ACK)"
+	depends on NET_SCHED
+	default n
+	help
+	  Say Y here if you want to use the turbo ack accelerator which
+	  accelerates TCP traffic by merging TCP ACK packets on egress.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called sch_tack.
+
+	  If unsure, say N.
+
+config AVM_PA_GENERIC_CT
+	bool "AVM generic connection tracking interface"
+	depends on AVM_ENHANCED
+	depends on !AVM_GENERIC_CONNTRACK
+	default n
+	help
+	  This allows the use of a connection tracking with
+	  a generic interface to access the connection tracking
+	  entries. Can be used simultaneously with the NETFILTER connection
+	  tracking.
+
+config AVM_PA_GENERIC_CT_PP_SUPPORT
+	bool "Generic connection tracking support for vendor offloads"
+	depends on AVM_PA_GENERIC_CT
+	default n
+	help
+	  Enable if you have AVM_PA and vendor offload sessions (e.g. Puma7 PP)
+	  running together. This allows the connection tracking with
+	  generic interface to distinguish between AVM_PA and vendor sessions.
+          If unsure, say N.
+
+source "net/avm_pa/sch_cake/Kconfig"

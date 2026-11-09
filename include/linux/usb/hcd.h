@@ -25,6 +25,10 @@
 #include <linux/interrupt.h>
 #include <linux/idr.h>
 
+#ifdef CONFIG_AVM_NET_TRACE
+#include "avmusbtrace.h"
+#endif
+
 #define MAX_TOPO_LEVEL		6
 
 /* This file contains declarations of usbcore internals that are mostly
@@ -209,6 +213,10 @@ struct usb_hcd {
 	 * input size of periodic table to an interrupt scheduler.
 	 * (ohci 32, uhci 1024, ehci 256/512/1024).
 	 */
+
+#ifdef AVM_USB_TRACE
+	struct avm_net_trace_device *avm_ntd;
+#endif
 
 	/* The HC driver's private data is stored at the end of
 	 * this structure.
@@ -461,7 +469,14 @@ extern int usb_hcd_pci_probe(struct pci_dev *dev,
 extern void usb_hcd_pci_remove(struct pci_dev *dev);
 extern void usb_hcd_pci_shutdown(struct pci_dev *dev);
 
+#ifndef CONFIG_PCI_DISABLE_COMMON_QUIRKS
 extern int usb_hcd_amd_remote_wakeup_quirk(struct pci_dev *dev);
+#else
+static inline int usb_hcd_amd_remote_wakeup_quirk(struct pci_dev *dev)
+{
+	return 0;
+}
+#endif
 
 #ifdef CONFIG_PM
 extern const struct dev_pm_ops usb_hcd_pci_pm_ops;

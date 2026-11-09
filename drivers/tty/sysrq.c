@@ -47,7 +47,7 @@
 #include <linux/syscalls.h>
 #include <linux/of.h>
 #include <linux/rcupdate.h>
-
+#include <asm/yield_context.h>
 #include <asm/ptrace.h>
 #include <asm/irq_regs.h>
 
@@ -262,6 +262,19 @@ static struct sysrq_key_op sysrq_showallcpus_op = {
 	.enable_mask	= SYSRQ_ENABLE_DUMP,
 };
 #endif
+#if defined(CONFIG_AVM_IPI_YIELD)
+static DEFINE_SPINLOCK(reg_lock);
+static void per_cpu_sysrq_handle_showregs(void *dummy __maybe_unused)
+{
+	struct pt_regs *regs = get_irq_regs();
+	if (regs) {
+		spin_lock(&reg_lock);
+		show_regs(regs);
+		perf_event_print_debug();
+		spin_unlock(&reg_lock);
+	}
+}
+#endif /*--- #if defined(CONFIG_AVM_IPI_YIELD) ---*/
 
 static void sysrq_handle_showregs(int key)
 {
@@ -272,6 +285,17 @@ static void sysrq_handle_showregs(int key)
 	if (regs)
 		show_regs(regs);
 	perf_event_print_debug();
+#if defined(CONFIG_AVM_IPI_YIELD)
+	{
+		int cpu;
+		for_each_online_cpu (cpu) {
+			if (cpu != smp_processor_id()) {
+				yield_call(cpu, per_cpu_sysrq_handle_showregs,
+					   NULL);
+			}
+		}
+	}
+#endif /*--- #if defined(CONFIG_AVM_IPI_YIELD) ---*/
 }
 static struct sysrq_key_op sysrq_showregs_op = {
 	.handler	= sysrq_handle_showregs,

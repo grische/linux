@@ -1121,6 +1121,7 @@ static int marvell_read_status_page(struct phy_device *phydev, int page)
 
 		status = status & MII_M1011_PHY_STATUS_SPD_MASK;
 		phydev->pause = phydev->asym_pause = 0;
+		phydev->port = fiber ? PORT_FIBRE : PORT_TP;
 
 		switch (status) {
 		case MII_M1011_PHY_STATUS_1000:
@@ -1181,6 +1182,7 @@ static int marvell_read_status_page(struct phy_device *phydev, int page)
 
 		phydev->pause = phydev->asym_pause = 0;
 		phydev->lp_advertising = 0;
+		phydev->port = fiber ? PORT_FIBRE : PORT_TP;
 	}
 
 	return 0;

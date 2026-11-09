@@ -214,7 +214,7 @@ static inline void set_pte(pte_t *ptep, pte_t pteval)
 
 		if (kernel_uses_llsc && R10000_LLSC_WAR) {
 			__asm__ __volatile__ (
-			"	.set	arch=r4000			\n"
+			"	.set	arch=mips32r2			\n"
 			"	.set	push				\n"
 			"	.set	noreorder			\n"
 			"1:"	__LL	"%[tmp], %[buddy]		\n"

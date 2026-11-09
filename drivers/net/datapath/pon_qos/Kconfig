@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: GPL-2.0
+
+config PON_QOS
+	tristate "PON QoS driver"
+	depends on INTEL_DATAPATH
+
+	help
+	  This driver provides user space API for configuring PON specific QoS
+	  resources as schedulers, queues etc. The interface is based on linux
+	  tc offload interface. The Intel datapath driver is used to do the
+	  actual hardware configuration.

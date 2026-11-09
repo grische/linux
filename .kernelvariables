@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: GPL-2.0
+# vim: set autoread filetype=make:
+#
+# Auto-generated at 1.116.1.2.1.1-d_do_not_use_jz115652-v1.116.2_gpl1
+# while generating for grx5
+#
+ARCH = mips
+export ARCH
+
+CROSS_COMPILE = mips-buildroot-linux-musl-
+export CROSS_COMPILE
+CONFIG_CROSS_COMPILE = $(CROSS_COMPILE)
+export CONFIG_CROSS_COMPILE
+
+# Disable auto-vcs mark (e.g. "+" for not-tagged versions)
+override LOCALVERSION = $()
+export LOCALVERSION
+
+INSTALL_HDR_PATH = ../filesystem/
+INSTALL_MOD_PATH = ../filesystem/
+INSTALL_MOD_STRIP =
+
+override INSTALL_HDR_PATH := $(INSTALL_HDR_PATH)
+override INSTALL_MOD_PATH := $(INSTALL_MOD_PATH)
+export INSTALL_HDR_PATH INSTALL_MOD_PATH
+
+EXTRA_CFLAGS = 
+
+export AVM_KCONFIG_CONFIG = ../linux/avm/conf/linux-4.9.grx5
+
+# Enable reproducibility by setting 'reproducibility' to any nonempty value;
+# defaults of KBUILD_BUILD_* and SOURCE_DATE_EPOCH match the variables that
+# where used to create the officially delivered F!OS kernel.
+#reproducibility = yes
+
+ifneq ($(reproducibility),)
+export SOURCE_DATE_EPOCH = 1686048672
+export KBUILD_BUILD_USER = kbuild-team
+export KBUILD_BUILD_HOST = core.avm.de
+export KBUILD_BUILD_TIMESTAMP = 2023-06-06
+endif
+# No variables exported via $(kernelvariables_extra)
+

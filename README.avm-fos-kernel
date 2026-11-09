@@ -1,0 +1,26 @@
+AVM FRITZ!OS kernel - README
+============================
+
+AVM FRITZ!OS kernel is a Linux derivate.  If you want to rebuild your FRITZ!OS
+kernel, exactly, please go ahead this way:
+
+ * Enable the settings for SOURCE_DATE_EPOCH, KBUILD_BUILD_USER,
+   KBUILD_BUILD_HOST and KBUILD_BUILD_TIMESTAMP in .kernelvariables by setting
+   'reproducibility' to a nonempty value.
+
+ * Adjust the toolchain variables, to match your cross toolchain as required:
+   CROSS_COMPILE (e.g.  mips-linux-gnu-), CC (e.g. mips-linux-gnu-gcc-5),
+   HOSTCC (e.g. gcc).
+
+ * Run 'make olddefconfig' to let kconfig regenerate the original .config file;
+   remember to add 'O=../path/to/build/dir' to all make calls, if you want to
+   build out-of-source.  Official FRITZ!OS kernel builds do 'olddefconfig', too,
+   and with the exception of puma6 based boards, we always build out-of-source.
+
+Now you can build the kernel almost as ususal ('make reproducibility=1 all
+install modules_install headers_install dtbs_install ...').
+
+Thanks for caring for your open-source kernel.
+
+Yours,
+the FRITZ!OS kernel team.

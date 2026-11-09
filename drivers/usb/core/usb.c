@@ -43,6 +43,7 @@
 #include <linux/mm.h>
 #include <linux/dma-mapping.h>
 
+#include <linux/usb/quirks.h>
 #include "usb.h"
 
 
@@ -69,6 +70,18 @@ MODULE_PARM_DESC(autosuspend, "default autosuspend delay");
 
 #else
 #define usb_autosuspend_delay		0
+#endif
+
+#if defined (CONFIG_AVM_USB_SUSPEND)
+static struct avm_usb_suspend_blacklist avm_usb_suspend_blacklist_devs[AVM_USB_SUSPEND_MAX_BLACKLIST_SIZE];
+
+static unsigned int avm_usb_suspend_blacklist_size = 0;
+module_param_named(suspend_blacklist_size, avm_usb_suspend_blacklist_size, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(suspend_blacklist_size, "Count of blacklisted devices");
+
+int suspend_error_count = 0;
+module_param(suspend_error_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(suspend_error_count, "Count of failed suspends");
 #endif
 
 
@@ -454,6 +467,259 @@ static const struct dev_pm_ops usb_device_pm_ops = {
 
 #endif	/* CONFIG_PM */
 
+#ifdef CONFIG_AVM_USB_SUSPEND
+/* == 20170208 AVM/VGJ - Schedules suspend if device is idle == */
+/* == 20171110 AVM/WKR - Must be called with device lock held == */
+int __avm_usb_suspend_start_timer(struct usb_device *udev)
+{
+	unsigned long delay;
+
+	if (udev->state == USB_STATE_NOTATTACHED) {
+		return -1;
+	}
+
+	if (!udev->avm_usb_suspend_enable || atomic_read(&udev->avm_use_count)) {
+		return -1;
+	}
+
+	delay = udev->avm_usb_suspend_delay;
+
+	if (delay > 0) {
+		mod_timer(&udev->suspend_timer, jiffies + delay);
+	}
+
+	return 0;
+}
+
+/* == 20180214 AVM/VGJ - Schedules suspend after delay (in ms) ==
+ *      Must not be called with device lock held == */
+void avm_usb_suspend_schedule(struct usb_device *udev, unsigned int delay)
+{
+	usb_lock_device(udev);
+	if (!udev->avm_usb_suspend_enable || atomic_read(&udev->avm_use_count)) {
+		usb_unlock_device(udev);
+		return;
+	}
+
+	mod_timer(&udev->suspend_timer, jiffies + msecs_to_jiffies(delay));
+	usb_unlock_device(udev);
+}
+EXPORT_SYMBOL_GPL(avm_usb_suspend_schedule);
+
+/* == 20171117 AVM/WKR - modifies delay for suspend timer ==
+ *      Must not be called with device lock held == */
+void avm_usb_suspend_set_delay(struct usb_device *udev, unsigned msecs)
+{
+		printk (KERN_INFO "set suspend delay %u ms\n", msecs);
+		usb_lock_device(udev);
+		udev->avm_usb_suspend_delay = msecs_to_jiffies(msecs);
+		usb_unlock_device(udev);
+}
+EXPORT_SYMBOL_GPL(avm_usb_suspend_set_delay);
+
+/* == 20170208 AVM/VGJ - Suspends a device. Always called with a work_queue == */
+static void avm_usb_suspend_work_fn(struct work_struct *ws)
+{
+	struct usb_device *udev =
+		container_of(ws, struct usb_device, avm_usb_suspend_ws);
+
+	if (udev->state == USB_STATE_NOTATTACHED) {
+		return;
+	}
+
+	/* == 20171113 AVM/VGJ Prevent freeing of device during suspension == */
+	usb_get_dev(udev);
+	usb_lock_device(udev);
+
+	if (atomic_read(&udev->avm_use_count) > 0 || !udev->avm_usb_suspend_enable) {
+		usb_unlock_device(udev);
+		usb_put_dev(udev);
+		return;
+	}
+	__avm_usb_suspend_do_suspend(udev);
+
+	usb_unlock_device(udev);
+	usb_put_dev(udev);
+}
+
+/* == 20170208 AVM/VGJ - schedules a work_queue to suspend a device == */
+static void avm_usb_suspend_timer_fn(unsigned long data)
+{
+	struct usb_device *udev = (struct usb_device *)data;
+
+	// Only schedule suspend if the device is idle
+	if (atomic_read(&udev->avm_use_count) == 0) {
+		schedule_work(&udev->avm_usb_suspend_ws);
+	}
+}
+
+/* == 20170208 AVM/VGJ - Inits suspend work_queue, timer and variables == */
+void avm_usb_suspend_init(struct usb_device *udev)
+{
+	udev->avm_usb_suspend_delay = msecs_to_jiffies(AVM_USB_SUSPEND_DELAY*1000);
+	setup_timer(&udev->suspend_timer, avm_usb_suspend_timer_fn, (unsigned long)udev);
+	INIT_WORK(&udev->avm_usb_suspend_ws, avm_usb_suspend_work_fn);
+#ifdef AVM_USB_SUSPEND_DEBUG
+	printk(KERN_ERR "suspend_timer set up\n");
+#endif
+}
+
+/* == 20170208 AVM/VGJ - Deletes suspend timer and disables suspend == */
+void avm_usb_suspend_stop(struct usb_device *udev)
+{
+	del_timer(&udev->suspend_timer);
+	udev->avm_usb_suspend_enable = 0;
+#ifdef AVM_USB_SUSPEND_DEBUG
+	printk(KERN_ERR "%s(): suspend_timer deleted\n", __func__);
+#endif
+}
+
+/* == 20171113 AVM/VGJ - Checks whether a device is blacklisted for suspension == */
+int avm_usb_suspend_is_blacklisted(struct usb_device *udev)
+{
+	int i;
+
+	if (avm_usb_suspend_blacklist_size > AVM_USB_SUSPEND_MAX_BLACKLIST_SIZE) {
+		avm_usb_suspend_blacklist_size = 0;
+		return 0;
+	}
+
+	for (i = 0; i < avm_usb_suspend_blacklist_size; i++) {
+		if (udev->descriptor.idVendor != avm_usb_suspend_blacklist_devs[i].idVendor) {
+			continue;
+		}
+		if (udev->descriptor.idProduct != avm_usb_suspend_blacklist_devs[i].idProduct) {
+			continue;
+		}
+		if (udev->descriptor.bcdDevice != avm_usb_suspend_blacklist_devs[i].bcdDevice) {
+			continue;
+		}
+
+		return 1;
+	}
+
+	return 0;
+}
+
+/* == 20171113 AVM/VGJ - Adds a device to the suspension blacklist == */
+void avm_usb_suspend_add_to_blacklist(struct usb_device *udev)
+{
+	// Check whether device is already blacklisted
+	if (avm_usb_suspend_is_blacklisted(udev)) {
+		return;
+	}
+
+	mutex_lock(&usb_bus_idr_lock);
+
+	// Add device to blacklist
+	if (avm_usb_suspend_blacklist_size < AVM_USB_SUSPEND_MAX_BLACKLIST_SIZE) {
+		avm_usb_suspend_blacklist_devs[avm_usb_suspend_blacklist_size].idVendor  = udev->descriptor.idVendor;
+		avm_usb_suspend_blacklist_devs[avm_usb_suspend_blacklist_size].idProduct = udev->descriptor.idProduct;
+		avm_usb_suspend_blacklist_devs[avm_usb_suspend_blacklist_size].bcdDevice = udev->descriptor.bcdDevice;
+
+		avm_usb_suspend_blacklist_size++;
+	}
+
+	mutex_unlock(&usb_bus_idr_lock);
+
+	printk (KERN_INFO "USB device %04x:%04x:%04x added to suspend blacklist\n",
+						le16_to_cpu(udev->descriptor.idVendor),
+						le16_to_cpu(udev->descriptor.idProduct),
+						le16_to_cpu(udev->descriptor.bcdDevice));
+}
+EXPORT_SYMBOL_GPL(avm_usb_suspend_add_to_blacklist);
+
+/* == 20170208 AVM/VGJ - Incs use counter and resumes device if it is suspended
+ * Must be called with device lock held == */
+int __avm_usb_suspend_get(struct usb_device *udev)
+{
+	int ret;
+
+	if (udev->state == USB_STATE_NOTATTACHED) {
+		return -1;
+	}
+
+	if (atomic_inc_return(&udev->avm_use_count) > 1) {
+		return 0;
+	}
+
+	del_timer(&udev->suspend_timer);
+	ret = __avm_usb_suspend_do_resume(udev);
+
+	if(ret < 0) {
+		atomic_dec(&udev->avm_use_count);
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(__avm_usb_suspend_get);
+
+/* == 20170208 AVM/VGJ - Decs use counter and schedules a suspend if device is idle == */
+/* == 20171110 AVM/WKR - Must be called with device lock held == */
+void __avm_usb_suspend_put(struct usb_device *udev)
+{
+	if (udev->state == USB_STATE_NOTATTACHED) {
+		return;
+	}
+
+	// Use counter should not be negative. It must be bigger than zero before dec
+	BUG_ON(atomic_read(&udev->avm_use_count) <= 0);
+
+	// Schedule suspend if device is idle
+	if (atomic_dec_return(&udev->avm_use_count) == 0) {
+		udev->avm_usb_suspend_last_busy = jiffies;
+		__avm_usb_suspend_start_timer(udev);
+	}
+}
+EXPORT_SYMBOL_GPL(__avm_usb_suspend_put);
+
+/* == 20170208 AVM/VGJ - Resumes a device and updates Powermeter info
+ * == 20171110 AVM/WKR - Must be called with device lock held == */
+int __avm_usb_suspend_do_resume(struct usb_device *udev)
+{
+	int ret;
+
+	// Only do resume if device is suspended
+	if (!udev->port_is_suspended) {
+		return 0;
+	}
+
+	/* == 20171116 AVM/WKR - use quirk for known buggy devices == */
+	if (udev->quirks & USB_QUIRK_RESET_RESUME)
+		udev->reset_resume = 1;
+
+	usb_unlock_device(udev);
+	ret = usb_port_resume(udev, PMSG_AUTO_RESUME);
+	usb_lock_device(udev);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return 0;
+}
+
+/* == 20170208 AVM/VGJ - Suspends a device and updates Powermeter info == */
+/* == 20171110 AVM/WKR - Must be called with device lock held == */
+void __avm_usb_suspend_do_suspend(struct usb_device *udev)
+{
+	BUG_ON(atomic_read(&udev->avm_use_count) != 0);
+
+	// Only do suspend if device is active
+	if (udev->port_is_suspended) {
+		return;
+	}
+
+	usb_unlock_device(udev);
+	usb_port_suspend(udev, PMSG_AUTO_SUSPEND);
+	usb_lock_device(udev);
+
+	/* == 20171113 AVM/VGJ Some devices are disconnected while suspending == */
+	if (udev->state == USB_STATE_NOTATTACHED) {
+		suspend_error_count++;
+		avm_usb_suspend_add_to_blacklist(udev);
+	}
+}
+#endif
 
 static char *usb_devnode(struct device *dev,
 			 umode_t *mode, kuid_t *uid, kgid_t *gid)
@@ -610,6 +876,12 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 	dev->connect_time = jiffies;
 	dev->active_duration = -jiffies;
 #endif
+
+/* == 20171214 AVM/VGJ - Prepares device for AVM USB Suspend Feature == */
+#ifdef CONFIG_AVM_USB_SUSPEND
+	avm_usb_suspend_init(dev);
+#endif
+
 	if (root_hub)	/* Root hub always ok [and always wired] */
 		dev->authorized = 1;
 	else {

@@ -65,8 +65,8 @@ ssize_t squashfs_listxattr(struct dentry *d, char *buffer,
 		if (err < 0)
 			goto failed;
 
-		name_size = le16_to_cpu(entry.size);
-		handler = squashfs_xattr_handler(le16_to_cpu(entry.type));
+		name_size = squash_le16_to_cpu(entry.size);
+		handler = squashfs_xattr_handler(squash_le16_to_cpu(entry.type));
 		if (handler && (!handler->list || handler->list(d))) {
 			const char *prefix = handler->prefix ?: handler->name;
 			size_t prefix_size = strlen(prefix);
@@ -104,7 +104,7 @@ ssize_t squashfs_listxattr(struct dentry *d, char *buffer,
 			goto failed;
 
 		err = squashfs_read_metadata(sb, NULL, &start, &offset,
-						le32_to_cpu(val.vsize));
+						squash_le32_to_cpu(val.vsize));
 		if (err < 0)
 			goto failed;
 	}
@@ -142,8 +142,8 @@ static int squashfs_xattr_get(struct inode *inode, int name_index,
 		if (err < 0)
 			goto failed;
 
-		name_size = le16_to_cpu(entry.size);
-		type = le16_to_cpu(entry.type);
+		name_size = squash_le16_to_cpu(entry.size);
+		type = squash_le16_to_cpu(entry.type);
 		prefix = type & SQUASHFS_XATTR_PREFIX_MASK;
 
 		if (prefix == name_index && name_size == name_len)
@@ -170,7 +170,7 @@ static int squashfs_xattr_get(struct inode *inode, int name_index,
 					&start, &offset, sizeof(xattr_val));
 				if (err < 0)
 					goto failed;
-				xattr = le64_to_cpu(xattr_val);
+				xattr = squash_le64_to_cpu(xattr_val);
 				start = SQUASHFS_XATTR_BLK(xattr) +
 							msblk->xattr_table;
 				offset = SQUASHFS_XATTR_OFFSET(xattr);
@@ -181,7 +181,7 @@ static int squashfs_xattr_get(struct inode *inode, int name_index,
 			if (err < 0)
 				goto failed;
 
-			vsize = le32_to_cpu(val.vsize);
+			vsize = squash_le32_to_cpu(val.vsize);
 			if (buffer) {
 				if (vsize > buffer_size) {
 					err = -ERANGE;
@@ -201,7 +201,7 @@ static int squashfs_xattr_get(struct inode *inode, int name_index,
 		if (err < 0)
 			goto failed;
 		err = squashfs_read_metadata(sb, NULL, &start, &offset,
-						le32_to_cpu(val.vsize));
+						squash_le32_to_cpu(val.vsize));
 		if (err < 0)
 			goto failed;
 	}

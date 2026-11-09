@@ -62,6 +62,7 @@ extern cpumask_t cpu_callin_map;
 extern cpumask_t cpu_coherent_mask;
 
 extern void asmlinkage smp_bootstrap(void);
+extern char smp_bootstrap_end[];
 
 extern void calculate_cpu_foreign_map(void);
 

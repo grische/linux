@@ -1,0 +1,194 @@
+#
+# TFFS configuration
+#
+
+menu "TFFS"
+
+config TFFS
+	select ZLIB_INFLATE
+	select ZLIB_DEFLATE
+	select AVM_EFIVAR if X86_PUMA7
+	bool "AVM (T)iny (F)lash (F)ile (S)ystem"
+	default y
+
+if TFFS
+
+config TFFS_DEV_LEGACY
+	bool "Enable support for legacy TFFS v2 format"
+	default y
+	select TFFS_AUTO_INIT
+
+config TFFS_DEV_MTDNAND
+	bool "Enable support for NAND MTD as TFFS backing device"
+	default y
+
+config TFFS_NAND_V31
+	bool "Enable support for NAND entry format version 3.1"
+	default n
+	depends on TFFS_DEV_MTDNAND
+
+config TFFS_V31_CONVERT
+	bool "Convert TFFS3.0 to TFFS3.1"
+	default n
+	depends on TFFS_NAND_V31
+	help
+	  Rewrite TFFS3.0 blocks as TFFS3.1 and format new blocks as TFFS3.1.
+	  This is only of use for testing if you want to make a TFFS3.1 from
+	  TFFS3.0.
+	  Say N here to stick to found TFFS3.0 blocks and warn if TFFS3.1 blocks
+	  are found along TFFS3.0 blocks.
+
+config TFFS_DEV_CACHE
+	bool "Enable support for full TFFS RAM caching module"
+	default y
+
+config TFFS_DEV_CACHE_ENV_ONLY
+	bool "Cache only bootloader environment"
+	default y
+	depends on TFFS_DEV_CACHE
+
+config TFFS_DEV_CACHE_RAMONLY
+	bool "Enable volatile dummy TFFS in RAM"
+	default n
+	depends on TFFS_DEV_CACHE
+	help
+	  If no flash backend is found, simulate it in RAM. Only useful
+	  for bringing up new boards without working flash driver.
+	  Say N unless you really, really need this.
+
+if AVM_EFIVAR
+choice
+	prompt "EFI variable backend"
+	optional
+	default TFFS_EFI_SYNC if X86_PUMA7
+	help
+	  Save TFFS environment in EFI variables. This is only required on x86
+	  platforms where the urlader does not save its environment to the TFFS.
+
+config TFFS_DEV_EFI
+	bool "Store TFFS environment as EFI variables"
+	select TFFS_AUTO_INIT
+
+config TFFS_EFI_SYNC
+	bool "Sync TFFS environment to EFI variables"
+endchoice
+endif
+
+comment "TFFS EFI variable support requires CONFIG_AVM_EFIVAR"
+	depends on EFI && !AVM_EFIVAR
+
+#config TFFS_DEV_MTDNOR
+#	bool "Enable support for NOR MTD as TFFS backing device"
+#	default y
+
+#config TFFS_DEV_BDEV
+#	bool "Enable support for block device as TFFS backing device"
+#	default n
+
+config TFFS_DEV_REMOTE
+	bool "Enable support for accessing TFFS on remote event node"
+	default n
+	depends on AVM_EVENT_20 && (AVM_EVENTNODE_PUMA6 || AVM_EVENTNODE_PUMA7)
+	select TFFS_AUTO_INIT if (MACH_PUMA7 && ARCH_AVALANCHE) || X86_PUMA6
+
+config TFFS_AUTO_INIT
+	bool
+
+config AVM_TFFS_REMOTE_RESET_STATUS_HACK
+	bool "Set AVM reboot_status when remote tffs panic log is written"
+	default n
+	depends on TFFS_DEV_REMOTE && MACH_PUMA7
+	help
+	  If a paniclog is written per remote tffs, automatically set the AVM
+	  reset status to "panic".  This guarantees that if e.g. a hardware
+	  watchdog resets the system after the panic, the error condition is
+	  present in the AVM reset status and will be detected when rebooting.
+
+config TFFS_USERLOG_TMPBUF_PSTORE
+	bool "Use PSTORE pmsg as temporary user log buffer"
+	depends on PSTORE
+	select PSTORE_PMSG
+	help
+	  Use pstore/pmsg as temporary buffer for the userlog.  Userspace can
+	  write to the buffer using the pstore device /dev/pmsg0.
+	  This requires a kernel patch extending the pstore API by adding
+	  the function pstore_copy().
+
+	  By default, a custom in-memory buffer is used, which userspace can
+	  write to by accessing the file /proc/avm/user.log.
+
+	  This affects only the temporary buffer, when preparing crashreports
+	  the data is always saved to tffs.
+
+config TFFS_DEV_REMOTE_LIMITED
+	bool "Limit remote write access to bootloader environment"
+	default y
+	depends on TFFS_DEV_REMOTE
+
+config TFFS_MTD_DEVICE_0
+	int "MTD partition used for first TFFS buffer"
+	default 3
+	depends on TFFS_DEV_LEGACY
+
+config TFFS_MTD_DEVICE_1
+	int "MTD partition used for second TFFS buffer"
+	default 4
+	depends on TFFS_DEV_LEGACY
+
+config TFFS_ENV
+	depends on TFFS
+	bool "AVM TFFS Environment support"
+	default y
+
+config TFFS_VERIFY_WRITE
+	depends on TFFS_DEV_LEGACY || TFFS_NAND_V31
+	bool "Verify entry after write"
+	default n
+
+config TFFS_PANIC_LOG
+	bool "Enable TFFS Panic Log"
+
+if TFFS_PANIC_LOG
+
+config TFFS_PANIC_LOG_ID
+	int "TFFS ID for TFFS panic log"
+
+config TFFS_USER_LOG
+	bool "Userlog support"
+	default y
+
+config TFFS_REMOTE_CRASHLOG_WRITER
+	bool "Support remote system creating additional crashlogs"
+	depends on TFFS_DEV_REMOTE
+	help
+	  Support a second kernel writing crashlogs through the TFFS remote
+	  mechanism. These crashlogs are made available locally to the crash
+	  reporter.
+
+config TFFS_REMOTE_CRASHLOG_READER
+	bool "Crashlogs are read on a remote system instead of locally"
+	depends on TFFS_DEV_REMOTE
+	help
+	  Support writing crashlogs through the TFFS remote mechanism.
+	  These crashlogs will be read by the crash reporter on the other
+	  system instead of being read locally.
+
+config TFFS_DUMMY_PANIC_LOG_AFTER_RESET
+	def_bool y
+	depends on AVM_ARCH_NMI_BROKEN
+
+endif
+
+config TFFS_DEBUGFS
+	bool "Enable TFFS debugfs interface"
+	depends on DEBUG_FS
+	default n
+
+#config TFFS_CRYPT
+#	bool "AVM TFFS crypt support"
+#	default y
+
+endif
+
+endmenu
+

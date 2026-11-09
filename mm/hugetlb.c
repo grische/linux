@@ -1603,7 +1603,11 @@ static struct page *__hugetlb_alloc_buddy_huge_page(struct hstate *h,
 		cpuset_mems_cookie = read_mems_allowed_begin();
 		zl = huge_zonelist(vma, addr, gfp, &mpol, &nodemask);
 		mpol_cond_put(mpol);
-		page = __alloc_pages_nodemask(gfp, order, zl, nodemask);
+		page = __alloc_pages_nodemask(gfp, order, zl, nodemask
+#if defined(CONFIG_AVM_PAGE_TRACE)
+					      , _RET_IP_
+#endif
+				);
 		if (page)
 			return page;
 	} while (read_mems_allowed_retry(cpuset_mems_cookie));

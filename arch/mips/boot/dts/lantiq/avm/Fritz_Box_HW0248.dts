@@ -1,0 +1,2 @@
+/dts-v1/;
+#include "prx_bootcore.dtsi"

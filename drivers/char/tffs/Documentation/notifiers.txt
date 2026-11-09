@@ -1,0 +1,77 @@
+.. SPDX-License-Identifier: GPL-2.0
+
+TFFS internal notifiers
+=======================
+
+TFFS "notifiers" are used by:
+    * the cache,
+    * the remote tffs facility, and,
+    * via a disgusting hack, the efi_sync module.
+
+Notifiers are called by the backends on changes to the tffs.
+
+They are implemented as a single function callback, stored in each backend, or
+tffs_module.
+
+Each backend provides the (trivial) callback tffs_module.register_notify() to
+register a function with the backend.
+
+As a special case, the tffs_server also supports a single notifier callback,
+tffs_server.notify; this notifier is fixed, it always resolves to
+TFFS3_SERVER_Notify().
+
+Propagation of changes from backends to the cache
+-------------------------------------------------
+
+The cache, which knows the active "real" backend, registers
+TFFS3_CACHE_Notify() with the backend as the (single) notifier to be called on
+changes.
+
+TFFS3_CACHE_Notify() invalidates cache items that have been changed, and
+passes the event to any notifier that has been registered with the cache.
+
+Sending changes to tffs remote clients
+--------------------------------------
+
+If the tffs cache is enabled, the core registers a single notifier function,
+notify_cb() at the cache.
+
+This notifier is again trivial, if the tffs server is running, it calls
+TFFS_device.server.notify(), that is, TFFS3_SERVER_Notify(). If no tffs server
+is running, notify_cb() is a no-op.
+
+TFFS3_SERVER_Notify() sends avm_events about changes to remote client(s).
+
+Receiving changes at the tffs remote client
+-------------------------------------------
+
+At the tffs client, TFFS3_REMOTE_callback() receives avm_events about tffs
+changes on the server, and invokes its notifier callback.  Again, this
+resolves to TFFS3_CACHE_Notify() if the cache is enabled, else no notifier is
+registered.
+
+The efi_sync hack
+-----------------
+
+The efi_sync tffs_module, which also knows the active "real" backend, registers
+TFFS3_EFI_SYNC_Notify() as the notifier at the backend, overriding any
+existing notifier.
+
+The original notifier is saved and called by TFFS3_EFI_SYNC_Notify().
+
+The module also hijacks the entire callback interface of the real backend with
+its own functions.  Those are just trivial (and useless) wrappers invoking the
+callbacks of the backend.  There is really nothing happening in this module
+with the exception of the notifier function, which propagates changes in the
+tffs to EFI variables.
+
+Summary
+-------
+
+So we have a notifier call stack like this:
+    Server: Backend -> Cache -> Server
+    Client: Backend -> Cache
+... where "Server" and client "Backend" talk via avm_events,
+and the I/O User interacts with the cache.
+
+Since the cache is write-through to the backend, it does not call notifiers.

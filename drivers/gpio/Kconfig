@@ -1062,6 +1062,14 @@ config GPIO_WM8994
 	  Say yes here to access the GPIO signals of WM8994 audio hub
 	  CODECs from Wolfson Microelectronics.
 
+config GPIO_INTEL_SSO
+	bool "Intel SSO GPIO support"
+	depends on GPIOLIB
+	depends on MFD_SYSCON
+	help
+	  This driver enables GPIO function of SSO.
+	  SSO support upto 32 pins in output mode only.
+
 endmenu
 
 menu "PCI GPIO expanders"
@@ -1214,5 +1222,17 @@ config GPIO_VIPERBOARD
           of the module parameters.
 
 endmenu
+
+config GPIO_AGGREGATOR
+	tristate "GPIO Aggregator"
+	help
+	  Say yes here to enable the GPIO Aggregator, which provides a way to
+	  aggregate existing GPIO lines into a new virtual GPIO chip.
+	  This can serve the following purposes:
+	    - Assign permissions for a collection of GPIO lines to a user,
+	    - Export a collection of GPIO lines to a virtual machine,
+	    - Provide a generic driver for a GPIO-operated device in an
+	      industrial control context, to be operated from userspace using
+	      the GPIO chardev interface.
 
 endif

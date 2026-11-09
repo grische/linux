@@ -5,6 +5,18 @@ config SOC_TYPE_XWAY
 	select PINCTRL_XWAY
 	default n
 
+config SOC_TYPE_GRX500_TEP
+	bool 
+	select CEVT_R4K
+	select CSRC_R4K
+	select CPU_MIPSR2_IRQ_VI
+	select CPU_MIPSR2_IRQ_EI
+	default n
+
+config GRX5
+	bool
+	default y if SOC_GRX500
+
 choice
 	prompt "SoC Type"
 	default SOC_XWAY
@@ -16,13 +28,84 @@ config SOC_AMAZON_SE
 config SOC_XWAY
 	bool "XWAY"
 	select SOC_TYPE_XWAY
+	select CEVT_R4K
+	select CSRC_R4K
 	select HW_HAS_PCI
+	select ARCH_SUPPORTS_MSI
+	select ARCH_HAS_RESET_CONTROLLER
+	select RESET_CONTROLLER
 
 config SOC_FALCON
 	bool "FALCON"
+	select CEVT_R4K
+	select CSRC_R4K
 	select PINCTRL_FALCON
 
+config SOC_GRX500
+	bool "GRX500"
+	select GRX5
+	select GENERIC_ISA_DMA
+	select MIPS_GIC
+	select MIPS_CPU_SCACHE
+	select SYS_HAS_CPU_MIPS32_R3_5
+	select CPU_MIPSR2_IRQ_VI
+	select CPU_MIPSR2_IRQ_EI
+	select SYS_SUPPORTS_MIPS_CPS
+	select SYS_SUPPORTS_MIPS_CMP
+	select SYS_SUPPORTS_ZBOOT
+	select SERIAL_EARLYCON if SERIAL_LANTIQ
+	select HW_HAS_PCI
+	select ARCH_SUPPORTS_MSI
+	select ARCH_HAS_RESET_CONTROLLER
+	select RESET_CONTROLLER
+	select COMMON_CLK
+	select CPU_SUPPORTS_CPUFREQ
+	select MIPS_EXTERNAL_TIMER
+	select PCI_DRIVERS_GENERIC
+	select SYS_SUPPORTS_RELOCATABLE
+	select CPU_HAS_DSP_ASE
+
+config SOC_GRX500_BOOTCORE
+	bool "GRX500_BOOTCORE"
+	select SOC_TYPE_GRX500_TEP
+	select SYS_SUPPORTS_RELOCATABLE
+
+config SOC_PRX300_BOOTCORE
+	bool "PRX300_BOOTCORE"
+	select SOC_TYPE_GRX500_TEP
+	select SYS_SUPPORTS_RELOCATABLE
+
 endchoice
+
+config XBAR_LE
+	bool "Crossbar Word Level Little Endian Support in Big Endian CPU"
+	depends on SOC_GRX500 && CPU_BIG_ENDIAN
+	help
+	  Falcon Mountain has complicated endianness for different datawidth.
+	  To avoid too many confusion, XBAR word level little endian is added
+	  So that one clean solution can be provided.
+	  It will be only used if Falcon Mountain is chosen.
+
+menu "Emulator Support"
+config USE_EMULATOR
+	bool "Support for FPGA emulation platform"
+	default no
+	help
+	Use FPGA emulator as platform
+
+choice
+	prompt "Emulator"
+	depends on USE_EMULATOR
+	default USE_PALLADIUM
+
+config USE_HAPS
+	bool "HAPS"
+
+config USE_PALLADIUM
+	bool "Palladium"
+
+endchoice
+endmenu
 
 choice
 	prompt "Built-in device tree"
@@ -41,14 +124,29 @@ config DT_EASY50712
 	bool "Easy50712"
 	depends on SOC_XWAY
 	select BUILTIN_DTB
-endchoice
 
-config PCI_LANTIQ
-	bool "PCI Support"
-	depends on SOC_XWAY && PCI
+config DT_ANYWAN
+	bool "GRX500 Anywan Board"
+	select BUILTIN_DTB
+	depends on SOC_GRX500
+
+config DT_EASY350550_BOOTCORE
+	bool "Easy350550 Bootcore"
+	select BUILTIN_DTB
+	depends on SOC_GRX500_BOOTCORE
+
+endchoice
 
 config XRX200_PHY_FW
 	bool "XRX200 PHY firmware loader"
 	depends on SOC_XWAY
+
+source "arch/mips/lantiq/Kconfig.grx5"
+
+config VMB_LAUNCH_KSEG1
+	bool "launch CPUs from KSEG1 address"
+	default no
+	help
+	  This depends on bootloader setup.
 
 endif

@@ -141,6 +141,11 @@
 #include <net/tcp.h>
 #include <net/busy_poll.h>
 
+#if defined(CONFIG_UDP_REDIRECT) || defined(CONFIG_UDP_REDIRECT_MODULE)
+#include <net/udp.h>
+#include <linux/udp_redirect.h>
+#endif
+
 static DEFINE_MUTEX(proto_list_mutex);
 static LIST_HEAD(proto_list);
 
@@ -417,6 +422,15 @@ int __sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 		atomic_inc(&sk->sk_drops);
 		return -ENOBUFS;
 	}
+
+	/* UNPREDIRECT */
+#if defined(CONFIG_UDP_REDIRECT) || defined(CONFIG_UDP_REDIRECT_MODULE)
+	if (udp_do_redirect_fn && sk->sk_user_data == UDP_REDIRECT_MAGIC) {
+		udp_do_redirect_fn(sk, skb);
+		kfree_skb(skb);
+		return 0;
+	}
+#endif
 
 	skb->dev = NULL;
 	skb_set_owner_r(skb, sk);
@@ -1684,6 +1698,9 @@ void skb_set_owner_w(struct sk_buff *skb, struct sock *sk)
 #endif
 	skb->destructor = sock_wfree;
 	skb_set_hash_from_sk(skb, sk);
+#ifdef CONFIG_AVM_SK_TC_INDEX
+	skb->tc_index = sk->sk_tc_index;
+#endif
 	/*
 	 * We used to take a refcount on sk, but following operation
 	 * is enough to guarantee sk_free() wont free this sock until
@@ -2474,8 +2491,11 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 		sk->sk_type	=	sock->type;
 		sk->sk_wq	=	sock->wq;
 		sock->sk	=	sk;
-	} else
+		sk->sk_uid	=	SOCK_INODE(sock)->i_uid;
+	} else {
 		sk->sk_wq	=	NULL;
+		sk->sk_uid	=	make_kuid(sock_net(sk)->user_ns, 0);
+	}
 
 	rwlock_init(&sk->sk_callback_lock);
 	lockdep_set_class_and_name(&sk->sk_callback_lock,
@@ -2513,6 +2533,7 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 
 	sk->sk_max_pacing_rate = ~0U;
 	sk->sk_pacing_rate = ~0U;
+	sk->sk_pacing_shift = 10;
 	sk->sk_incoming_cpu = -1;
 	/*
 	 * Before updating sk_refcnt, we must commit prior changes to memory
@@ -3119,6 +3140,8 @@ static __net_initdata struct pernet_operations proto_net_ops = {
 
 static int __init proto_init(void)
 {
+	if (IS_ENABLED(CONFIG_PROC_STRIPPED))
+		return 0;
 	return register_pernet_subsys(&proto_net_ops);
 }
 

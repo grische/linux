@@ -1,0 +1,3 @@
+uapi/linux/capi_oslib.h avm/capi_oslib/oslib.h
+uapi/linux/new_capi.h avm/capi_oslib/new.h
+uapi/linux/zugriff.h avm/capi_oslib/zugriff.h

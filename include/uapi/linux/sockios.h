@@ -124,9 +124,20 @@
 #define SIOCBRADDIF	0x89a2		/* add interface to bridge      */
 #define SIOCBRDELIF	0x89a3		/* remove interface from bridge */
 
+#ifdef CONFIG_MCAST_SNOOPING
+/* bridge snooping */
+#define SIOCBRADDMGREC 0x89ab
+#define SIOCBRDELMGREC 0x89ac
+#define SIOCBRSETROUTERPORT 0x89ad
+#endif
+
 /* hardware time stamping: parameters in linux/net_tstamp.h */
 #define SIOCSHWTSTAMP	0x89b0		/* set and get config		*/
 #define SIOCGHWTSTAMP	0x89b1		/* get config			*/
+
+/* applicaton mark. only implemented in CONFIG_AVM_SK_TC_INDEX kernels */
+#define SIOCSET_TC_INDEX	0x89d0	/* set tc_index for socket */
+#define SIOCGET_TC_INDEX	0x89d1	/* get tc_index for socket */
 
 /* Device private ioctl calls */
 

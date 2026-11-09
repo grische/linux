@@ -21,6 +21,12 @@
 #include <linux/usb/hcd.h>
 #include "usb.h"
 
+/* == 20160302 AVM/VGJ - CHANGESET: AVM Power Meter for DWC3 USB Controller == */
+#ifdef CONFIG_AVM_POWERMETER
+#include <avm/power/power.h>
+#include <linux/avm_hw_config.h>
+#endif /*--- #ifdef CONFIG_AVM_POWERMETER ---*/
+
 static inline const char *plural(int n)
 {
 	return (n == 1 ? "" : "s");
@@ -104,7 +110,35 @@ int usb_choose_configuration(struct usb_device *udev)
 			insufficient_power++;
 			continue;
 		}
+/* == 20160302 AVM/VGJ - CHANGESET: AVM Power Meter for DWC3 USB Controller == */
+#if defined(CONFIG_AVM_POWERMETER) && defined(CONFIG_USB_DWC3_HOST)
+		if (udev->level == 1) {
+			unsigned nextmA;
+			unsigned avm_powerdevice;
 
+			if (udev->speed == USB_SPEED_SUPER) {
+				nextmA = (c->desc.bMaxPower * 8);
+				if (nextmA <= 150) {
+					nextmA = 150;
+				}
+			} else {
+				nextmA = (c->desc.bMaxPower * 2);
+				/* A device should display at least 100 mA in AVM_POWERMETER */
+				if (nextmA < 100) {
+					nextmA = 100;
+				}
+			}
+
+			// Buses 1 and 2 belong to one port and buses 3 and 4 to the other
+			avm_powerdevice = (udev->bus->busnum < 3) ?
+						  powerdevice_usb_host :
+						  powerdevice_usb_host2;
+			printk(KERN_INFO
+			       "Bus#%u config: AVM Powermeter changed to %u mA\n",
+			       udev->bus->busnum, nextmA);
+			PowerManagmentRessourceInfo(avm_powerdevice, nextmA);
+		}
+#endif // CONFIG_AVM_POWERMETER
 		/* When the first config's first interface is one of Microsoft's
 		 * pet nonstandard Ethernet-over-USB protocols, ignore it unless
 		 * this kernel has enabled the necessary host side driver.
@@ -166,6 +200,10 @@ static int generic_probe(struct usb_device *udev)
 	 */
 	if (udev->authorized == 0)
 		dev_err(&udev->dev, "Device is not authorized for usage\n");
+#if 1 /* == 2016022 AVM/VGJ - CHANGESET: noprobe Extension for AURA == */
+	else if (udev->noprobe)
+		dev_err(&udev->dev, "Probing is disabled for this device\n");
+#endif
 	else {
 		c = usb_choose_configuration(udev);
 		if (c >= 0) {

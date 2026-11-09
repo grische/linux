@@ -1,0 +1,55 @@
+#include "prx_common.dtsi"
+
+/ {
+	model = "AVM FM-Bridge";
+
+	avm-gpio {
+		compatible = "simple-bus";
+
+		gpio_avm_led_power {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 12 GPIO_ACTIVE_HIGH>;
+			avm,output;
+		};
+		gpio_avm_led_festnetz {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 17 GPIO_ACTIVE_HIGH>;
+			avm,output;
+		};
+		gpio_avm_led_wlan {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 28 GPIO_ACTIVE_HIGH>;
+			avm,output;
+		};
+		gpio_avm_led_info {
+			compatible = "avm,avm_gpio_generic";
+			gpio = <&gpio0 29 GPIO_ACTIVE_HIGH>;
+			avm,output;
+		};
+	};
+};
+
+&qspi0 {
+	status = "okay";
+
+	ltq-spinand@0 {
+		// alle Karten mit Micron SPI NAND
+		page-size = <2176>;
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
+	};
+};
+
+&cb0phy0 {
+	status = "okay";
+	intel,mode = <0>; /*0-pcie, 1-xpcs*/
+};
+
+&pcie0 {
+	status = "okay";
+	intel,rst-interval = <200>;
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	num-lanes = <1>;
+	reset-gpio = <&gpio0 18 GPIO_ACTIVE_LOW>;
+};

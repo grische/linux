@@ -22,6 +22,9 @@
 #include <linux/slab.h>
 
 #include "cpufreq_governor.h"
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+#include <avm/profile/profile.h>
+#endif
 
 static DEFINE_PER_CPU(struct cpu_dbs_info, cpu_dbs);
 
@@ -192,6 +195,11 @@ unsigned int dbs_update(struct cpufreq_policy *policy)
 			load = j_cdbs->prev_load;
 			j_cdbs->prev_load = 0;
 		} else {
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+			/*--- hier werden auch die non-Linux-TC's beim load beruecksichtigt: ---*/
+			load = avm_get_load(j, policy->cur);
+			pr_debug("%s: cpu=%u freq=%d load=%u%%\n",  __func__, j, policy->cur, load);
+#else
 			if (time_elapsed >= idle_time) {
 				load = 100 * (time_elapsed - idle_time) / time_elapsed;
 			} else {
@@ -212,6 +220,7 @@ unsigned int dbs_update(struct cpufreq_policy *policy)
 				 */
 				load = (int)idle_time < 0 ? 100 : 0;
 			}
+#endif
 			j_cdbs->prev_load = load;
 		}
 

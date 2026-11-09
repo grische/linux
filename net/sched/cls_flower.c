@@ -34,6 +34,7 @@ struct fl_flow_key {
 	struct flow_dissector_key_basic basic;
 	struct flow_dissector_key_eth_addrs eth;
 	struct flow_dissector_key_vlan vlan;
+	struct flow_dissector_key_vlan cvlan;
 	union {
 		struct flow_dissector_key_ipv4_addrs ipv4;
 		struct flow_dissector_key_ipv6_addrs ipv6;
@@ -44,6 +45,7 @@ struct fl_flow_key {
 		struct flow_dissector_key_ipv4_addrs enc_ipv4;
 		struct flow_dissector_key_ipv6_addrs enc_ipv6;
 	};
+	struct flow_dissector_key_ip ip;
 } __aligned(BITS_PER_LONG / 8); /* Ensure that we can do comparisons as longs. */
 
 struct fl_flow_mask_range {
@@ -215,7 +217,7 @@ static void fl_hw_destroy_filter(struct tcf_proto *tp, unsigned long cookie)
 
 	if (!tc_should_offload(dev, tp, 0))
 		return;
-
+	tc_cls_common_offload_init(&offload.common, tp);
 	offload.command = TC_CLSFLOWER_DESTROY;
 	offload.cookie = cookie;
 
@@ -230,22 +232,24 @@ static int fl_hw_replace_filter(struct tcf_proto *tp,
 				struct fl_flow_key *mask,
 				struct fl_flow_key *key,
 				struct tcf_exts *actions,
-				unsigned long cookie, u32 flags)
+				struct cls_fl_filter *f)
 {
 	struct net_device *dev = tp->q->dev_queue->dev;
 	struct tc_cls_flower_offload offload = {0};
 	struct tc_to_netdev tc;
 	int err;
 
-	if (!tc_should_offload(dev, tp, flags))
-		return tc_skip_sw(flags) ? -EINVAL : 0;
+	if (!tc_should_offload(dev, tp, f->flags))
+		return tc_skip_sw(f->flags) ? -EINVAL : 0;
 
+	tc_cls_common_offload_init(&offload.common, tp);
 	offload.command = TC_CLSFLOWER_REPLACE;
-	offload.cookie = cookie;
+	offload.cookie = (unsigned long)f;
 	offload.dissector = dissector;
 	offload.mask = mask;
 	offload.key = key;
 	offload.exts = actions;
+	offload.classid = f->res.classid; /* classid = 8000:1 */
 
 	tc.type = TC_SETUP_CLSFLOWER;
 	tc.cls_flower = &offload;
@@ -253,7 +257,7 @@ static int fl_hw_replace_filter(struct tcf_proto *tp,
 	err = dev->netdev_ops->ndo_setup_tc(dev, tp->q->handle, tp->protocol,
 					    &tc);
 
-	if (tc_skip_sw(flags))
+	if (tc_skip_sw(f->flags))
 		return err;
 
 	return 0;
@@ -268,6 +272,7 @@ static void fl_hw_update_stats(struct tcf_proto *tp, struct cls_fl_filter *f)
 	if (!tc_should_offload(dev, tp, 0))
 		return;
 
+	tc_cls_common_offload_init(&offload.common, tp);
 	offload.command = TC_CLSFLOWER_STATS;
 	offload.cookie = (unsigned long)f;
 	offload.exts = &f->exts;
@@ -327,45 +332,86 @@ static unsigned long fl_get(struct tcf_proto *tp, u32 handle)
 }
 
 static const struct nla_policy fl_policy[TCA_FLOWER_MAX + 1] = {
-	[TCA_FLOWER_UNSPEC]		= { .type = NLA_UNSPEC },
-	[TCA_FLOWER_CLASSID]		= { .type = NLA_U32 },
-	[TCA_FLOWER_INDEV]		= { .type = NLA_STRING,
-					    .len = IFNAMSIZ },
-	[TCA_FLOWER_KEY_ETH_DST]	= { .len = ETH_ALEN },
-	[TCA_FLOWER_KEY_ETH_DST_MASK]	= { .len = ETH_ALEN },
-	[TCA_FLOWER_KEY_ETH_SRC]	= { .len = ETH_ALEN },
-	[TCA_FLOWER_KEY_ETH_SRC_MASK]	= { .len = ETH_ALEN },
-	[TCA_FLOWER_KEY_ETH_TYPE]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_IP_PROTO]	= { .type = NLA_U8 },
-	[TCA_FLOWER_KEY_IPV4_SRC]	= { .type = NLA_U32 },
-	[TCA_FLOWER_KEY_IPV4_SRC_MASK]	= { .type = NLA_U32 },
-	[TCA_FLOWER_KEY_IPV4_DST]	= { .type = NLA_U32 },
-	[TCA_FLOWER_KEY_IPV4_DST_MASK]	= { .type = NLA_U32 },
-	[TCA_FLOWER_KEY_IPV6_SRC]	= { .len = sizeof(struct in6_addr) },
-	[TCA_FLOWER_KEY_IPV6_SRC_MASK]	= { .len = sizeof(struct in6_addr) },
-	[TCA_FLOWER_KEY_IPV6_DST]	= { .len = sizeof(struct in6_addr) },
-	[TCA_FLOWER_KEY_IPV6_DST_MASK]	= { .len = sizeof(struct in6_addr) },
-	[TCA_FLOWER_KEY_TCP_SRC]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_TCP_DST]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_UDP_SRC]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_UDP_DST]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_VLAN_ID]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_VLAN_PRIO]	= { .type = NLA_U8 },
-	[TCA_FLOWER_KEY_VLAN_ETH_TYPE]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_ENC_KEY_ID]	= { .type = NLA_U32 },
-	[TCA_FLOWER_KEY_ENC_IPV4_SRC]	= { .type = NLA_U32 },
+	[TCA_FLOWER_UNSPEC] = { .type = NLA_UNSPEC },
+	[TCA_FLOWER_CLASSID] = { .type = NLA_U32 },
+	[TCA_FLOWER_INDEV] = { .type = NLA_STRING,
+			       .len = IFNAMSIZ },
+	[TCA_FLOWER_KEY_ETH_DST] = { .len = ETH_ALEN },
+	[TCA_FLOWER_KEY_ETH_DST_MASK] = { .len = ETH_ALEN },
+	[TCA_FLOWER_KEY_ETH_SRC] = { .len = ETH_ALEN },
+	[TCA_FLOWER_KEY_ETH_SRC_MASK] = { .len = ETH_ALEN },
+	[TCA_FLOWER_KEY_ETH_TYPE] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_IP_PROTO] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_IPV4_SRC] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_IPV4_SRC_MASK] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_IPV4_DST] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_IPV4_DST_MASK] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_IPV6_SRC] = { .len = sizeof(struct in6_addr) },
+	[TCA_FLOWER_KEY_IPV6_SRC_MASK] = { .len = sizeof(struct in6_addr) },
+	[TCA_FLOWER_KEY_IPV6_DST] = { .len = sizeof(struct in6_addr) },
+	[TCA_FLOWER_KEY_IPV6_DST_MASK] = { .len = sizeof(struct in6_addr) },
+	[TCA_FLOWER_KEY_TCP_SRC] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_TCP_DST] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_UDP_SRC] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_UDP_DST] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_VLAN_ID] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_VLAN_PRIO] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_VLAN_ETH_TYPE] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_ENC_KEY_ID] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_ENC_IPV4_SRC] = { .type = NLA_U32 },
 	[TCA_FLOWER_KEY_ENC_IPV4_SRC_MASK] = { .type = NLA_U32 },
-	[TCA_FLOWER_KEY_ENC_IPV4_DST]	= { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_ENC_IPV4_DST] = { .type = NLA_U32 },
 	[TCA_FLOWER_KEY_ENC_IPV4_DST_MASK] = { .type = NLA_U32 },
-	[TCA_FLOWER_KEY_ENC_IPV6_SRC]	= { .len = sizeof(struct in6_addr) },
+	[TCA_FLOWER_KEY_ENC_IPV6_SRC] = { .len = sizeof(struct in6_addr) },
 	[TCA_FLOWER_KEY_ENC_IPV6_SRC_MASK] = { .len = sizeof(struct in6_addr) },
-	[TCA_FLOWER_KEY_ENC_IPV6_DST]	= { .len = sizeof(struct in6_addr) },
+	[TCA_FLOWER_KEY_ENC_IPV6_DST] = { .len = sizeof(struct in6_addr) },
 	[TCA_FLOWER_KEY_ENC_IPV6_DST_MASK] = { .len = sizeof(struct in6_addr) },
-	[TCA_FLOWER_KEY_TCP_SRC_MASK]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_TCP_DST_MASK]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_UDP_SRC_MASK]	= { .type = NLA_U16 },
-	[TCA_FLOWER_KEY_UDP_DST_MASK]	= { .type = NLA_U16 },
-	[TCA_FLOWER_FLAGS]		= { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_TCP_SRC_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_TCP_DST_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_UDP_SRC_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_UDP_DST_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_FLAGS] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_SCTP_SRC_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_SCTP_DST_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_SCTP_SRC] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_SCTP_DST] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_ENC_UDP_SRC_PORT] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_ENC_UDP_SRC_PORT_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_ENC_UDP_DST_PORT] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_ENC_UDP_DST_PORT_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_FLAGS] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_FLAGS_MASK] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_ICMPV4_TYPE] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ICMPV4_TYPE_MASK] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ICMPV4_CODE] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ICMPV4_CODE_MASK] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ICMPV6_TYPE] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ICMPV6_TYPE_MASK] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ICMPV6_CODE] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ICMPV6_CODE_MASK] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ARP_SIP] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_ARP_SIP_MASK] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_ARP_TIP] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_ARP_TIP_MASK] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_ARP_OP] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ARP_OP_MASK] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_ARP_SHA] = { .len = ETH_ALEN },
+	[TCA_FLOWER_KEY_ARP_SHA_MASK] = { .len = ETH_ALEN },
+	[TCA_FLOWER_KEY_ARP_THA] = { .len = ETH_ALEN },
+	[TCA_FLOWER_KEY_ARP_THA_MASK] = { .len = ETH_ALEN },
+	[TCA_FLOWER_KEY_MPLS_TTL] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_MPLS_BOS] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_MPLS_TC] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_MPLS_LABEL] = { .type = NLA_U32 },
+	[TCA_FLOWER_KEY_TCP_FLAGS] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_TCP_FLAGS_MASK] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_IP_TOS] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_IP_TOS_MASK] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_IP_TTL] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_IP_TTL_MASK] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_CVLAN_ID] = { .type = NLA_U16 },
+	[TCA_FLOWER_KEY_CVLAN_PRIO] = { .type = NLA_U8 },
+	[TCA_FLOWER_KEY_CVLAN_ETH_TYPE] = { .type = NLA_U16 },
 };
 
 static void fl_set_key_val(struct nlattr **tb,
@@ -382,22 +428,39 @@ static void fl_set_key_val(struct nlattr **tb,
 }
 
 static void fl_set_key_vlan(struct nlattr **tb,
+			    __be16 ethertype,
+			    int vlan_id_key, int vlan_prio_key,
 			    struct flow_dissector_key_vlan *key_val,
 			    struct flow_dissector_key_vlan *key_mask)
 {
 #define VLAN_PRIORITY_MASK	0x7
 
-	if (tb[TCA_FLOWER_KEY_VLAN_ID]) {
+	if (tb[vlan_id_key]) {
 		key_val->vlan_id =
-			nla_get_u16(tb[TCA_FLOWER_KEY_VLAN_ID]) & VLAN_VID_MASK;
+			nla_get_u16(tb[vlan_id_key]) & VLAN_VID_MASK;
 		key_mask->vlan_id = VLAN_VID_MASK;
 	}
-	if (tb[TCA_FLOWER_KEY_VLAN_PRIO]) {
+	if (tb[vlan_prio_key]) {
 		key_val->vlan_priority =
-			nla_get_u8(tb[TCA_FLOWER_KEY_VLAN_PRIO]) &
+			nla_get_u8(tb[vlan_prio_key]) &
 			VLAN_PRIORITY_MASK;
 		key_mask->vlan_priority = VLAN_PRIORITY_MASK;
 	}
+	key_val->vlan_tpid = ethertype;
+	key_mask->vlan_tpid = cpu_to_be16(~0);
+}
+
+static void fl_set_key_ip(struct nlattr **tb,
+			  struct flow_dissector_key_ip *key,
+			  struct flow_dissector_key_ip *mask)
+{
+	fl_set_key_val(tb, &key->tos, TCA_FLOWER_KEY_IP_TOS,
+		       &mask->tos, TCA_FLOWER_KEY_IP_TOS_MASK,
+		       sizeof(key->tos));
+
+	fl_set_key_val(tb, &key->ttl, TCA_FLOWER_KEY_IP_TTL,
+		       &mask->ttl, TCA_FLOWER_KEY_IP_TTL_MASK,
+		       sizeof(key->ttl));
 }
 
 static int fl_set_key(struct net *net, struct nlattr **tb,
@@ -424,12 +487,28 @@ static int fl_set_key(struct net *net, struct nlattr **tb,
 	if (tb[TCA_FLOWER_KEY_ETH_TYPE]) {
 		ethertype = nla_get_be16(tb[TCA_FLOWER_KEY_ETH_TYPE]);
 
-		if (ethertype == htons(ETH_P_8021Q)) {
-			fl_set_key_vlan(tb, &key->vlan, &mask->vlan);
-			fl_set_key_val(tb, &key->basic.n_proto,
-				       TCA_FLOWER_KEY_VLAN_ETH_TYPE,
-				       &mask->basic.n_proto, TCA_FLOWER_UNSPEC,
-				       sizeof(key->basic.n_proto));
+		if (eth_type_vlan(ethertype)) {
+			fl_set_key_vlan(tb, ethertype, TCA_FLOWER_KEY_VLAN_ID,
+					TCA_FLOWER_KEY_VLAN_PRIO, &key->vlan,
+					&mask->vlan);
+
+			if (tb[TCA_FLOWER_KEY_VLAN_ETH_TYPE]) {
+				ethertype = nla_get_be16(tb[TCA_FLOWER_KEY_VLAN_ETH_TYPE]);
+				if (eth_type_vlan(ethertype)) {
+					fl_set_key_vlan(tb, ethertype,
+							TCA_FLOWER_KEY_CVLAN_ID,
+							TCA_FLOWER_KEY_CVLAN_PRIO,
+							&key->cvlan, &mask->cvlan);
+					fl_set_key_val(tb, &key->basic.n_proto,
+						       TCA_FLOWER_KEY_CVLAN_ETH_TYPE,
+						       &mask->basic.n_proto,
+						       TCA_FLOWER_UNSPEC,
+						       sizeof(key->basic.n_proto));
+				} else {
+					key->basic.n_proto = ethertype;
+					mask->basic.n_proto = cpu_to_be16(~0);
+				}
+			}
 		} else {
 			key->basic.n_proto = ethertype;
 			mask->basic.n_proto = cpu_to_be16(~0);
@@ -441,6 +520,7 @@ static int fl_set_key(struct net *net, struct nlattr **tb,
 		fl_set_key_val(tb, &key->basic.ip_proto, TCA_FLOWER_KEY_IP_PROTO,
 			       &mask->basic.ip_proto, TCA_FLOWER_UNSPEC,
 			       sizeof(key->basic.ip_proto));
+		fl_set_key_ip(tb, &key->ip, &mask->ip);
 	}
 
 	if (tb[TCA_FLOWER_KEY_IPV4_SRC] || tb[TCA_FLOWER_KEY_IPV4_DST]) {
@@ -581,7 +661,11 @@ static void fl_init_dissector(struct cls_fl_head *head,
 	FL_KEY_SET_IF_MASKED(&mask->key, keys, cnt,
 			     FLOW_DISSECTOR_KEY_PORTS, tp);
 	FL_KEY_SET_IF_MASKED(&mask->key, keys, cnt,
+			     FLOW_DISSECTOR_KEY_IP, ip);
+	FL_KEY_SET_IF_MASKED(&mask->key, keys, cnt,
 			     FLOW_DISSECTOR_KEY_VLAN, vlan);
+	FL_KEY_SET_IF_MASKED(&mask->key, keys, cnt,
+			     FLOW_DISSECTOR_KEY_CVLAN, cvlan);
 
 	skb_flow_dissector_init(&head->dissector, keys, cnt);
 }
@@ -736,8 +820,7 @@ static int fl_change(struct net *net, struct sk_buff *in_skb,
 				   &mask.key,
 				   &fnew->key,
 				   &fnew->exts,
-				   (unsigned long)fnew,
-				   fnew->flags);
+				   fnew);
 	if (err)
 		goto errout;
 
@@ -817,7 +900,21 @@ static int fl_dump_key_val(struct sk_buff *skb,
 	return 0;
 }
 
+static int fl_dump_key_ip(struct sk_buff *skb,
+			  struct flow_dissector_key_ip *key,
+			  struct flow_dissector_key_ip *mask)
+{
+	if (fl_dump_key_val(skb, &key->tos, TCA_FLOWER_KEY_IP_TOS, &mask->tos,
+			    TCA_FLOWER_KEY_IP_TOS_MASK, sizeof(key->tos)) ||
+	    fl_dump_key_val(skb, &key->ttl, TCA_FLOWER_KEY_IP_TTL, &mask->ttl,
+			    TCA_FLOWER_KEY_IP_TTL_MASK, sizeof(key->ttl)))
+		return -1;
+
+	return 0;
+}
+
 static int fl_dump_key_vlan(struct sk_buff *skb,
+			    int vlan_id_key, int vlan_prio_key,
 			    struct flow_dissector_key_vlan *vlan_key,
 			    struct flow_dissector_key_vlan *vlan_mask)
 {
@@ -826,13 +923,13 @@ static int fl_dump_key_vlan(struct sk_buff *skb,
 	if (!memchr_inv(vlan_mask, 0, sizeof(*vlan_mask)))
 		return 0;
 	if (vlan_mask->vlan_id) {
-		err = nla_put_u16(skb, TCA_FLOWER_KEY_VLAN_ID,
+		err = nla_put_u16(skb, vlan_id_key,
 				  vlan_key->vlan_id);
 		if (err)
 			return err;
 	}
 	if (vlan_mask->vlan_priority) {
-		err = nla_put_u8(skb, TCA_FLOWER_KEY_VLAN_PRIO,
+		err = nla_put_u8(skb, vlan_prio_key,
 				 vlan_key->vlan_priority);
 		if (err)
 			return err;
@@ -879,20 +976,39 @@ static int fl_dump(struct net *net, struct tcf_proto *tp, unsigned long fh,
 			    sizeof(key->eth.dst)) ||
 	    fl_dump_key_val(skb, key->eth.src, TCA_FLOWER_KEY_ETH_SRC,
 			    mask->eth.src, TCA_FLOWER_KEY_ETH_SRC_MASK,
-			    sizeof(key->eth.src)) ||
-	    fl_dump_key_val(skb, &key->basic.n_proto, TCA_FLOWER_KEY_ETH_TYPE,
-			    &mask->basic.n_proto, TCA_FLOWER_UNSPEC,
-			    sizeof(key->basic.n_proto)))
+			    sizeof(key->eth.src)))
 		goto nla_put_failure;
 
-	if (fl_dump_key_vlan(skb, &key->vlan, &mask->vlan))
+	if (fl_dump_key_vlan(skb, TCA_FLOWER_KEY_VLAN_ID,
+			     TCA_FLOWER_KEY_VLAN_PRIO, &key->vlan, &mask->vlan))
 		goto nla_put_failure;
+
+	if (fl_dump_key_vlan(skb, TCA_FLOWER_KEY_CVLAN_ID,
+			     TCA_FLOWER_KEY_CVLAN_PRIO,
+			     &key->cvlan, &mask->cvlan) ||
+	    (mask->cvlan.vlan_tpid &&
+	     nla_put_be16(skb, TCA_FLOWER_KEY_VLAN_ETH_TYPE,
+			  key->cvlan.vlan_tpid)))
+		goto nla_put_failure;
+
+	if (mask->basic.n_proto) {
+		if (mask->cvlan.vlan_tpid) {
+			if (nla_put_be16(skb, TCA_FLOWER_KEY_CVLAN_ETH_TYPE,
+					 key->basic.n_proto))
+				goto nla_put_failure;
+		} else if (mask->vlan.vlan_tpid) {
+			if (nla_put_be16(skb, TCA_FLOWER_KEY_VLAN_ETH_TYPE,
+					 key->basic.n_proto))
+				goto nla_put_failure;
+		}
+	}
 
 	if ((key->basic.n_proto == htons(ETH_P_IP) ||
 	     key->basic.n_proto == htons(ETH_P_IPV6)) &&
-	    fl_dump_key_val(skb, &key->basic.ip_proto, TCA_FLOWER_KEY_IP_PROTO,
-			    &mask->basic.ip_proto, TCA_FLOWER_UNSPEC,
-			    sizeof(key->basic.ip_proto)))
+	    (fl_dump_key_val(skb, &key->basic.ip_proto, TCA_FLOWER_KEY_IP_PROTO,
+			     &mask->basic.ip_proto, TCA_FLOWER_UNSPEC,
+			     sizeof(key->basic.ip_proto)) ||
+	     fl_dump_key_ip(skb, &key->ip, &mask->ip)))
 		goto nla_put_failure;
 
 	if (key->control.addr_type == FLOW_DISSECTOR_KEY_IPV4_ADDRS &&
