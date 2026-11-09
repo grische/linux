@@ -210,6 +210,22 @@ int printk_deferred(const char *s, ...)
 {
 	return 0;
 }
+
+static inline __printf(5, 0) __cold
+	int vprintk_emit(int facility __maybe_unused, int level __maybe_unused,
+			 const char *dict __maybe_unused,
+			 size_t dictlen __maybe_unused,
+			 const char *fmt __maybe_unused,
+			 va_list args __maybe_unused)
+{
+	return 0;
+}
+
+static inline __printf(1, 2) __cold
+	int printk_deferred(const char *s __maybe_unused, ...)
+{
+	return 0;
+}
 static inline int printk_ratelimit(void)
 {
 	return 0;

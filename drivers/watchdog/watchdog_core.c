@@ -42,6 +42,7 @@
 #include "watchdog_core.h"	/* For watchdog_dev_register/... */
 
 static DEFINE_IDA(watchdog_ida);
+static struct blocking_notifier_head __maybe_unused watchdog_device_notifier;
 
 /*
  * Deferred Registration infrastructure.
@@ -136,6 +137,30 @@ int watchdog_init_timeout(struct watchdog_device *wdd,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(watchdog_init_timeout);
+
+#if IS_ENABLED(CONFIG_AVM_WATCHDOG_SHIM_SUPPORT)
+int watchdog_register_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&watchdog_device_notifier, nb);
+}
+EXPORT_SYMBOL(watchdog_register_notifier);
+#endif
+
+static int watchdog_device_notifier_call_chain(unsigned long val, void *v)
+{
+	if (!IS_ENABLED(CONFIG_AVM_WATCHDOG_SHIM_SUPPORT))
+		return NOTIFY_DONE;
+
+	return blocking_notifier_call_chain(&watchdog_device_notifier, val, v);
+}
+
+static void init_watchdog_device_notifier(void)
+{
+	if (!IS_ENABLED(CONFIG_AVM_WATCHDOG_SHIM_SUPPORT))
+		return;
+
+	BLOCKING_INIT_NOTIFIER_HEAD(&watchdog_device_notifier);
+}
 
 static int watchdog_reboot_notifier(struct notifier_block *nb,
 				    unsigned long code, void *data)
@@ -266,6 +291,8 @@ static int __watchdog_register_device(struct watchdog_device *wdd)
 				wdd->id, ret);
 	}
 
+	watchdog_device_notifier_call_chain(WATCHDOG_NOTIFY_ADD_DEVICE, wdd);
+
 	return 0;
 }
 
@@ -298,6 +325,8 @@ static void __watchdog_unregister_device(struct watchdog_device *wdd)
 {
 	if (wdd == NULL)
 		return;
+
+	watchdog_device_notifier_call_chain(WATCHDOG_NOTIFY_DEL_DEVICE, wdd);
 
 	if (wdd->ops->restart)
 		unregister_restart_handler(&wdd->restart_nb);
@@ -389,6 +418,8 @@ static int __init watchdog_init(void)
 	err = watchdog_dev_init();
 	if (err < 0)
 		return err;
+
+	init_watchdog_device_notifier();
 
 	watchdog_deferred_registration();
 	return 0;

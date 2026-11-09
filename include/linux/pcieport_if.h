@@ -67,4 +67,5 @@ struct pcie_port_service_driver {
 int pcie_port_service_register(struct pcie_port_service_driver *new);
 void pcie_port_service_unregister(struct pcie_port_service_driver *new);
 
+void dbg_pcie_irq_status(struct device *dev);
 #endif /* _PCIEPORT_IF_H_ */

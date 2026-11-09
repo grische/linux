@@ -1,0 +1,7 @@
+/dts-v1/;
+#include "prx300-bootcore.dtsi"
+
+/ {
+	model = "PRX300-bootcore";
+};
+

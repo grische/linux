@@ -1,3 +1,6 @@
+# tell define_trace.h where to find trace-fsnotify.h
+CFLAGS_fsnotify.o := -I$(src)
+
 obj-$(CONFIG_FSNOTIFY)		+= fsnotify.o notification.o group.o inode_mark.o \
 				   mark.o vfsmount_mark.o fdinfo.o
 

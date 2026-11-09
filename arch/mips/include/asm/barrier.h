@@ -111,7 +111,7 @@
 	__asm__ __volatile__(			\
 		".set	push\n\t"		\
 		".set	noreorder\n\t"		\
-		".set	mips2\n\t"		\
+		".set	mips32r2\n\t"		\
 		"sync\n\t"			\
 		".set	pop"			\
 		: /* no output */		\

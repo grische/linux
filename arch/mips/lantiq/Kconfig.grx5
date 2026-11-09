@@ -1,0 +1,17 @@
+if GRX5 || SOC_TYPE_GRX500_TEP # == SOC_GRX500 (?)
+
+menu "GRX5 Boards"
+	choice
+		prompt "Board Type"
+
+	config GRX5_AVM_FRITZ_BOX
+		bool "AVM Fritz Box with GRX5"
+
+	config PRX_AVM_FRITZ_BOX
+		bool "AVM Fritz Box with PRX"
+
+	endchoice
+endmenu
+
+endif
+

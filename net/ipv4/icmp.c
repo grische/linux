@@ -97,6 +97,7 @@
 #include <net/inet_common.h>
 #include <net/ip_fib.h>
 #include <net/l3mdev.h>
+#include <avm/pa/avm_pa.h>
 
 /*
  *	Build xmit assembly blocks
@@ -430,6 +431,7 @@ static void icmp_reply(struct icmp_bxm *icmp_param, struct sk_buff *skb)
 	fl4.daddr = daddr;
 	fl4.saddr = saddr;
 	fl4.flowi4_mark = mark;
+	fl4.flowi4_uid = sock_net_uid(net, NULL);
 	fl4.flowi4_tos = RT_TOS(ip_hdr(skb)->tos);
 	fl4.flowi4_proto = IPPROTO_ICMP;
 	fl4.flowi4_oif = l3mdev_master_ifindex(skb->dev);
@@ -496,6 +498,7 @@ static struct rtable *icmp_route_lookup(struct net *net,
 		      param->replyopts.opt.opt.faddr : iph->saddr);
 	fl4->saddr = saddr;
 	fl4->flowi4_mark = mark;
+	fl4->flowi4_uid = sock_net_uid(net, NULL);
 	fl4->flowi4_tos = RT_TOS(tos);
 	fl4->flowi4_proto = IPPROTO_ICMP;
 	fl4->fl4_icmp_type = type;
@@ -1108,6 +1111,8 @@ int icmp_rcv(struct sk_buff *skb)
 			goto error;
 		}
 	}
+
+	avm_pa_add_local_session(AVM_PA_NET_IP_DEVINFO(dev_net(skb->dev)), skb, NULL);
 
 	success = icmp_pointers[icmph->type].handler(skb);
 

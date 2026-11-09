@@ -88,8 +88,10 @@
 #include <asm/debug.h>
 #include <asm/fpu.h>
 #include <asm/fpu_emulator.h>
+#include <asm/avm_enh/avm_enh.h>
 #include <asm/inst.h>
 #include <asm/uaccess.h>
+#include <avm/profile/profile.h>
 
 #define STR(x)	__STR(x)
 #define __STR(x)  #x
@@ -892,6 +894,9 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 #ifdef	CONFIG_EVA
 	mm_segment_t seg;
 #endif
+#if defined(CONFIG_AVM_ENHANCED)
+	siginfo_t info;
+#endif
 	union fpureg *fpr;
 	enum msa_2b_fmt df;
 	unsigned int wd;
@@ -939,88 +944,114 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 		 * The remaining opcodes are the ones that are really of
 		 * interest.
 		 */
-#ifdef CONFIG_EVA
 	case spec3_op:
-		/*
-		 * we can land here only from kernel accessing user memory,
-		 * so we need to "switch" the address limit to user space, so
-		 * address check can work properly.
-		 */
-		seg = get_fs();
-		set_fs(USER_DS);
-		switch (insn.spec3_format.func) {
-		case lhe_op:
-			if (!access_ok(VERIFY_READ, addr, 2)) {
-				set_fs(seg);
-				goto sigbus;
+		if (insn.dsp_format.func == lx_op) {
+			switch (insn.dsp_format.op) {
+			case lwx_op:
+				if (!access_ok(VERIFY_READ, addr, 4))
+					goto sigbus;
+				LoadW(addr, value, res);
+				if (res)
+					goto fault;
+				compute_return_epc(regs);
+				regs->regs[insn.dsp_format.rd] = value;
+				break;
+			case lhx_op:
+				if (!access_ok(VERIFY_READ, addr, 2))
+					goto sigbus;
+				LoadHW(addr, value, res);
+				if (res)
+					goto fault;
+				compute_return_epc(regs);
+				regs->regs[insn.dsp_format.rd] = value;
+				break;
+			default:
+				goto sigill;
 			}
-			LoadHWE(addr, value, res);
-			if (res) {
-				set_fs(seg);
-				goto fault;
-			}
-			compute_return_epc(regs);
-			regs->regs[insn.spec3_format.rt] = value;
-			break;
-		case lwe_op:
-			if (!access_ok(VERIFY_READ, addr, 4)) {
-				set_fs(seg);
-				goto sigbus;
-			}
-				LoadWE(addr, value, res);
-			if (res) {
-				set_fs(seg);
-				goto fault;
-			}
-			compute_return_epc(regs);
-			regs->regs[insn.spec3_format.rt] = value;
-			break;
-		case lhue_op:
-			if (!access_ok(VERIFY_READ, addr, 2)) {
-				set_fs(seg);
-				goto sigbus;
-			}
-			LoadHWUE(addr, value, res);
-			if (res) {
-				set_fs(seg);
-				goto fault;
-			}
-			compute_return_epc(regs);
-			regs->regs[insn.spec3_format.rt] = value;
-			break;
-		case she_op:
-			if (!access_ok(VERIFY_WRITE, addr, 2)) {
-				set_fs(seg);
-				goto sigbus;
-			}
-			compute_return_epc(regs);
-			value = regs->regs[insn.spec3_format.rt];
-			StoreHWE(addr, value, res);
-			if (res) {
-				set_fs(seg);
-				goto fault;
-			}
-			break;
-		case swe_op:
-			if (!access_ok(VERIFY_WRITE, addr, 4)) {
-				set_fs(seg);
-				goto sigbus;
-			}
-			compute_return_epc(regs);
-			value = regs->regs[insn.spec3_format.rt];
-			StoreWE(addr, value, res);
-			if (res) {
-				set_fs(seg);
-				goto fault;
-			}
-			break;
-		default:
-			set_fs(seg);
-			goto sigill;
 		}
-		set_fs(seg);
-		break;
+#ifdef CONFIG_EVA
+		else {
+			/*
+			 * we can land here only from kernel accessing user
+			 * memory, so we need to "switch" the address limit to
+			 * user space, so that address check can work properly.
+			 */
+			seg = get_fs();
+			set_fs(USER_DS);
+			switch (insn.spec3_format.func) {
+			case lhe_op:
+				if (!access_ok(VERIFY_READ, addr, 2)) {
+					set_fs(seg);
+					goto sigbus;
+				}
+				LoadHWE(addr, value, res);
+				if (res) {
+					set_fs(seg);
+					goto fault;
+				}
+				compute_return_epc(regs);
+				regs->regs[insn.spec3_format.rt] = value;
+				break;
+			case lwe_op:
+				if (!access_ok(VERIFY_READ, addr, 4)) {
+					set_fs(seg);
+					goto sigbus;
+				}
+				LoadWE(addr, value, res);
+				if (res) {
+					set_fs(seg);
+					goto fault;
+				}
+				compute_return_epc(regs);
+				regs->regs[insn.spec3_format.rt] = value;
+				break;
+			case lhue_op:
+				if (!access_ok(VERIFY_READ, addr, 2)) {
+					set_fs(seg);
+					goto sigbus;
+				}
+				LoadHWUE(addr, value, res);
+				if (res) {
+					set_fs(seg);
+					goto fault;
+				}
+				compute_return_epc(regs);
+				regs->regs[insn.spec3_format.rt] = value;
+				break;
+			case she_op:
+				if (!access_ok(VERIFY_WRITE, addr, 2)) {
+					set_fs(seg);
+					goto sigbus;
+				}
+				compute_return_epc(regs);
+				value = regs->regs[insn.spec3_format.rt];
+				StoreHWE(addr, value, res);
+				if (res) {
+					set_fs(seg);
+					goto fault;
+				}
+				break;
+			case swe_op:
+				if (!access_ok(VERIFY_WRITE, addr, 4)) {
+					set_fs(seg);
+					goto sigbus;
+				}
+				compute_return_epc(regs);
+				value = regs->regs[insn.spec3_format.rt];
+				StoreWE(addr, value, res);
+				if (res) {
+					set_fs(seg);
+					goto fault;
+				}
+				break;
+			default:
+				set_fs(seg);
+				goto sigill;
+			}
+			set_fs(seg);
+		}
 #endif
+		break;
 	case lh_op:
 		if (!access_ok(VERIFY_READ, addr, 2))
 			goto sigbus;
@@ -1332,20 +1363,44 @@ fault:
 		return;
 
 	die_if_kernel("Unhandled kernel unaligned access", regs);
+#if defined(CONFIG_AVM_ENHANCED)
+	info.si_code = SEGV_ACCERR;
+	info.si_signo = SIGSEGV;
+	info.si_errno = 0;
+	info.si_addr = (void __user *) regs->cp0_badvaddr;
+	force_sig_info(SIGSEGV, &info, current);
+#else
 	force_sig(SIGSEGV, current);
+#endif
 
 	return;
 
 sigbus:
 	die_if_kernel("Unhandled kernel unaligned access", regs);
+#if defined(CONFIG_AVM_ENHANCED)
+	info.si_code = BUS_ADRERR;
+	info.si_signo = SIGBUS;
+	info.si_errno = 0;
+	info.si_addr = (void __user *) regs->cp0_badvaddr;
+	force_sig_info(SIGBUS, &info, current);
+#else
 	force_sig(SIGBUS, current);
+#endif
 
 	return;
 
 sigill:
 	die_if_kernel
 	    ("Unhandled kernel unaligned access or invalid instruction", regs);
+#if defined(CONFIG_AVM_ENHANCED)
+	info.si_code = ILL_ILLOPC;
+	info.si_signo = SIGILL;
+	info.si_errno = 0;
+	info.si_addr = (void __user *) regs->cp0_badvaddr;
+	force_sig_info(SIGILL, &info, current);
+#else
 	force_sig(SIGILL, current);
+#endif
 }
 
 /* Recode table from 16-bit register notation to 32-bit GPR. */
@@ -2225,6 +2280,9 @@ asmlinkage void do_ade(struct pt_regs *regs)
 	enum ctx_state prev_state;
 	unsigned int __user *pc;
 	mm_segment_t seg;
+#if defined(CONFIG_AVM_ENHANCED)
+	siginfo_t info;
+#endif
 
 	prev_state = exception_enter();
 	perf_sw_event(PERF_COUNT_SW_ALIGNMENT_FAULTS,
@@ -2234,6 +2292,12 @@ asmlinkage void do_ade(struct pt_regs *regs)
 	 */
 	if (regs->cp0_badvaddr == regs->cp0_epc)
 		goto sigbus;
+	/*
+	 * AVM unaligned position tracking; might request sigbus
+	 */
+	if (track_unaligned_position(regs)) {
+		goto sigbus;
+	}
 
 	if (user_mode(regs) && !test_thread_flag(TIF_FIXADE))
 		goto sigbus;
@@ -2266,6 +2330,7 @@ asmlinkage void do_ade(struct pt_regs *regs)
 				(void __user *)regs->cp0_badvaddr);
 			set_fs(seg);
 
+			exception_exit(prev_state);
 			return;
 		}
 
@@ -2277,8 +2342,9 @@ asmlinkage void do_ade(struct pt_regs *regs)
 				(void __user *)regs->cp0_badvaddr);
 			set_fs(seg);
 
+			exception_exit(prev_state);
 			return;
-	}
+		}
 
 		goto sigbus;
 	}
@@ -2293,11 +2359,20 @@ asmlinkage void do_ade(struct pt_regs *regs)
 	emulate_load_store_insn(regs, (void __user *)regs->cp0_badvaddr, pc);
 	set_fs(seg);
 
+	exception_exit(prev_state);
 	return;
 
 sigbus:
 	die_if_kernel("Kernel unaligned instruction access", regs);
+#if defined(CONFIG_AVM_ENHANCED)
+	info.si_code = BUS_ADRERR;
+	info.si_signo = SIGBUS;
+	info.si_errno = 0;
+	info.si_addr = (void __user *) regs->cp0_badvaddr;
+	force_sig_info(SIGBUS, &info, current);
+#else
 	force_sig(SIGBUS, current);
+#endif
 
 	/*
 	 * XXX On return from the signal handler we should advance the epc

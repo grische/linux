@@ -98,6 +98,8 @@ extern struct ip_ra_chain __rcu *ip_ra_chain;
 
 #define IP_FRAG_TIME	(30 * HZ)		/* fragment lifetime	*/
 
+#define IPTABLE_CHANGE 0x0005 /* PPA iptable change for SDL	*/
+
 struct msghdr;
 struct net_device;
 struct packet_type;
@@ -127,6 +129,7 @@ int ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb);
 
 int ip_queue_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl);
 void ip_init(void);
+void ip_input_init(void);
 int ip_append_data(struct sock *sk, struct flowi4 *fl4,
 		   int getfrag(void *from, char *to, int offset, int len,
 			       int odd, struct sk_buff *skb),
@@ -180,6 +183,7 @@ struct ip_reply_arg {
 				/* -1 if not needed */ 
 	int	    bound_dev_if;
 	u8  	    tos;
+	kuid_t	    uid;
 }; 
 
 #define IP_REPLY_ARG_NOSRCCHECK 1

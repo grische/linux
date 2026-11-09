@@ -59,6 +59,15 @@ void output_ptreg_defines(void)
 	OFFSET(PT_R31, pt_regs, regs[31]);
 	OFFSET(PT_LO, pt_regs, lo);
 	OFFSET(PT_HI, pt_regs, hi);
+#ifdef CONFIG_CPU_HAS_DSP_ASE
+	OFFSET(PT_AC1HI, pt_regs, ac1hi);
+	OFFSET(PT_AC1LO, pt_regs, ac1lo);
+	OFFSET(PT_AC2HI, pt_regs, ac2hi);
+	OFFSET(PT_AC2LO, pt_regs, ac2lo);
+	OFFSET(PT_AC3HI, pt_regs, ac3hi);
+	OFFSET(PT_AC3LO, pt_regs, ac3lo);
+	OFFSET(PT_DSPCTRL, pt_regs, dspctrl);
+#endif
 #ifdef CONFIG_CPU_HAS_SMARTMIPS
 	OFFSET(PT_ACX, pt_regs, acx);
 #endif

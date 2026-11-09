@@ -63,16 +63,17 @@
 #define gpio_setbit(m, r, p)	ltq_w32_mask(0, BIT(p), m + r)
 #define gpio_clearbit(m, r, p)	ltq_w32_mask(BIT(p), 0, m + r)
 
-#define MFP_XWAY(a, f0, f1, f2, f3)	\
-	{				\
-		.name = #a,		\
-		.pin = a,		\
-		.func = {		\
-			XWAY_MUX_##f0,	\
-			XWAY_MUX_##f1,	\
-			XWAY_MUX_##f2,	\
-			XWAY_MUX_##f3,	\
-		},			\
+#define MFP_XWAY(a, f0, f1, f2, f3)    \
+	{                              \
+		.name = #a,            \
+		.pin = a,              \
+		.func = {              \
+			XWAY_MUX_##f0, \
+			XWAY_MUX_##f1, \
+			XWAY_MUX_##f2, \
+			XWAY_MUX_##f3, \
+			XWAY_MUX_NONE, \
+		},                     \
 	}
 
 #define GRP_MUX(a, m, p)		\

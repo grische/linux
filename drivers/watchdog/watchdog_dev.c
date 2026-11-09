@@ -336,6 +336,9 @@ static int watchdog_set_timeout(struct watchdog_device *wdd,
 	if (watchdog_timeout_invalid(wdd, timeout))
 		return -EINVAL;
 
+	WARN(wdd->ops->avm_hw_ping,
+			"watchdog: Setting timeout to %u seconds\n", timeout);
+
 	if (wdd->ops->set_timeout) {
 		err = wdd->ops->set_timeout(wdd, timeout);
 	} else {
@@ -888,8 +891,14 @@ static struct miscdevice watchdog_miscdev = {
 	.fops		= &watchdog_fops,
 };
 
+#if IS_ENABLED(CONFIG_AVM_WATCHDOG)
+#  define WATCHDOG_NAME "linux_watchdog"
+#else
+#  define WATCHDOG_NAME "watchdog"
+#endif
+
 static struct class watchdog_class = {
-	.name =		"watchdog",
+	.name =		WATCHDOG_NAME,
 	.owner =	THIS_MODULE,
 	.dev_groups =	wdt_groups,
 };
@@ -920,6 +929,12 @@ static int watchdog_cdev_register(struct watchdog_device *wdd)
 		return -ENODEV;
 
 	INIT_DELAYED_WORK(&wd_data->work, watchdog_ping_work);
+
+	if (IS_ENABLED(CONFIG_AVM_WATCHDOG)) {
+		pr_info("AVM driver enabled, not creating device file #%d for %s\n",
+				wdd->id, wdd->info->identity);
+		goto skip_cdev;
+	}
 
 	if (wdd->id == 0) {
 		old_wd_data = wd_data;
@@ -964,6 +979,7 @@ static int watchdog_cdev_register(struct watchdog_device *wdd)
 
 	wd_data->cdev.owner = wdd->ops->owner;
 
+skip_cdev:
 	/* Record time of most recent heartbeat as 'just before now'. */
 	wd_data->last_hw_keepalive = jiffies - 1;
 
@@ -992,12 +1008,16 @@ static void watchdog_cdev_unregister(struct watchdog_device *wdd)
 {
 	struct watchdog_core_data *wd_data = wdd->wd_data;
 
+	if (IS_ENABLED(CONFIG_AVM_WATCHDOG))
+		goto skip_cdev;
+
 	cdev_device_del(&wd_data->cdev, &wd_data->dev);
 	if (wdd->id == 0) {
 		misc_deregister(&watchdog_miscdev);
 		old_wd_data = NULL;
 	}
 
+skip_cdev:
 	mutex_lock(&wd_data->lock);
 	wd_data->wdd = NULL;
 	wdd->wd_data = NULL;
@@ -1047,6 +1067,32 @@ void watchdog_dev_unregister(struct watchdog_device *wdd)
 	watchdog_cdev_unregister(wdd);
 }
 
+#ifdef CONFIG_AVM_WATCHDOG_SHIM_SUPPORT
+int avm_watchdog_start(struct watchdog_device *wdd)
+{
+	struct watchdog_core_data *wd_data = wdd->wd_data;
+	int ret;
+
+	mutex_lock(&wd_data->lock);
+	ret = watchdog_start(wdd);
+	mutex_unlock(&wd_data->lock);
+
+	return ret;
+}
+
+int avm_watchdog_stop(struct watchdog_device *wdd)
+{
+	struct watchdog_core_data *wd_data = wdd->wd_data;
+	int ret;
+
+	mutex_lock(&wd_data->lock);
+	ret = watchdog_stop(wdd);
+	mutex_unlock(&wd_data->lock);
+
+	return ret;
+}
+#endif
+
 /*
  *	watchdog_dev_init: init dev part of watchdog core
  *
@@ -1063,6 +1109,9 @@ int __init watchdog_dev_init(void)
 		pr_err("Failed to create watchdog workqueue\n");
 		return -ENOMEM;
 	}
+
+	if (IS_ENABLED(CONFIG_AVM_WATCHDOG))
+		return 0;
 
 	err = class_register(&watchdog_class);
 	if (err < 0) {

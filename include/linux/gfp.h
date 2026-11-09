@@ -447,13 +447,14 @@ static inline void arch_alloc_page(struct page *page, int order) { }
 
 struct page *
 __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order,
-		       struct zonelist *zonelist, nodemask_t *nodemask);
+		       struct zonelist *zonelist, nodemask_t *nodemask,
+		       unsigned long pc);
 
 static inline struct page *
 __alloc_pages(gfp_t gfp_mask, unsigned int order,
 		struct zonelist *zonelist)
 {
-	return __alloc_pages_nodemask(gfp_mask, order, zonelist, NULL);
+	return __alloc_pages_nodemask(gfp_mask, order, zonelist, NULL, _RET_IP_);
 }
 
 /*

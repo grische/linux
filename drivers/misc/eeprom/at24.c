@@ -580,6 +580,8 @@ static void at24_get_ofdata(struct i2c_client *client,
 	if (node) {
 		if (of_get_property(node, "read-only", NULL))
 			chip->flags |= AT24_FLAG_READONLY;
+		if (of_get_property(node, "avm,no-test", NULL))
+			chip->flags |= AT24_FLAG_NOTEST;
 		val = of_get_property(node, "pagesize", NULL);
 		if (val)
 			chip->page_size = be32_to_cpup(val);
@@ -764,14 +766,16 @@ static int at24_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	i2c_set_clientdata(client, at24);
 
-	/*
-	 * Perform a one-byte test read to verify that the
-	 * chip is functional.
-	 */
-	err = at24_read(at24, 0, &test_byte, 1);
-	if (err) {
-		err = -ENODEV;
-		goto err_clients;
+	if (!(chip.flags & AT24_FLAG_NOTEST)) {
+		/*
+		 * Perform a one-byte test read to verify that the
+		 * chip is functional.
+		 */
+		err = at24_read(at24, 0, &test_byte, 1);
+		if (err) {
+			err = -ENODEV;
+			goto err_clients;
+		}
 	}
 
 	at24->nvmem_config.name = dev_name(&client->dev);

@@ -160,6 +160,11 @@ struct us_data {
 	pm_hook			suspend_resume_hook;
 #endif
 
+#ifdef CONFIG_AVM_USB_SUSPEND
+	unsigned long 		resume_start;
+	unsigned int		max_spinup_ms;
+#endif
+
 	/* hacks for READ CAPACITY bug handling */
 	int			use_last_sector_hacks;
 	int			last_sector_retries;

@@ -112,7 +112,8 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	if (IS_ERR(sblk)) {
 		ERROR("unable to read squashfs_super_block\n");
-		err = PTR_ERR(sblk);
+		/*--- err = PTR_ERR(sblk); ---*//*--- JZ-27891 mit err = -EIO wird kein anderes FS mehr gemountet ---*/
+        err = -EINVAL;
 		sblk = NULL;
 		goto failed_mount;
 	}

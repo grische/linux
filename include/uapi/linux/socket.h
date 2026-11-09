@@ -13,7 +13,7 @@ typedef unsigned short __kernel_sa_family_t;
 struct __kernel_sockaddr_storage {
 	__kernel_sa_family_t	ss_family;		/* address family */
 	/* Following field(s) are implementation specific */
-	char		__data[_K_SS_MAXSIZE - sizeof(unsigned short)];
+	char		__data[_K_SS_MAXSIZE - sizeof(__kernel_sa_family_t)];
 				/* space to achieve desired size, */
 				/* _SS_MAXSIZE value minus size of ss_family */
 } __attribute__ ((aligned(_K_SS_ALIGNSIZE)));	/* force desired alignment */

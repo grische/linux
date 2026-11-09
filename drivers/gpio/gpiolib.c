@@ -122,6 +122,7 @@ struct gpio_desc *gpiochip_get_desc(struct gpio_chip *chip,
 
 	return &gdev->descs[hwnum];
 }
+EXPORT_SYMBOL_GPL(gpiochip_get_desc);
 
 /**
  * Convert a GPIO descriptor to the integer namespace.
@@ -170,6 +171,19 @@ static int gpiochip_find_base(int ngpio)
 		return -ENOSPC;
 	}
 }
+
+void __iomem *gpiod_avm_get_inputreg_and_bit(struct gpio_desc *desc, int *bit)
+{
+	struct gpio_chip	*chip;
+
+	chip = gpiod_to_chip(desc);
+
+	if (!chip->avm_get_inputreg_and_bit)
+		return NULL;
+
+	return chip->avm_get_inputreg_and_bit(chip, gpio_chip_hwgpio(desc), bit);
+}
+EXPORT_SYMBOL_GPL(gpiod_avm_get_inputreg_and_bit);
 
 /**
  * gpiod_get_direction - return the current direction of a GPIO
@@ -2954,6 +2968,7 @@ void gpiod_add_lookup_table(struct gpiod_lookup_table *table)
 
 	mutex_unlock(&gpio_lookup_lock);
 }
+EXPORT_SYMBOL_GPL(gpiod_add_lookup_table);
 
 /**
  * gpiod_remove_lookup_table() - unregister GPIO device consumers
@@ -2967,6 +2982,7 @@ void gpiod_remove_lookup_table(struct gpiod_lookup_table *table)
 
 	mutex_unlock(&gpio_lookup_lock);
 }
+EXPORT_SYMBOL_GPL(gpiod_remove_lookup_table);
 
 static struct gpiod_lookup_table *gpiod_find_lookup_table(struct device *dev)
 {

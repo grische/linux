@@ -112,6 +112,7 @@ static inline int kmsg_dump_unregister(struct kmsg_dumper *dumper)
 {
 	return -EINVAL;
 }
+
 #endif
 
 #endif /* _LINUX_KMSG_DUMP_H */

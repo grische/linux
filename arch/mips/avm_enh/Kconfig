@@ -1,0 +1,24 @@
+if MIPS
+
+menu "MIPS specific enhancements"
+
+config AVM_SIMPLE_PROFILING_YIELD
+	bool "Enable AVM Simple Profiling based on yield feature"
+	depends on AVM_SIMPLE_PROFILING && CPU_MIPS_34K
+	default n
+
+config AVM_SIMPLE_PROFILING_YIELD_PCNT
+	bool "yield signal source is the MIPS performance counter, otherwise we use a generic timer"
+	depends on AVM_SIMPLE_PROFILING_YIELD && AR10
+	default y
+
+config BUG_EXTRA_INFO
+	bool "Smart BUG-handler with extra bugtable-section"
+	depends on AVM_ENHANCED
+
+config AVM_WP
+	bool "AVM Watchpoint Handler for MIPS 34Kc/InterAptiv"
+	depends on MIPS
+
+endmenu
+endif # AVM_KERNEL && MIPS

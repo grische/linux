@@ -1,0 +1,18 @@
+#!/bin/bash
+
+set -eu
+
+mkdir -p "${INSTALL_DIR}/include/avm/event/"
+
+# Set default kbuild variables
+: ${srctree:="${LINUX_SOURCE_ROOT%/}"}
+: ${objtree:="${srctree}"}
+: ${obj:=$(realpath --relative-to="${objtree}" ~+)}
+export objtree obj srctree
+
+# Generate header and put it into the source dir
+./event/generate-event-types $(pwd) > "include/uapi/avm/event/gen-types.h"
+
+# "Install" header into resulting archiv package
+cp "include/uapi/avm/event/gen-types.h" "${INSTALL_DIR}/include/avm/event/gen-types.h"
+

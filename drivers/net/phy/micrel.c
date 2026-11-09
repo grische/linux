@@ -312,12 +312,19 @@ static int kszphy_config_init(struct phy_device *phydev)
 	return 0;
 }
 
+static int ksz8041_fiber_mode(struct phy_device *phydev)
+{
+	struct device_node *of_node = phydev->mdio.dev.of_node;
+
+	return of_property_read_bool(of_node, "micrel,fiber-mode");
+}
+
 static int ksz8041_config_init(struct phy_device *phydev)
 {
 	struct device_node *of_node = phydev->mdio.dev.of_node;
 
 	/* Limit supported and advertised modes in fiber mode */
-	if (of_property_read_bool(of_node, "micrel,fiber-mode")) {
+	if (ksz8041_fiber_mode(phydev)) {
 		phydev->dev_flags |= MICREL_PHY_FXEN;
 		phydev->supported &= SUPPORTED_100baseT_Full |
 				     SUPPORTED_100baseT_Half;
@@ -796,6 +803,9 @@ static int kszphy_probe(struct phy_device *phydev)
 			return -EINVAL;
 		}
 	}
+
+	if (ksz8041_fiber_mode(phydev))
+		phydev->port = PORT_FIBRE;
 
 	/* Support legacy board-file configuration */
 	if (phydev->dev_flags & MICREL_PHY_50MHZ_CLK) {

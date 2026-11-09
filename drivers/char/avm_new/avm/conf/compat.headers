@@ -1,0 +1,11 @@
+uapi/linux/avm_event.h avm/event/event.h
+linux/ar7wdt.h avm/watchdog/watchdog.h
+linux/avm_profile.h avm/profile/profile.h
+linux/avm_debug.h avm/sammel/debug.h
+linux/simple_proc.h avm/sammel/simple_proc.h
+linux/simple_mempool.h  avm/sammel/simple_mempool.h
+linux/avm_helpers.h avm/sammel/helpers.h
+linux/avm_kpi.h avm/sammel/kpi.h
+linux/irq_on.h avm/enh/irq_on.h
+linux/avm_reboot_status.h avm/enh/reboot_status.h
+uapi/linux/avm_kernel_config.h uapi/avm/enh/fw_info.h

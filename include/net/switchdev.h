@@ -46,6 +46,8 @@ enum switchdev_attr_id {
 	SWITCHDEV_ATTR_ID_PORT_PARENT_ID,
 	SWITCHDEV_ATTR_ID_PORT_STP_STATE,
 	SWITCHDEV_ATTR_ID_PORT_BRIDGE_FLAGS,
+	SWITCHDEV_ATTR_ID_PORT_PRE_BRIDGE_FLAGS,
+	SWITCHDEV_ATTR_ID_PORT_LEARNING_LIMIT,
 	SWITCHDEV_ATTR_ID_BRIDGE_AGEING_TIME,
 	SWITCHDEV_ATTR_ID_BRIDGE_VLAN_FILTERING,
 };
@@ -59,7 +61,8 @@ struct switchdev_attr {
 	union {
 		struct netdev_phys_item_id ppid;	/* PORT_PARENT_ID */
 		u8 stp_state;				/* PORT_STP_STATE */
-		unsigned long brport_flags;		/* PORT_BRIDGE_FLAGS */
+		unsigned long brport_flags;		/* PORT_{PRE}_BRIDGE_FLAGS */
+		int learning_limit; /* PORT_LEARNING_LIMIT */
 		clock_t ageing_time;			/* BRIDGE_AGEING_TIME */
 		bool vlan_filtering;			/* BRIDGE_VLAN_FILTERING */
 	} u;
@@ -168,6 +171,9 @@ switchdev_notifier_info_to_dev(const struct switchdev_notifier_info *info)
 {
 	return info->dev;
 }
+
+/* Flags that can have a nonzero default read from hardware. */
+#define BR_PORT_FLAGS_HW_DEFAULT BR_HAIRPIN_MODE
 
 #ifdef CONFIG_NET_SWITCHDEV
 

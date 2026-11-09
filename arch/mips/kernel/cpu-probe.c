@@ -32,6 +32,8 @@
 #include <asm/spram.h>
 #include <asm/uaccess.h>
 
+#include <asm/avm_enh/check_cpu_features.h>
+
 /* Hardware capabilities */
 unsigned int elf_hwcap __read_mostly;
 
@@ -503,6 +505,8 @@ static void set_isa(struct cpuinfo_mips *c, unsigned int isa)
 		c->isa_level |= MIPS_CPU_ISA_II;
 		break;
 	}
+
+	avm_check_isa_features();
 }
 
 static char unknown_isa[] = KERN_ERR \
@@ -2060,6 +2064,8 @@ void cpu_probe(void)
 	if (cpu == 0)
 		__ua_limit = ~((1ull << cpu_vmbits) - 1);
 #endif
+
+	avm_check_cpu_features();
 }
 
 void cpu_report(void)

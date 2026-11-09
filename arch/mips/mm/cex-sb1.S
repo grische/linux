@@ -33,7 +33,7 @@
 	 * is changed.
 	 */
 
-	.set	mips64
+	.set	mips64r2
 	.set	noreorder
 	.set	noat
 

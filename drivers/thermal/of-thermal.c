@@ -31,6 +31,7 @@
 #include <linux/export.h>
 #include <linux/string.h>
 #include <linux/thermal.h>
+#include <avm/power/power.h>
 
 #include "thermal_core.h"
 
@@ -440,6 +441,20 @@ thermal_zone_of_add_sensor(struct device_node *zone,
 	return tzd;
 }
 
+#define MILLI_TO_DEZI_CELSIUS(x) ((x)/100)
+
+int read_temp_callback(void *avm_power_handle, void *context, int *value)
+{
+	struct thermal_zone_device *tzd = context;
+	int ret;
+
+	ret = thermal_zone_get_temp(tzd, value);
+	if (!ret)
+		*value = MILLI_TO_DEZI_CELSIUS(*value);
+
+	return ret;
+}
+
 /**
  * thermal_zone_of_sensor_register - registers a sensor to a DT thermal zone
  * @dev: a valid struct device pointer of a sensor device. Must contain
@@ -526,6 +541,9 @@ exit:
 	of_node_put(sensor_np);
 	of_node_put(np);
 
+	if (!IS_ERR(tzd))
+		tzd->avm_power_handle = TemperaturSensorRegister(tzd->type,
+						read_temp_callback, tzd);
 	return tzd;
 }
 EXPORT_SYMBOL_GPL(thermal_zone_of_sensor_register);
@@ -552,6 +570,9 @@ void thermal_zone_of_sensor_unregister(struct device *dev,
 
 	if (!dev || !tzd || !tzd->devdata)
 		return;
+
+	if (tzd->avm_power_handle)
+		TemperaturSensorDeregister(tzd->avm_power_handle);
 
 	tz = tzd->devdata;
 

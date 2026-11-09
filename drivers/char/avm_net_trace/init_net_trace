@@ -1,0 +1,68 @@
+#!/bin/bash
+#
+# This init script has been copied from kernel/gu-wrapper/scripts/templates/init_compat
+
+set -eu
+
+: "${GU_WRAPPER_API:=0}"
+
+if [ "$GU_WRAPPER_API" -ge "1" ]; then
+	echo "Skip compat-only init script."
+	exit 0
+fi
+
+subproject="$(pwd)"
+
+# Look for the root of the gu-wrapper
+while true; do
+	cd ..
+
+	if [ "$(pwd)" == "/" ]; then
+		echo "Could not find linux kernel source..."
+		exit 1
+	fi
+
+	if [ -e "linux/Makefile" ]; then
+		linux_source_root="$(pwd)/linux"
+		install_dir="$(pwd)/filesystem"
+		break
+	fi
+done
+
+cd ${linux_source_root}
+
+# Symlink new header subdirs into Linux include tree
+if [ -e "${subproject}/include/avm" ]; then
+	mkdir -p include/avm/
+	ln -sfr ${subproject}/include/avm/* include/avm/
+fi
+
+if [ -e "${subproject}/include/uapi/avm" ]; then
+	mkdir -p include/uapi/avm/
+	ln -sfr ${subproject}/include/uapi/avm/* include/uapi/avm/
+fi
+
+# Create compat forward headers
+# Don't use symlinks here as these forwardings may depend on the include path
+awk '/^[^#]/{
+	print "#ifdef __KERNEL__" > "include/" $1;
+	print "#include <" $2 ">" >> "include/" $1;
+	if (match($1, "^uapi/")) {
+		sub(/^uapi\//, "", $2);
+		print "#else" >> "include/" $1;
+		print "#include <" $2 ">" >> "include/" $1;
+	};
+	print "#endif" >> "include/" $1;
+}' ${subproject}/avm/conf/compat.headers
+
+# "Install" avm/ upi headers into the resulting archiv
+if [ -d "${subproject}/include/uapi/avm" ]; then
+	mkdir -p "${install_dir}/include"
+	cp -r "${subproject}/include/uapi/avm" "${install_dir}/include/"
+fi
+
+# Call compat_gen_headers which should generate dynamic headers
+if [ -x "${subproject}/compat_gen_headers" ]; then
+	cd "${subproject}"
+	INSTALL_DIR="${install_dir}" LINUX_SOURCE_ROOT="${linux_source_root}" ./compat_gen_headers
+fi

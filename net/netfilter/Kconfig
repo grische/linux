@@ -10,7 +10,7 @@ config NETFILTER_INGRESS
 	  infrastructure.
 
 config NETFILTER_NETLINK
-	tristate
+	tristate "Netfilter NFNETLINK interface"
 
 config NETFILTER_NETLINK_ACCT
 tristate "Netfilter NFACCT over NFNETLINK interface"
@@ -113,6 +113,18 @@ config NF_CONNTRACK_EVENTS
 
 	  If unsure, say `N'.
 
+config NF_CONNTRACK_RTCACHE
+	tristate "Cache route entries in conntrack objects"
+	depends on NETFILTER_ADVANCED
+	depends on NF_CONNTRACK
+	help
+	  If this option is enabled, the connection tracking code will
+	  cache routing information for each connection that is being
+	  forwarded, at a cost of 32 bytes per conntrack object.
+
+	  To compile it as a module, choose M here.  If unsure, say N.
+	  The module will be called nf_conntrack_rtcache.
+
 config NF_CONNTRACK_TIMEOUT
 	bool  'Connection tracking timeout'
 	depends on NETFILTER_ADVANCED
@@ -205,7 +217,6 @@ config NF_CONNTRACK_FTP
 
 config NF_CONNTRACK_H323
 	tristate "H.323 protocol support"
-	depends on IPV6 || IPV6=n
 	depends on NETFILTER_ADVANCED
 	help
 	  H.323 is a VoIP signalling protocol from ITU-T. As one of the most
@@ -629,6 +640,12 @@ config NETFILTER_XT_MARK
 	Prior to routing, the nfmark can influence the routing method and can
 	also be used by other subsystems to change their behavior.
 
+config NETFILTER_XT_EXTMARK
+	tristate 'extended nfmark target and match support'
+	default m if NETFILTER_ADVANCED=n
+	---help---
+	This option adds the "EXTMARK" target and "extmark" match.
+
 config NETFILTER_XT_CONNMARK
 	tristate 'ctmark target and match support'
 	depends on NF_CONNTRACK
@@ -839,6 +856,15 @@ config NETFILTER_XT_NAT
 
 	To compile it as a module, choose M here. If unsure, say N.
 
+config NETFILTER_XT_TARGET_EXTMARK
+	tristate '"EXTMARK" target support'
+	depends on NETFILTER_ADVANCED
+	select NETFILTER_XT_EXTMARK
+	---help---
+	This is a backwards-compat option for the user's convenience
+	(e.g. when running oldconfig). It selects
+	CONFIG_NETFILTER_XT_EXTMARK (combined mark/MARK module).
+
 config NETFILTER_XT_TARGET_NETMAP
 	tristate '"NETMAP" target support'
 	depends on NF_NAT
@@ -953,9 +979,16 @@ config NETFILTER_XT_TARGET_SECMARK
 
 	  To compile it as a module, choose M here.  If unsure, say N.
 
+config PPA_IPTABLE_EVENT_HANDLING
+	tristate 'PPA iptable event handling'
+	default y
+	depends on PPA
+	help
+	  SDL Firewall Rule update for iptable with respect to PPA
+	  sessions programmed into the hardware
+
 config NETFILTER_XT_TARGET_TCPMSS
 	tristate '"TCPMSS" target support'
-	depends on IPV6 || IPV6=n
 	default m if NETFILTER_ADVANCED=n
 	---help---
 	  This option adds a `TCPMSS' target, which allows you to alter the
@@ -1273,6 +1306,15 @@ config NETFILTER_XT_MATCH_MARK
 	This is a backwards-compat option for the user's convenience
 	(e.g. when running oldconfig). It selects
 	CONFIG_NETFILTER_XT_MARK (combined mark/MARK module).
+
+config NETFILTER_XT_MATCH_EXTMARK
+	tristate '"extmark" match support'
+	depends on NETFILTER_ADVANCED
+	select NETFILTER_XT_EXTMARK
+	---help---
+	This is a backwards-compat option for the user's convenience
+	(e.g. when running oldconfig). It selects
+	CONFIG_NETFILTER_XT_EXTMARK (combined mark/MARK module).
 
 config NETFILTER_XT_MATCH_MULTIPORT
 	tristate '"multiport" Multiple port match support'

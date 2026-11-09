@@ -1,0 +1,267 @@
+#
+# AVM general functions
+#
+#
+menu "AVM Sammeltreiber"
+
+config AVM_SAMMEL
+	bool "AVM general support (Event, Watchdog, Debug, Profiling)"
+	default y
+	help
+	  This driver provides general functions for AVMs own drivers.
+
+	  To compile this driver as a module, choose M here. The module
+	  will be called avm.
+
+source "drivers/char/avm_new/event/Kconfig"
+
+config AVM_PWM
+	bool "AVM pwm support"
+	depends on AVM_SAMMEL
+	default n
+	help
+	  This driver enables PWM support for LEDs.
+
+source "drivers/char/avm_new/watchdog/Kconfig"
+
+config AVM_DEBUG
+	bool "support for AVM Debug"
+	depends on AVM_SAMMEL
+	default y
+
+config AVM_DEBUG_BUF_SHIFT
+    int "debug log buffer size (16 => 64KB, 17 => 128KB)"
+    range 16 25
+    default 19
+    depends on AVM_DEBUG
+    help
+      Selects the debug buffer size
+
+config AVM_LED_EVENTS
+	bool "support for AVM Led event based version"
+	depends on AVM_SAMMEL
+	default n
+
+config AVM_PAGE_STATISTICS
+	bool "Enable AVM memory management page statistics"
+	depends on AVM_SAMMEL
+	default y
+
+config AVM_PAGE_STATISTICS_DEBUG
+	bool "Enable debug output for AVM page statistics"
+	depends on AVM_PAGE_STATISTICS
+	default n
+	help
+	  Enable AVM page statistics debug messages, most useful for debugging
+	  the page statistics functions themselves.  You probably want to say N
+	  here.
+
+	  Must not be activated on customer firmware.
+
+config AVM_PAGE_STATISTICS_DEBUG_NON_FREE_PAGES
+	bool "Print non-freed pages"
+	depends on AVM_PAGE_STATISTICS
+	default n
+	help
+	  Print a debug output line for each non-freed page when generating AVM
+	  page statistic output.  This is quite a lot of extra output, enable
+	  only on purpose.
+
+	  Must not be activated on customer firmware.
+
+source "drivers/char/avm_new/profiling/Kconfig"
+
+config AVM_PAGE_TRACE
+	bool "Enhanced Page-Tracing"
+	depends on AVM_SAMMEL
+	default y
+	help
+      get summary of information about page-using
+
+config AVM_NET_EVENT
+        bool "AVM Network Event Source"
+	depends on AVM_EVENT || AVM_LED_EVENTS || AVM_POWER
+	depends on AVM_KERNEL
+	select AVM_PROM_ENVIRONMENT
+	default n
+	help
+            generic event source (hardware independent) for AVM_EVENT, AVM_LED and AVM_POWER
+            generic ethernet port handler for AVM_POWER. This driver relays on ethtool_ops.
+
+config AVM_KPI
+        bool "KPI Subsystem"
+	depends on AVM_SAMMEL
+	depends on SYSFS
+	default y
+	help
+	    This allows creating key performance indicators from kernel
+	    space. They are exposed at /sys/kernel/kpi. Consult
+	    include/linux/avm_kpi.h for usage information.
+
+config AVM_FW_INFO
+	bool "AVM FW Info"
+	default n
+	help
+	    This enables the API to retrieve information about the firmware inside the kernel.
+	    Usually this information contains the firmware version and the required module sizes.
+	    Multiple backends exists to provide this information, currently a legacy embedded and
+	    a devicetree based variant exists.
+
+config AVM_FW_INFO_EMBED
+	bool "Embedded FW info"
+	depends on AVM_FW_INFO
+	help
+	    Allows to retrieve the firmware information from a patched kernel section.
+
+	    A patched kernel contains a special linker section. During the firmware build the
+	    kernel will be relinked with this section provided. The maximum size of this section
+	    must be defined during build time.
+
+config AVM_FW_INFO_EMBED_DTB
+	bool "Embedded FW info may contain DT"
+	depends on AVM_FW_INFO_EMBED
+	default n
+	help
+	    Use the devicetree contained in the firmware info.
+
+	    On older platforms the Urlader does not pass the dt directly to the kernel. Instead
+	    it edits the device trees embedded in the kernel and the kernel uses these.
+	    The correct devicetree is always the dt at index 0 regardless of the actual subrev.
+
+config AVM_FW_INFO_DT
+	bool "DeviceTree FW info"
+	depends on AVM_FW_INFO
+	depends on OF
+	default n
+	help
+	    Allows to retrieve the firmware information from the device tree.
+
+	    Devicetrees may contain a "avm,fw-info" section describing the firmware version and
+	    the required module sizes. It can (obviously) not contain another devicetree. This
+	    is the preferred method for new kernels.
+
+config AVM_MODULE_MEM
+	bool "AVM Module Memory"
+	select AVM_FW_INFO
+	default n
+	help
+	    Provides an allocator for module memory which avoids fragmentation and is RTE hard.
+
+	    On low-end platforms (ram <= 64mb) fragmentation is a big concern and fragmentation
+	    quickly prohibits the allocation of contiguous memory for modules. The subsequent
+	    vmalloc-allocation however has a very negative performance impacts on MIPS platforms.
+
+	    Secondly on platforms employing RTE modules are prohibited from generating tlb-misses
+	    and must therefore reside in physical memory and can not be vmapped.
+
+config AVM_PROMCONFIG_FORCE_WORDALIGNED_ACCESS
+	bool "Word-align all prom config flash access"
+	depends on AVM_SAMMEL
+	help
+	    Force word-alignment for all reads of the prom-config flash area.
+	    You should not need this on new F!Boxen.
+
+config AVM_COMPANION_PANIC
+	tristate "AVM helper for synchronized panics via GPIOs"
+	depends on GPIOLIB
+	help
+	    Say Y to enable support for the avm,companion-panic platform
+	    device.
+
+	    This driver will notify the companion CPU of a panic via GPIO and
+	    react to panics of the companion CPUs as notified by them by
+	    panicking.
+
+config AVM_DT_URLADER_ENV
+       bool "AVM Urlader environment via Device Tree"
+       default n
+       help
+	   This option enables access to the AVM bootloader (Urlader)
+           environment, which is stored in the device tree, using the usual
+           "/proc/sys/urlader" path. Enabling this driver at runtime
+           disables and replaces TFFS, which would otherwise provide
+           "/proc/sys/urlader"
+
+config AVM_OF_OVERLAY_CMDLINE
+	bool "Device Tree overlays passed on the kernel cmdline"
+	depends on OF_OVERLAY
+	help
+	  Adds a command line option causing specified physical memory
+	  location to be interpreted as device tree overlay and applied
+	  on top of the current device tree before the first devices
+	  are probed.
+
+	  This command line option follows the format
+	  avm,fdt-overlay=<phys_addr>,<size>.
+
+config AVM_OF_OVERLAY_CMDLINE_MAX
+	int "Maximum number of overlays supported"
+	depends on AVM_OF_OVERLAY_CMDLINE
+	default 8
+	range 1 1024
+	help
+	  Sets the maximum supported overlays on the command line with
+	  avm,fdt-overlay=<phys_addr>,<size>.
+
+config AVM_REBOOT_STATUS
+	bool "AVM Reboot Status"
+	depends on AVM_SAMMEL
+	depends on !X86_PUMA7 || HW_MAILBOX_AVM_EXPOSE_PRIVATE_SRAM
+	default y
+
+config AVM_PLATFORM_RESET_STATUS
+	bool
+	depends on AVM_REBOOT_STATUS
+
+config AVM_PROM_CONFIG
+	bool "AVM prom config"
+	depends on AVM_SAMMEL
+	default y
+	help
+	  Provides an interface to access calibration data from flash.
+
+config AVM_OF_OVERLAY_EXPORT
+	bool "Expose cmdline dtbo to other drivers"
+	depends on AVM_OF_OVERLAY_CMDLINE
+	help
+	 Saves read devicetree overlays and exposes them to other drivers.
+
+menuconfig AVM_CORE_DEBUG
+	tristate "AVM kernel debugging interface"
+	depends on AVM_SAMMEL && m
+	default m
+	help
+	 Enables the AVM kernel interface in /proc/avm/simulate, which
+	 can be used to test several kernel failure cases and behaviours.
+
+if AVM_CORE_DEBUG
+
+config AVM_CORE_DEBUG_WASTE_TIME
+	bool "Enable a debug command to waste CPU time"
+	default y
+	help
+	 Adds the "timer" command to /proc/avm/simulate to waste a
+	 specified amount of CPU time in sw-irq for a specified CPU.
+
+config AVM_CORE_DEBUG_ALLOC_STRESS
+	bool "Enable a debug command to stress test the allocator"
+	default y
+	help
+	 Adds the "alloc" command to /proc/avm/simulate to stress test
+	 the allocator.
+
+config AVM_CORE_DEBUG_FIQ_COMMANDS
+	bool "Enable debug commands to test rte/fiq related functionality"
+	depends on AVM_FASTIRQ_TZ
+	default y
+	help
+	 Adds the "bug_on_firq", "kcrash_firq", "panic_firq" and "deadlock"
+	 commands to /proc/avm/simulate.
+
+endif
+
+config AVM_ARCH_BCM
+	def_bool y
+	depends on BCM_KF_ARM_BCM963XX
+
+endmenu

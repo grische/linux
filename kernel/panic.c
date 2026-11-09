@@ -26,11 +26,20 @@
 #include <linux/nmi.h>
 #include <linux/console.h>
 #include <linux/bug.h>
+#include <linux/ratelimit.h>
 
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
 
+#if defined(CONFIG_AVM_ENHANCED) && defined(CONFIG_TFFS_PANIC_LOG)
+#include <avm/tffs/tffs.h>
+#include <asm/mach_avm.h>
+
+int panic_on_oops = 1;
+#else
 int panic_on_oops = CONFIG_PANIC_ON_OOPS_VALUE;
+#endif /* AVM_ENHANCED && CONFIG_TFFS_PANIC_LOG */
+
 static unsigned long tainted_mask;
 static int pause_on_oops;
 static int pause_on_oops_flag;
@@ -173,7 +182,7 @@ void panic(const char *fmt, ...)
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
 	pr_emerg("Kernel panic - not syncing: %s\n", buf);
-#ifdef CONFIG_DEBUG_BUGVERBOSE
+#if defined(CONFIG_DEBUG_KERNEL) || defined(CONFIG_DEBUG_BUGVERBOSE)
 	/*
 	 * Avoid nested stack-dumping if a panic occurs during oops processing
 	 */
@@ -600,11 +609,25 @@ EXPORT_SYMBOL(warn_slowpath_null);
  */
 __visible void __stack_chk_fail(void)
 {
+#ifdef CONFIG_CC_STACKPROTECTOR_BUG_ON_FAIL
+	BUG();
+#endif
 	panic("stack-protector: Kernel stack is corrupted in: %p\n",
 		__builtin_return_address(0));
 }
 EXPORT_SYMBOL(__stack_chk_fail);
 
+#endif
+
+#ifdef CONFIG_ARCH_HAS_REFCOUNT
+void refcount_error_report(struct pt_regs *regs, const char *err)
+{
+	WARN_RATELIMIT(1, "refcount_t %s at %pB in %s[%d], uid/euid: %u/%u\n",
+		err, (void *)instruction_pointer(regs),
+		current->comm, task_pid_nr(current),
+		from_kuid_munged(&init_user_ns, current_uid()),
+		from_kuid_munged(&init_user_ns, current_euid()));
+}
 #endif
 
 core_param(panic, panic_timeout, int, 0644);

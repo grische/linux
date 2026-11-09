@@ -54,11 +54,19 @@ static int is_wireless_rndis(struct usb_interface_descriptor *desc)
 		desc->bInterfaceProtocol == 3);
 }
 
+static int is_novatel_rndis(struct usb_interface_descriptor *desc)
+{
+	return (desc->bInterfaceClass == USB_CLASS_MISC &&
+		desc->bInterfaceSubClass == 4 &&
+		desc->bInterfaceProtocol == 1);
+}
+
 #else
 
 #define is_rndis(desc)		0
 #define is_activesync(desc)	0
 #define is_wireless_rndis(desc)	0
+#define is_novatel_rndis(desc)	0
 
 #endif
 
@@ -67,10 +75,8 @@ static const u8 mbm_guid[16] = {
 	0xa6, 0x07, 0xc0, 0xff, 0xcb, 0x7e, 0x39, 0x2a,
 };
 
-static void usbnet_cdc_update_filter(struct usbnet *dev)
+void usbnet_cdc_update_filter(struct usbnet *dev)
 {
-	struct cdc_state	*info = (void *) &dev->data;
-	struct usb_interface	*intf = info->control;
 	struct net_device	*net = dev->net;
 
 	u16 cdc_filter = USB_CDC_PACKET_TYPE_DIRECTED
@@ -90,12 +96,13 @@ static void usbnet_cdc_update_filter(struct usbnet *dev)
 			USB_CDC_SET_ETHERNET_PACKET_FILTER,
 			USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 			cdc_filter,
-			intf->cur_altsetting->desc.bInterfaceNumber,
+			dev->intf->cur_altsetting->desc.bInterfaceNumber,
 			NULL,
 			0,
 			USB_CTRL_SET_TIMEOUT
 		);
 }
+EXPORT_SYMBOL_GPL(usbnet_cdc_update_filter);
 
 /* probes control interface, claims data interface, collects the bulk
  * endpoints, activates data interface (if needed), maybe sets MTU.
@@ -150,7 +157,8 @@ int usbnet_generic_cdc_bind(struct usbnet *dev, struct usb_interface *intf)
 	 */
 	rndis = (is_rndis(&intf->cur_altsetting->desc) ||
 		 is_activesync(&intf->cur_altsetting->desc) ||
-		 is_wireless_rndis(&intf->cur_altsetting->desc));
+		 is_wireless_rndis(&intf->cur_altsetting->desc) ||
+		 is_novatel_rndis(&intf->cur_altsetting->desc));
 
 	memset(info, 0, sizeof(*info));
 	info->control = intf;
@@ -225,7 +233,12 @@ skip:
 			dev_dbg(&intf->dev,
 				"ACM capabilities %02x, not really RNDIS?\n",
 				header.usb_cdc_acm_descriptor->bmCapabilities);
+
+/* == 20171008 AVM/VGJ - CHANGESET: Fix for buggy ZTE rndis modems, ignore buggy descriptor */
+#if 0
 			goto bad_desc;
+#endif
+
 	}
 
 	if (header.usb_cdc_ether_desc && info->ether->wMaxSegmentSize) {

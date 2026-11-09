@@ -20,6 +20,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/timer.h>
+#include <linux/of.h>
 #include "leds.h"
 
 static struct class *leds_class;
@@ -153,6 +154,98 @@ static int led_resume(struct device *dev)
 
 static SIMPLE_DEV_PM_OPS(leds_class_dev_pm_ops, led_suspend, led_resume);
 
+/**
+ * of_led_get() - request a LED device via the LED framework
+ * @np: device node to get the LED device from
+ * @index: the index of the LED
+ *
+ * Returns the LED device parsed from the phandle specified in the "leds"
+ * property of a device tree node or a negative error-code on failure.
+ */
+struct led_classdev *of_led_get(struct device_node *np, int index)
+{
+	struct device *led_dev;
+	struct led_classdev *led_cdev;
+	struct device_node *led_node;
+
+	led_node = of_parse_phandle(np, "leds", index);
+	if (!led_node)
+		return ERR_PTR(-ENOENT);
+
+	led_dev = class_find_device_by_of_node(leds_class, led_node);
+	of_node_put(led_node);
+
+	if (!led_dev)
+		return ERR_PTR(-EPROBE_DEFER);
+
+	led_cdev = dev_get_drvdata(led_dev);
+
+	if (!try_module_get(led_cdev->dev->parent->driver->owner))
+		return ERR_PTR(-ENODEV);
+
+	return led_cdev;
+}
+EXPORT_SYMBOL_GPL(of_led_get);
+
+/**
+ * led_put() - release a LED device
+ * @led_cdev: LED device
+ */
+void led_put(struct led_classdev *led_cdev)
+{
+	module_put(led_cdev->dev->parent->driver->owner);
+}
+EXPORT_SYMBOL_GPL(led_put);
+
+static void devm_led_release(struct device *dev, void *res)
+{
+	struct led_classdev **p = res;
+
+	led_put(*p);
+}
+
+/**
+ * devm_of_led_get - Resource-managed request of a LED device
+ * @dev:	LED consumer
+ * @index:	index of the LED to obtain in the consumer
+ *
+ * The device node of the device is parse to find the request LED device.
+ * The LED device returned from this function is automatically released
+ * on driver detach.
+ *
+ * @return a pointer to a LED device or ERR_PTR(errno) on failure.
+ */
+struct led_classdev *__must_check devm_of_led_get(struct device *dev,
+						  int index)
+{
+	struct led_classdev *led;
+	struct led_classdev **dr;
+
+	if (!dev)
+		return ERR_PTR(-EINVAL);
+
+	/* Not using device tree? */
+	if (!IS_ENABLED(CONFIG_OF) || !dev->of_node)
+		return ERR_PTR(-ENOTSUPP);
+
+	led = of_led_get(dev->of_node, index);
+	if (IS_ERR(led))
+		return led;
+
+	dr = devres_alloc(devm_led_release, sizeof(struct led_classdev *),
+			  GFP_KERNEL);
+	if (!dr) {
+		led_put(led);
+		return ERR_PTR(-ENOMEM);
+	}
+
+	*dr = led;
+	devres_add(dev, dr);
+
+	return led;
+}
+EXPORT_SYMBOL_GPL(devm_of_led_get);
+
 static int match_name(struct device *dev, const void *data)
 {
 	if (!dev_name(dev))
@@ -182,11 +275,14 @@ static int led_classdev_next_name(const char *init_name, char *name,
 }
 
 /**
- * led_classdev_register - register a new object of led_classdev class.
- * @parent: The device to register.
+ * of_led_classdev_register - register a new object of led_classdev class.
+ *
+ * @parent: parent of LED device
  * @led_cdev: the led_classdev structure for this device.
+ * @np: DT node describing this LED
  */
-int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
+int of_led_classdev_register(struct device *parent, struct device_node *np,
+			     struct led_classdev *led_cdev)
 {
 	char name[64];
 	int ret;
@@ -199,6 +295,7 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 				led_cdev, led_cdev->groups, "%s", name);
 	if (IS_ERR(led_cdev->dev))
 		return PTR_ERR(led_cdev->dev);
+	led_cdev->dev->of_node = np;
 
 	if (ret)
 		dev_warn(parent, "Led %s renamed to %s due to name collision",
@@ -229,7 +326,7 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(led_classdev_register);
+EXPORT_SYMBOL_GPL(of_led_classdev_register);
 
 /**
  * led_classdev_unregister - unregisters a object of led_properties class.
@@ -271,12 +368,14 @@ static void devm_led_classdev_release(struct device *dev, void *res)
 }
 
 /**
- * devm_led_classdev_register - resource managed led_classdev_register()
- * @parent: The device to register.
+ * devm_of_led_classdev_register - resource managed led_classdev_register()
+ *
+ * @parent: parent of LED device
  * @led_cdev: the led_classdev structure for this device.
  */
-int devm_led_classdev_register(struct device *parent,
-			       struct led_classdev *led_cdev)
+int devm_of_led_classdev_register(struct device *parent,
+				  struct device_node *np,
+				  struct led_classdev *led_cdev)
 {
 	struct led_classdev **dr;
 	int rc;
@@ -285,7 +384,7 @@ int devm_led_classdev_register(struct device *parent,
 	if (!dr)
 		return -ENOMEM;
 
-	rc = led_classdev_register(parent, led_cdev);
+	rc = of_led_classdev_register(parent, np, led_cdev);
 	if (rc) {
 		devres_free(dr);
 		return rc;
@@ -296,7 +395,7 @@ int devm_led_classdev_register(struct device *parent,
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(devm_led_classdev_register);
+EXPORT_SYMBOL_GPL(devm_of_led_classdev_register);
 
 static int devm_led_classdev_match(struct device *dev, void *res, void *data)
 {

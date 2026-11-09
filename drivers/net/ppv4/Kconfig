@@ -1,0 +1,20 @@
+#
+# PPV4 configuration
+#
+config PPV4
+	tristate "Packet Processor V4"
+
+	---help---
+	  Packet Processor V4 Driver
+
+config PPV4_LGM
+	bool "Packet Processor V4 for LGM"
+	depends on PPV4
+	---help---
+	  Packet Processor V4 Driver for LGM
+
+config PPV4_UT
+	bool "Packet Processor V4 Unit test"
+	depends on PPV4
+	---help---
+	  Packet Processor V4 Driver Unit Test

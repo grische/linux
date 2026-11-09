@@ -504,10 +504,16 @@ void free_initrd_mem(unsigned long start, unsigned long end)
 }
 #endif
 
+void __init avm_mtd_cleanup(void) __weak;
+void __init avm_mtd_cleanup(void)
+{
+}
+
 void (*free_init_pages_eva)(void *begin, void *end) = NULL;
 
 void __ref free_initmem(void)
 {
+	avm_mtd_cleanup();
 	prom_free_prom_memory();
 	/*
 	 * Let the platform define a specific function to free the

@@ -185,6 +185,7 @@ static inline void __iomem * __ioremap_mode(phys_addr_t offset, unsigned long si
 		if (flags == _CACHE_UNCACHED)
 			base = (u64) IO_BASE;
 		return (void __iomem *) (unsigned long) (base + offset);
+#ifndef CONFIG_SOC_GRX500
 	} else if (__builtin_constant_p(offset) &&
 		   __builtin_constant_p(size) && __builtin_constant_p(flags)) {
 		phys_addr_t phys_addr, last_addr;
@@ -204,6 +205,7 @@ static inline void __iomem * __ioremap_mode(phys_addr_t offset, unsigned long si
 		    flags == _CACHE_UNCACHED)
 			return (void __iomem *)
 				(unsigned long)CKSEG1ADDR(phys_addr);
+#endif
 	}
 
 	return __ioremap(offset, size, flags);
@@ -285,9 +287,11 @@ static inline void iounmap(const volatile void __iomem *addr)
 
 #define __IS_KSEG1(addr) (((unsigned long)(addr) & ~0x1fffffffUL) == CKSEG1)
 
+#ifndef CONFIG_SOC_GRX500
 	if (cpu_has_64bit_addresses ||
 	    (__builtin_constant_p(addr) && __IS_KSEG1(addr)))
 		return;
+#endif
 
 	__iounmap(addr);
 
@@ -323,7 +327,7 @@ static inline void pfx##write##bwlq(type val,				\
 		if (irq)						\
 			local_irq_save(__flags);			\
 		__asm__ __volatile__(					\
-			".set	arch=r4000"	"\t\t# __writeq""\n\t"	\
+			".set	arch=mips64r2"	"\t\t# __writeq""\n\t"	\
 			"dsll32 %L0, %L0, 0"			"\n\t"	\
 			"dsrl32 %L0, %L0, 0"			"\n\t"	\
 			"dsll32 %M0, %M0, 0"			"\n\t"	\
@@ -353,7 +357,7 @@ static inline type pfx##read##bwlq(const volatile void __iomem *mem)	\
 		if (irq)						\
 			local_irq_save(__flags);			\
 		__asm__ __volatile__(					\
-			".set	arch=r4000"	"\t\t# __readq" "\n\t"	\
+			".set	arch=mips64r2"	"\t\t# __readq" "\n\t"	\
 			"ld	%L0, %1"			"\n\t"	\
 			"dsra32 %M0, %L0, 0"			"\n\t"	\
 			"sll	%L0, %L0, 0"			"\n\t"	\

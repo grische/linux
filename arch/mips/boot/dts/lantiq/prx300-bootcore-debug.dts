@@ -1,0 +1,12 @@
+/dts-v1/;
+#include "prx300-bootcore.dtsi"
+
+/ {
+	model = "PRX300-bootcore-debug";
+	compatible = "intel,prx300-bootcore-debug", "intel,prx300-bootcore";
+};
+
+&ssx1ctrl {
+	/* Disable NGI firewall */
+	status = "disabled";
+};

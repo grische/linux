@@ -87,11 +87,11 @@ int nl80211_send_mgmt(struct cfg80211_registered_device *rdev,
 		      int freq, int sig_dbm,
 		      const u8 *buf, size_t len, u32 flags, gfp_t gfp);
 
-void
-nl80211_radar_notify(struct cfg80211_registered_device *rdev,
-		     const struct cfg80211_chan_def *chandef,
-		     enum nl80211_radar_event event,
-		     struct net_device *netdev, gfp_t gfp);
+void nl80211_radar_notify(struct cfg80211_registered_device *rdev,
+			  const struct cfg80211_chan_def *chandef,
+			  enum nl80211_radar_event event,
+			  struct net_device *netdev,
+			  u8 radar_bit_map, gfp_t gfp);
 
 void nl80211_send_ap_stopped(struct wireless_dev *wdev);
 

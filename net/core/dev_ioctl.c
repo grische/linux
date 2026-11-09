@@ -128,16 +128,16 @@ static int dev_ifsioc_locked(struct net *net, struct ifreq *ifr, unsigned int cm
 		return -ENODEV;
 
 	switch (cmd) {
-	case SIOCGIFFLAGS:	/* Get interface flags */
-		ifr->ifr_flags = (short) dev_get_flags(dev);
+	case SIOCGIFFLAGS: /* Get interface flags */
+		ifr->ifr_flags = (short)dev_get_flags(dev);
 		return 0;
 
-	case SIOCGIFMETRIC:	/* Get the metric on the interface
-				   (currently unused) */
+	case SIOCGIFMETRIC: /* Get the metric on the interface
+					   (currently unused) */
 		ifr->ifr_metric = 0;
 		return 0;
 
-	case SIOCGIFMTU:	/* Get the MTU of a device */
+	case SIOCGIFMTU: /* Get the MTU of a device */
 		ifr->ifr_mtu = dev->mtu;
 		return 0;
 
@@ -158,11 +158,11 @@ static int dev_ifsioc_locked(struct net *net, struct ifreq *ifr, unsigned int cm
 
 	case SIOCGIFMAP:
 		ifr->ifr_map.mem_start = dev->mem_start;
-		ifr->ifr_map.mem_end   = dev->mem_end;
+		ifr->ifr_map.mem_end = dev->mem_end;
 		ifr->ifr_map.base_addr = dev->base_addr;
-		ifr->ifr_map.irq       = dev->irq;
-		ifr->ifr_map.dma       = dev->dma;
-		ifr->ifr_map.port      = dev->if_port;
+		ifr->ifr_map.irq = dev->irq;
+		ifr->ifr_map.dma = dev->dma;
+		ifr->ifr_map.port = dev->if_port;
 		return 0;
 
 	case SIOCGIFINDEX:
@@ -175,12 +175,11 @@ static int dev_ifsioc_locked(struct net *net, struct ifreq *ifr, unsigned int cm
 
 	default:
 		/* dev_ioctl() should ensure this case
-		 * is never reached
-		 */
+			 * is never reached
+			 */
 		WARN_ON(1);
 		err = -ENOTTY;
 		break;
-
 	}
 	return err;
 }
@@ -251,14 +250,14 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 	ops = dev->netdev_ops;
 
 	switch (cmd) {
-	case SIOCSIFFLAGS:	/* Set interface flags */
+	case SIOCSIFFLAGS: /* Set interface flags */
 		return dev_change_flags(dev, ifr->ifr_flags);
 
-	case SIOCSIFMETRIC:	/* Set the metric on the interface
-				   (currently unused) */
+	case SIOCSIFMETRIC: /* Set the metric on the interface
+					   (currently unused) */
 		return -EOPNOTSUPP;
 
-	case SIOCSIFMTU:	/* Set the MTU of a device */
+	case SIOCSIFMTU: /* Set the MTU of a device */
 		return dev_set_mtu(dev, ifr->ifr_mtu);
 
 	case SIOCSIFHWADDR:
@@ -304,7 +303,7 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 		return 0;
 
 	case SIOCSIFNAME:
-		ifr->ifr_newname[IFNAMSIZ-1] = '\0';
+		ifr->ifr_newname[IFNAMSIZ - 1] = '\0';
 		return dev_change_name(dev, ifr->ifr_newname);
 
 	case SIOCSHWTSTAMP:
@@ -313,12 +312,12 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 			return err;
 		/* fall through */
 
-	/*
-	 *	Unknown or private ioctl
-	 */
+		/*
+			 *	Unknown or private ioctl
+			 */
 	default:
 		if ((cmd >= SIOCDEVPRIVATE &&
-		    cmd <= SIOCDEVPRIVATE + 15) ||
+		     cmd <= SIOCDEVPRIVATE + 15) ||
 		    cmd == SIOCBONDENSLAVE ||
 		    cmd == SIOCBONDRELEASE ||
 		    cmd == SIOCBONDSETHWADDR ||
@@ -330,6 +329,11 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 		    cmd == SIOCSMIIREG ||
 		    cmd == SIOCBRADDIF ||
 		    cmd == SIOCBRDELIF ||
+#ifdef CONFIG_MCAST_SNOOPING
+		    cmd == SIOCBRADDMGREC ||
+		    cmd == SIOCBRDELMGREC ||
+		    cmd == SIOCBRSETROUTERPORT ||
+#endif
 		    cmd == SIOCSHWTSTAMP ||
 		    cmd == SIOCGHWTSTAMP ||
 		    cmd == SIOCWANDEV) {
@@ -342,7 +346,6 @@ static int dev_ifsioc(struct net *net, struct ifreq *ifr, unsigned int cmd)
 			}
 		} else
 			err = -EINVAL;
-
 	}
 	return err;
 }
@@ -426,11 +429,11 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 
 	switch (cmd) {
 	/*
-	 *	These ioctl calls:
-	 *	- can be done by all.
-	 *	- atomic and do not require locking.
-	 *	- return a value
-	 */
+		 *	These ioctl calls:
+		 *	- can be done by all.
+		 *	- atomic and do not require locking.
+		 *	- return a value
+		 */
 	case SIOCGIFFLAGS:
 	case SIOCGIFMETRIC:
 	case SIOCGIFMTU:
@@ -466,12 +469,12 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		}
 		return ret;
 
-	/*
-	 *	These ioctl calls:
-	 *	- require superuser power.
-	 *	- require strict serialization.
-	 *	- return a value
-	 */
+		/*
+			 *	These ioctl calls:
+			 *	- require superuser power.
+			 *	- require strict serialization.
+			 *	- return a value
+			 */
 	case SIOCGMIIPHY:
 	case SIOCGMIIREG:
 	case SIOCSIFNAME:
@@ -490,23 +493,23 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		}
 		return ret;
 
-	/*
-	 *	These ioctl calls:
-	 *	- require superuser power.
-	 *	- require strict serialization.
-	 *	- do not return a value
-	 */
+		/*
+			 *	These ioctl calls:
+			 *	- require superuser power.
+			 *	- require strict serialization.
+			 *	- do not return a value
+			 */
 	case SIOCSIFMAP:
 	case SIOCSIFTXQLEN:
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 		/* fall through */
-	/*
-	 *	These ioctl calls:
-	 *	- require local superuser power.
-	 *	- require strict serialization.
-	 *	- do not return a value
-	 */
+		/*
+			 *	These ioctl calls:
+			 *	- require local superuser power.
+			 *	- require strict serialization.
+			 *	- do not return a value
+			 */
 	case SIOCSIFFLAGS:
 	case SIOCSIFMETRIC:
 	case SIOCSIFMTU:
@@ -522,6 +525,11 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	case SIOCBONDCHANGEACTIVE:
 	case SIOCBRADDIF:
 	case SIOCBRDELIF:
+#ifdef CONFIG_MCAST_SNOOPING
+	case SIOCBRADDMGREC:
+	case SIOCBRDELMGREC:
+	case SIOCBRSETROUTERPORT:
+#endif
 	case SIOCSHWTSTAMP:
 		if (!ns_capable(net->user_ns, CAP_NET_ADMIN))
 			return -EPERM;
@@ -536,16 +544,16 @@ int dev_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 
 	case SIOCGIFMEM:
 		/* Get the per device memory space. We can add this but
-		 * currently do not support it */
+			 * currently do not support it */
 	case SIOCSIFMEM:
 		/* Set the per device memory buffer space.
-		 * Not applicable in our case */
+			 * Not applicable in our case */
 	case SIOCSIFLINK:
 		return -ENOTTY;
 
-	/*
-	 *	Unknown or private ioctl.
-	 */
+		/*
+			 *	Unknown or private ioctl.
+			 */
 	default:
 		if (cmd == SIOCWANDEV ||
 		    cmd == SIOCGHWTSTAMP ||

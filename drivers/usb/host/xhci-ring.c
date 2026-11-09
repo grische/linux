@@ -665,10 +665,8 @@ static void xhci_giveback_urb_in_irq(struct xhci_hcd *xhci,
 		}
 		usb_hcd_unlink_urb_from_ep(hcd, urb);
 
-		spin_unlock(&xhci->lock);
 		usb_hcd_giveback_urb(hcd, urb, status);
 		xhci_urb_free_priv(urb_priv);
-		spin_lock(&xhci->lock);
 	}
 }
 
@@ -2644,14 +2642,12 @@ cleanup:
 						urb, urb->actual_length,
 						urb->transfer_buffer_length,
 						status);
-			spin_unlock(&xhci->lock);
 			/* EHCI, UHCI, and OHCI always unconditionally set the
 			 * urb->status of an isochronous endpoint to 0.
 			 */
 			if (usb_pipetype(urb->pipe) == PIPE_ISOCHRONOUS)
 				status = 0;
 			usb_hcd_giveback_urb(bus_to_hcd(urb->dev->bus), urb, status);
-			spin_lock(&xhci->lock);
 		}
 
 	/*

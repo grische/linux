@@ -1,0 +1,36 @@
+&ponmbox1 {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+
+	resets = <&rcu0 0x10 28>;
+	reset-names = "ponip";
+};
+
+&eth {
+	wan: interface@5 {
+		status = "okay";
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <5>;
+		lantiq,wan = <1>;
+		intel,dp-dev-port = <2>;
+		intel,dp-port-id = <2>;
+		mac = <&gsw_mac0>;
+		intel,lct-en = <0>;
+		intel,extra-subif = <0>;
+		avm,name = "VANI0";
+		avm,macname = "macdsl";
+
+		ethernet@5 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <5>;
+			phy-mode = "rgmii";
+		};
+	};
+};
+
+&wan_xpcs {
+	status = "okay";
+	xpcs-mode = <0>;
+};

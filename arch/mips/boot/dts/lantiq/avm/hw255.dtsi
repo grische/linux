@@ -1,0 +1,19 @@
+#include "unodue.dtsi"
+
+/ {
+	model = "AVM FRITZ!Box 5550";
+};
+
+&cb0phy0 {
+	status = "okay";
+	intel,mode = <0>; /*0-pcie, 1-xpcs*/
+};
+
+&pcie0 {
+	status = "ok";
+	intel,rst-interval = <200>;
+	intel,inbound-swap = <1>;
+	intel,outbound-swap = <0>;
+	num-lanes = <1>;
+	reset-gpio = <&gpio0 19 GPIO_ACTIVE_LOW>;
+};

@@ -1,0 +1,16 @@
+/dts-v1/;
+
+#include "hw234.dtsi"
+#include "grx550_fpga.dtsi"
+
+/ {
+
+    model = "AVM6890 (GRX550, HW234) Main model";
+
+    avm-hw-revision{
+        compatible = "avm,avm_hw_revision";
+        revision = "234";
+        subrevision = "0";
+    };
+
+};

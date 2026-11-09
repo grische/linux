@@ -64,19 +64,9 @@ static async_cookie_t next_cookie = 1;
 #define MAX_WORK		32768
 #define ASYNC_COOKIE_MAX	ULLONG_MAX	/* infinity cookie */
 
-static LIST_HEAD(async_global_pending);	/* pending from all registered doms */
+LIST_HEAD(async_global_pending);	/* pending from all registered doms */
 static ASYNC_DOMAIN(async_dfl_domain);
-static DEFINE_SPINLOCK(async_lock);
-
-struct async_entry {
-	struct list_head	domain_list;
-	struct list_head	global_list;
-	struct work_struct	work;
-	async_cookie_t		cookie;
-	async_func_t		func;
-	void			*data;
-	struct async_domain	*domain;
-};
+DEFINE_SPINLOCK(async_lock);
 
 static DECLARE_WAIT_QUEUE_HEAD(async_done);
 

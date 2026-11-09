@@ -21,6 +21,7 @@
 #include <asm/cpu-type.h>
 #include <asm/idle.h>
 #include <asm/mipsregs.h>
+#include <avm/power/power.h>
 
 /*
  * Not all of the MIPS CPUs have the "wait" instruction available. Moreover,
@@ -49,6 +50,7 @@ static void r39xx_wait(void)
 void r4k_wait(void)
 {
 	local_irq_enable();
+	avm_cpu_wait_start();
 	__r4k_wait();
 }
 
@@ -61,13 +63,18 @@ void r4k_wait(void)
  */
 void r4k_wait_irqoff(void)
 {
+	avm_cpu_wait_start();
+
 	if (!need_resched())
 		__asm__(
 		"	.set	push		\n"
-		"	.set	arch=r4000	\n"
+		"	.set	arch=mips32r2	\n"
 		"	wait			\n"
 		"	.set	pop		\n");
+
+	avm_cpu_wait_end();
 	local_irq_enable();
+	avm_cpu_wait_info();
 }
 
 /*
@@ -79,7 +86,7 @@ static void rm7k_wait_irqoff(void)
 	if (!need_resched())
 		__asm__(
 		"	.set	push					\n"
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"	.set	noat					\n"
 		"	mfc0	$1, $12					\n"
 		"	sync						\n"
@@ -100,7 +107,7 @@ static void au1k_wait(void)
 	unsigned long c0status = read_c0_status() | 1;	/* irqs on */
 
 	__asm__(
-	"	.set	arch=r4000			\n"
+	"	.set	arch=mips32r2			\n"
 	"	cache	0x14, 0(%0)		\n"
 	"	cache	0x14, 32(%0)		\n"
 	"	sync				\n"

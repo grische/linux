@@ -44,14 +44,15 @@ struct compress_format {
 };
 
 static const struct compress_format compressed_formats[] __initconst = {
-	{ {0x1f, 0x8b}, "gzip", gunzip },
-	{ {0x1f, 0x9e}, "gzip", gunzip },
-	{ {0x42, 0x5a}, "bzip2", bunzip2 },
-	{ {0x5d, 0x00}, "lzma", unlzma },
-	{ {0xfd, 0x37}, "xz", unxz },
-	{ {0x89, 0x4c}, "lzo", unlzo },
-	{ {0x02, 0x21}, "lz4", unlz4 },
-	{ {0, 0}, NULL, NULL }
+	{ { 0x1f, 0x8b }, "gzip", gunzip },
+	{ { 0x1f, 0x9e }, "gzip", gunzip },
+	{ { 0x42, 0x5a }, "bzip2", bunzip2 },
+	{ { 0x5d, 0x00 }, "lzma", unlzma },
+	{ { 0x6d, 0x00 }, "lzma-openwrt", unlzma },
+	{ { 0xfd, 0x37 }, "xz", unxz },
+	{ { 0x89, 0x4c }, "lzo", unlzo },
+	{ { 0x02, 0x21 }, "lz4", unlz4 },
+	{ { 0, 0 }, NULL, NULL }
 };
 
 decompress_fn __init decompress_method(const unsigned char *inbuf, long len,

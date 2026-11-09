@@ -1,0 +1,9 @@
+*.o
+*.o.cmd
+.tmp_versions
+modules.builtin
+modules.order
+built-in.mod.c
+Module.symvers
+
+/include/uapi/avm/avm_pa/Kbuild

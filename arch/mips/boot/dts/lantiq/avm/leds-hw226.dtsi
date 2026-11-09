@@ -1,0 +1,130 @@
+/* LEDs & Buttons für die 7590 und verwandte Boxen */
+
+&ssoled {
+	status = "okay";
+
+	avm_led_ambientbrightness: led0 {
+		label = "avm:none:ambientbrightness";
+		led-gpio = <&ssogpio 0 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <0>;
+	};
+
+	avm_led_info_green: led2 {
+		label = "avm:green:info";
+		led-gpio = <&ssogpio 2 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <2>;
+	};
+
+	avm_led_info_red: led3 {
+		label = "avm:red:info";
+		led-gpio = <&ssogpio 3 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <3>;
+	};
+
+	avm_led_box_wlan: led4 {
+		label = "avm:green:wlan";
+		led-gpio = <&ssogpio 4 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <4>;
+	};
+
+	avm_led_box_fon: led5 {
+		label = "avm:green:fon";
+		led-gpio = <&ssogpio 5 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <5>;
+	};
+
+	avm_led_connect: led6 {
+		label = "avm:green:connect";
+		led-gpio = <&ssogpio 6 GPIO_ACTIVE_HIGH>;
+		intel,led-pin = <6>;
+	};
+
+	avm_led_box_power: led7 {
+		label = "avm:green:power";
+		led-gpio = <&ssogpio 7 GPIO_ACTIVE_LOW>;
+		intel,led-pin = <7>;
+	};
+};
+
+/ {
+	avm_hui {
+		compatible = "avm,hui";
+
+		ambientbrightness {
+			compatible = "avm,hui-generic-led-class";
+			/* 50% duty cycle signal for the measurement
+			 * of the ambient brightness in the FPGA
+			 */
+			brightness-range = <127>, <127>;
+			led-type = "default-on";
+			leds = <&avm_led_ambientbrightness>;
+			dimmable;
+		};
+
+		info {
+			compatible = "avm,hui-generic-led-class";
+			brightness-range = <6>, <127>;
+			location = <5>;
+			leds = <&avm_led_info_red>, <&avm_led_info_green>;
+			dimmable;
+			colors {
+				error  = <0xff>, <0>, <0>;
+				warn   = <0xff>, <0>, <0>;
+				normal = <0>, <0xff>, <0>;
+			};
+		};
+
+		box-wlan@0 {
+			compatible = "avm,hui-generic-led-class";
+			brightness-range = <6>, <127>;
+			location = <2>;
+			leds = <&avm_led_box_wlan>;
+			dimmable;
+		};
+
+		box-fon-dect@0 {
+			compatible = "avm,hui-generic-led-class";
+			brightness-range = <6>, <127>;
+			location = <3>;
+			leds = <&avm_led_box_fon>;
+			dimmable;
+		};
+
+		connect@0 {
+			compatible = "avm,hui-generic-led-class";
+			brightness-range = <6>, <127>;
+			location = <4>;
+			leds = <&avm_led_connect>;
+			dimmable;
+		};
+
+		box-power {
+			compatible = "avm,hui-generic-led-class";
+			brightness-range = <6>, <127>;
+			location = <1>;
+			leds = <&avm_led_box_power>;
+			dimmable;
+		};
+
+		led-enable {
+			compatible = "avm,hui-generic-led-gpio";
+			led-type = "always-on";
+			gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
+		};
+
+		box-fon@1 {
+			compatible = "avm,hui-generic-button-gpio";
+			gpios = <&gpio1 0 GPIO_ACTIVE_LOW>;
+		};
+
+		box-wlan@1 {
+			compatible = "avm,hui-generic-button-gpio";
+			gpios = <&gpio0 2 GPIO_ACTIVE_LOW>;
+		};
+
+		box-connect@1 {
+			compatible = "avm,hui-generic-button-gpio";
+			gpios = <&gpio0 1 GPIO_ACTIVE_LOW>;
+		};
+	};
+};

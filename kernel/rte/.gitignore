@@ -1,0 +1,15 @@
+.*
+*.o
+*.mod.c
+*.order
+modules.builtin
+
+/tags
+
+#
+# git files that we don't want to ignore even it they are dot-files
+#
+!.gitignore
+
+cscope.*
+*~

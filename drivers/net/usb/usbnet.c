@@ -46,6 +46,8 @@
 #include <linux/kernel.h>
 #include <linux/pm_runtime.h>
 
+#include <avm/pa/avm_pa.h>
+
 #define DRIVER_VERSION		"22-Aug-2005"
 
 
@@ -1086,12 +1088,13 @@ static void __handle_link_change(struct usbnet *dev)
 	clear_bit(EVENT_LINK_CHANGE, &dev->flags);
 }
 
-static void usbnet_set_rx_mode(struct net_device *net)
+void usbnet_set_rx_mode(struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
 
 	usbnet_defer_kevent(dev, EVENT_SET_RX_MODE);
 }
+EXPORT_SYMBOL_GPL(usbnet_set_rx_mode);
 
 static void __handle_set_rx_mode(struct usbnet *dev)
 {
@@ -1785,6 +1788,8 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 
 	if (dev->driver_info->flags & FLAG_LINK_INTR)
 		usbnet_link_change(dev, 0, 0);
+
+	avm_pa_dev_register(dev->net);
 
 	return 0;
 

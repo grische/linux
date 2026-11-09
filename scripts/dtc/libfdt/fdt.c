@@ -63,6 +63,10 @@ int fdt_check_header(const void *fdt)
 			return -FDT_ERR_BADVERSION;
 		if (fdt_last_comp_version(fdt) > FDT_LAST_SUPPORTED_VERSION)
 			return -FDT_ERR_BADVERSION;
+		if (IS_ENABLED(CONFIG_AVM_INVALID_DTB_V17)
+				&& fdt_version(fdt) == 0x11
+				&& (!fdt_size_dt_struct(fdt) || !fdt_size_dt_strings(fdt)))
+			((struct fdt_header *)fdt)->version = fdt32_to_cpu(0x10);
 	} else if (fdt_magic(fdt) == FDT_SW_MAGIC) {
 		/* Unfinished sequential-write blob */
 		if (fdt_size_dt_struct(fdt) == 0)

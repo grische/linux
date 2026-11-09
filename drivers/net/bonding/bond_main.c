@@ -216,9 +216,17 @@ static struct rtnl_link_stats64 *bond_get_stats(struct net_device *bond_dev,
 static void bond_slave_arr_handler(struct work_struct *work);
 static bool bond_time_in_interval(struct bonding *bond, unsigned long last_act,
 				  int mod);
+#ifdef CONFIG_PPA
+static struct net_device *ppa_get_bond_xmit_xor_intrf(struct sk_buff *skb, struct net_device *bond_dev);
+extern struct net_device *(*ppa_get_bond_xmit_xor_intrf_hook)(struct sk_buff *skb, struct net_device *bond_dev);
+#endif
 static void bond_netdev_notify_work(struct work_struct *work);
 
 /*---------------------------- General routines -----------------------------*/
+#define IS_UP(dev)                              \
+	((((dev)->flags & IFF_UP) == IFF_UP) && \
+	 netif_running(dev) &&                  \
+	 netif_carrier_ok(dev))
 
 const char *bond_mode_name(int mode)
 {
@@ -4859,7 +4867,9 @@ static int __init bonding_init(void)
 		if (res)
 			goto err;
 	}
-
+#ifdef CONFIG_PPA
+	ppa_get_bond_xmit_xor_intrf_hook = ppa_get_bond_xmit_xor_intrf;
+#endif
 	register_netdevice_notifier(&bond_netdev_notifier);
 out:
 	return res;
@@ -4867,6 +4877,9 @@ err:
 	bond_destroy_debugfs();
 	bond_netlink_fini();
 err_link:
+#ifdef CONFIG_PPA
+	ppa_get_bond_xmit_xor_intrf_hook = NULL;
+#endif
 	unregister_pernet_subsys(&bond_net_ops);
 	goto out;
 
@@ -4880,6 +4893,9 @@ static void __exit bonding_exit(void)
 
 	bond_netlink_fini();
 	unregister_pernet_subsys(&bond_net_ops);
+#ifdef CONFIG_PPA
+	ppa_get_bond_xmit_xor_intrf_hook = NULL;
+#endif
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
 	/* Make sure we don't have an imbalance on our netpoll blocking */
@@ -4887,6 +4903,43 @@ static void __exit bonding_exit(void)
 #endif
 }
 
+#ifdef CONFIG_PPA
+/*
+ * In ppa_get_bond_xmit_xor_intrf() , we determine the output device by using a pre-
+ * determined xmit_hash_policy(), If the selected device is not enabled,
+ * find the next active slave.
+ */
+static struct net_device *ppa_get_bond_xmit_xor_intrf(struct sk_buff *skb, struct net_device *bond_dev)
+{
+	struct bonding *bond = netdev_priv(bond_dev);
+	struct slave *slave;
+	struct bond_up_slave *slaves;
+	unsigned int count;
+	slaves = rcu_dereference(bond->slave_arr);
+	count = slaves ? ACCESS_ONCE(slaves->count) : 0;
+	if (likely(count)) {
+		slave = slaves->arr[bond_xmit_hash(bond, skb) % count];
+	} else {
+		pr_err("slaves count is zero\n");
+		goto ret;
+	}
+
+	if (!slave) {
+		pr_err("slave is null\n");
+		goto ret;
+	}
+	if (slave->dev) {
+		if (IS_UP(slave->dev) &&
+		    (slave->link == BOND_LINK_UP) &&
+		    bond_is_active_slave(slave)) {
+			return slave->dev;
+		}
+	}
+ret:
+	return NULL;
+}
+EXPORT_SYMBOL(ppa_get_bond_xmit_xor_intrf);
+#endif
 module_init(bonding_init);
 module_exit(bonding_exit);
 MODULE_LICENSE("GPL");

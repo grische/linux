@@ -53,17 +53,21 @@ extern struct module __this_module;
 #define __CRC_SYMBOL(sym, sec)
 #endif
 
+#ifdef MODULE
+#define __EXPORT_SUFFIX(sym)
+#else
+#define __EXPORT_SUFFIX(sym) "+" #sym
+#endif
+
 /* For every exported symbol, place a struct in the __ksymtab section */
-#define ___EXPORT_SYMBOL(sym, sec)					\
-	extern typeof(sym) sym;						\
-	__CRC_SYMBOL(sym, sec)						\
-	static const char __kstrtab_##sym[]				\
-	__attribute__((section("__ksymtab_strings"), aligned(1)))	\
-	= VMLINUX_SYMBOL_STR(sym);					\
-	static const struct kernel_symbol __ksymtab_##sym		\
-	__used								\
-	__attribute__((section("___ksymtab" sec "+" #sym), used))	\
-	= { (unsigned long)&sym, __kstrtab_##sym }
+#define ___EXPORT_SYMBOL(sym, sec)                                                                                        \
+	extern typeof(sym) sym;                                                                                           \
+	__CRC_SYMBOL(sym, sec)                                                                                            \
+	static const char __kstrtab_##sym[]                                                                               \
+		__attribute__((section("__ksymtab_strings" __EXPORT_SUFFIX(sym)), aligned(1))) = VMLINUX_SYMBOL_STR(sym); \
+	static const struct kernel_symbol __ksymtab_##sym                                                                 \
+		__used                                                                                                    \
+		__attribute__((section("___ksymtab" sec "+" #sym), used)) = { (unsigned long)&sym, __kstrtab_##sym }
 
 #if defined(__KSYM_DEPS__)
 

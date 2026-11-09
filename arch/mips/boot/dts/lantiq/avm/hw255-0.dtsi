@@ -1,0 +1,29 @@
+#include "hw255.dtsi"
+
+/ {
+	avm-hw-revision {
+		compatible = "avm,avm_hw_revision";
+		revision = "255";
+		subrevision = "0";
+	};
+
+	avm-gpio {
+		gpio_avm_button_dect {
+			gpio = <&gpio0 28 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	yield {
+		// kein Clocktracking
+		pinctrl-0 = <&pinctrl_tdm>;
+	};
+};
+
+&qspi0 {
+	status = "okay";
+
+	ltq-spinand@0 {
+		// Toshiba & Micron SPI NAND
+		page-size = <2176>;
+	};
+};

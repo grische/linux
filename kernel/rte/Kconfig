@@ -1,0 +1,13 @@
+config HAVE_AVM_RTE
+	bool
+
+config AVM_RTE
+	bool "AVM real-time enhancements"
+	depends on HAVE_AVM_RTE
+	default y
+	help
+	 The AVM real-time enhancement (RTE) framework allows executing
+	 code with low-latency requirements in high-priority interrupt
+	 handlers.  On ARM, these are Fast Interrupts, on MIPS, they execute
+	 as yield threads.
+	 One prominent user of this is the AVM telephony stack.

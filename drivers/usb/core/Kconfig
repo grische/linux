@@ -31,6 +31,14 @@ config USB_DEFAULT_PERSIST
 	  If you have any questions about this, say Y here, only say N
 	  if you know exactly what you are doing.
 
+config AVM_USB_SUSPEND
+	bool "Enable AVM USB Suspend Feature"
+	default n
+	select USB_DEFAULT_PERSIST
+	help
+	  Say Y here if you need AVM USB power management
+	  Do not use with CONFIG_PM
+
 config USB_DYNAMIC_MINORS
 	bool "Dynamic USB minor allocation"
 	help

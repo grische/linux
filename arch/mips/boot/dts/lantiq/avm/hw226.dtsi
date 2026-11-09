@@ -1,0 +1,2 @@
+#include "grx550_common.dtsi"
+#include "leds-hw226.dtsi"

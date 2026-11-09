@@ -2067,7 +2067,7 @@ retry_cpuset:
 
 	nmask = policy_nodemask(gfp, pol);
 	zl = policy_zonelist(gfp, pol, node);
-	page = __alloc_pages_nodemask(gfp, order, zl, nmask);
+	page = __alloc_pages_nodemask(gfp, order, zl, nmask, _RET_IP);
 	mpol_cond_put(pol);
 out:
 	if (unlikely(!page && read_mems_allowed_retry(cpuset_mems_cookie)))
@@ -2115,7 +2115,7 @@ retry_cpuset:
 	else
 		page = __alloc_pages_nodemask(gfp, order,
 				policy_zonelist(gfp, pol, numa_node_id()),
-				policy_nodemask(gfp, pol));
+				policy_nodemask(gfp, pol), _RET_IP);
 
 	if (unlikely(!page && read_mems_allowed_retry(cpuset_mems_cookie)))
 		goto retry_cpuset;

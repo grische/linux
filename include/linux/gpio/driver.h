@@ -162,6 +162,9 @@ struct gpio_chip {
 
 	void			(*dbg_show)(struct seq_file *s,
 						struct gpio_chip *chip);
+	void __iomem		*(*avm_get_inputreg_and_bit)(struct gpio_chip *chip,
+						unsigned int offset,
+						int *bit);
 	int			base;
 	u16			ngpio;
 	const char		*const *names;

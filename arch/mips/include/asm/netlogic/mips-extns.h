@@ -49,7 +49,7 @@
 do {									\
 	if (sizeof(unsigned long) == 4) {				\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dsll\t%L0, %L0, 32\n\t"			\
 			"dsrl\t%L0, %L0, 32\n\t"			\
 			"dsll\t%M0, %M0, 32\n\t"			\
@@ -72,7 +72,7 @@ static inline void ack_c0_eirr(int irq)
 {
 	__asm__ __volatile__(
 		".set	push\n\t"
-		".set	mips64\n\t"
+		".set	mips64r2\n\t"
 		".set	noat\n\t"
 		"li	$1, 1\n\t"
 		"dsllv	$1, $1, %0\n\t"
@@ -85,7 +85,7 @@ static inline void set_c0_eimr(int irq)
 {
 	__asm__ __volatile__(
 		".set	push\n\t"
-		".set	mips64\n\t"
+		".set	mips64r2\n\t"
 		".set	noat\n\t"
 		"li	$1, 1\n\t"
 		"dsllv	%0, $1, %0\n\t"
@@ -100,7 +100,7 @@ static inline void clear_c0_eimr(int irq)
 {
 	__asm__ __volatile__(
 		".set	push\n\t"
-		".set	mips64\n\t"
+		".set	mips64r2\n\t"
 		".set	noat\n\t"
 		"li	$1, 1\n\t"
 		"dsllv	%0, $1, %0\n\t"
@@ -125,7 +125,7 @@ static inline uint64_t read_c0_eirr_and_eimr(void)
 #else
 	__asm__ __volatile__(
 		".set	push\n\t"
-		".set	mips64\n\t"
+		".set	mips64r2\n\t"
 		".set	noat\n\t"
 		"dmfc0	%M0, $9, 6\n\t"
 		"dmfc0	%L0, $9, 7\n\t"
@@ -179,7 +179,7 @@ static inline unsigned int nlm_thread_id(void)
 	local_irq_save(__flags);					\
 	if (sel == 0)							\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmfc2\t%M0, " #source "\n\t"			\
 			"dsll\t%L0, %M0, 32\n\t"			\
 			"dsra\t%M0, %M0, 32\n\t"			\
@@ -188,7 +188,7 @@ static inline unsigned int nlm_thread_id(void)
 			: "=r" (__val));				\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmfc2\t%M0, " #source ", " #sel "\n\t"		\
 			"dsll\t%L0, %M0, 32\n\t"			\
 			"dsra\t%M0, %M0, 32\n\t"			\
@@ -207,7 +207,7 @@ do {									\
 	local_irq_save(__flags);					\
 	if (sel == 0)							\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dsll\t%L0, %L0, 32\n\t"			\
 			"dsrl\t%L0, %L0, 32\n\t"			\
 			"dsll\t%M0, %M0, 32\n\t"			\
@@ -217,7 +217,7 @@ do {									\
 			: : "r" (val));					\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dsll\t%L0, %L0, 32\n\t"			\
 			"dsrl\t%L0, %L0, 32\n\t"			\
 			"dsll\t%M0, %M0, 32\n\t"			\
@@ -251,13 +251,13 @@ do {									\
 		__res = __read_64bit_c2_split(source, sel);		\
 	else if (sel == 0)						\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmfc2\t%0, " #source "\n\t"			\
 			".set\tmips0\n\t"				\
 			: "=r" (__res));				\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmfc2\t%0, " #source ", " #sel "\n\t"		\
 			".set\tmips0\n\t"				\
 			: "=r" (__res));				\
@@ -270,13 +270,13 @@ do {									\
 		__write_64bit_c2_split(register, sel, value);		\
 	else if (sel == 0)						\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmtc2\t%z0, " #register "\n\t"			\
 			".set\tmips0\n\t"				\
 			: : "Jr" (value));				\
 	else								\
 		__asm__ __volatile__(					\
-			".set\tmips64\n\t"				\
+			".set\tmips64r2\n\t"				\
 			"dmtc2\t%z0, " #register ", " #sel "\n\t"	\
 			".set\tmips0\n\t"				\
 			: : "Jr" (value));				\

@@ -307,7 +307,7 @@ static void usb_wwan_indat_callback(struct urb *urb)
 			__func__, status, endpoint);
 
 		/* don't resubmit on fatal errors */
-		if (status == -ESHUTDOWN || status == -ENOENT)
+		if (status == -ESHUTDOWN || status == -ENOENT || status == -EPROTO)
 			return;
 	} else {
 		if (urb->actual_length) {

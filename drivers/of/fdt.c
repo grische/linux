@@ -576,11 +576,17 @@ void *initial_boot_params;
 
 static u32 of_fdt_crc32;
 
+struct early_init_dt_scan_reserved_iter {
+	void (*func)(struct early_init_dt_scan_reserved_iter *self, u64 base, u64 size);
+	int found;
+};
+
 /**
  * res_mem_reserve_reg() - reserve all memory described in 'reg' property
  */
 static int __init __reserved_mem_reserve_reg(unsigned long node,
-					     const char *uname)
+					     const char *uname,
+					     struct early_init_dt_scan_reserved_iter *iter)
 {
 	int t_len = (dt_root_addr_cells + dt_root_size_cells) * sizeof(__be32);
 	phys_addr_t base, size;
@@ -603,6 +609,12 @@ static int __init __reserved_mem_reserve_reg(unsigned long node,
 	while (len >= t_len) {
 		base = dt_mem_next_cell(dt_root_addr_cells, &prop);
 		size = dt_mem_next_cell(dt_root_size_cells, &prop);
+
+		if (iter) {
+			iter->func(iter, base, size);
+			len -= t_len;
+			continue;
+		}
 
 		if (size &&
 		    early_init_dt_reserve_memory_arch(base, size, nomap) == 0)
@@ -650,23 +662,30 @@ static int __init __reserved_mem_check_root(unsigned long node)
 static int __init __fdt_scan_reserved_mem(unsigned long node, const char *uname,
 					  int depth, void *data)
 {
-	static int found;
+	struct early_init_dt_scan_reserved_iter *iter = data;
+	static int global_found;
+	int *found;
 	const char *status;
 	int err;
 
-	if (!found && depth == 1 && strcmp(uname, "reserved-memory") == 0) {
+	if (iter)
+		found = &iter->found;
+	else
+		found = &global_found;
+
+	if (!*found && depth == 1 && strcmp(uname, "reserved-memory") == 0) {
 		if (__reserved_mem_check_root(node) != 0) {
 			pr_err("Reserved memory: unsupported node format, ignoring\n");
 			/* break scan */
 			return 1;
 		}
-		found = 1;
+		*found = 1;
 		/* scan next node */
 		return 0;
-	} else if (!found) {
+	} else if (!*found) {
 		/* scan next node */
 		return 0;
-	} else if (found && depth < 2) {
+	} else if (*found && depth < 2) {
 		/* scanning of /reserved-memory has been finished */
 		return 1;
 	}
@@ -675,12 +694,69 @@ static int __init __fdt_scan_reserved_mem(unsigned long node, const char *uname,
 	if (status && strcmp(status, "okay") != 0 && strcmp(status, "ok") != 0)
 		return 0;
 
-	err = __reserved_mem_reserve_reg(node, uname);
-	if (err == -ENOENT && of_get_flat_dt_prop(node, "size", NULL))
+	err = __reserved_mem_reserve_reg(node, uname, iter);
+	if (err == -ENOENT && of_get_flat_dt_prop(node, "size", NULL) && !iter)
 		fdt_reserved_mem_save_node(node, uname, 0, 0);
 
 	/* scan next node */
 	return 0;
+}
+
+/**
+ * fdt_scan_reserved_mem_prop_avm() - scan a property of the reserved memory node in
+ * legacy avm format
+ */
+static int __init __fdt_scan_reserved_mem_prop_avm(const __be32 *prop, const char *uname, u32 len,
+					  void *data)
+{
+	int t_len = (dt_root_addr_cells + dt_root_size_cells) * sizeof(__be32);
+	phys_addr_t base, size;
+	struct early_init_dt_scan_reserved_iter *iter = data;
+
+	if (!strcmp(uname, "#size-cells") || !strcmp(uname, "#address-cells") || !strcmp(uname, "ranges")) {
+		/* scan next prop */
+		return 0;
+	}
+
+	if (len != t_len) {
+		pr_err("Reserved memory (avm): invalid reg property (length=%d) in '%s', skipping property.\n",
+				len, uname);
+		/* scan next prop */
+		return 0;
+	}
+
+	base = dt_mem_next_cell(dt_root_addr_cells, &prop);
+	size = dt_mem_next_cell(dt_root_size_cells, &prop) + 1;
+
+	if (size && iter)
+		iter->func(iter, base, size);
+	else if (size && (early_init_dt_reserve_memory_arch(base, size, 0) == 0))
+		pr_err("Reserved memory (avm): reserved region for property '%s': base %pa, size %pa\n",
+				uname, &base, &size);
+	else
+		pr_err("Reserved memory (avm): failed to reserve memory for property '%s': base %pa, size %pa\n",
+				uname, &base, &size);
+
+	/* scan next prop */
+	return 0;
+}
+
+/**
+ * fdt_scan_reserved_mem_avm() - scan a single FDT node for reserved memory in
+ * legacy avm format
+ */
+static int __init __fdt_scan_reserved_mem_avm(unsigned long node, const char *uname,
+					  int depth, void *data)
+{
+	if (depth != 1 || strcmp(uname, "reserved-memory") != 0) {
+		/* scan next node */
+		return 0;
+	}
+
+	of_scan_flat_dt_nodeprops(node, __fdt_scan_reserved_mem_prop_avm, data);
+
+	/* scanning of /reserved-memory has been finished */
+	return 1;
 }
 
 /**
@@ -708,6 +784,7 @@ void __init early_init_fdt_scan_reserved_mem(void)
 
 	of_scan_flat_dt(__fdt_scan_reserved_mem, NULL);
 	fdt_init_reserved_mem();
+	of_scan_flat_dt(__fdt_scan_reserved_mem_avm, NULL);
 }
 
 /**
@@ -753,6 +830,37 @@ int __init of_scan_flat_dt(int (*it)(unsigned long node,
 		if (*pathp == '/')
 			pathp = kbasename(pathp);
 		rc = it(offset, pathp, depth, data);
+	}
+	return rc;
+}
+
+/**
+ * of_scan_flat_dt - scan flattened tree blob and call callback on each.
+ * @it: callback function
+ * @data: context data pointer
+ *
+ * This function is used to scan the flattened device-tree, it is
+ * used to extract the memory information at boot before we can
+ * unflatten the tree
+ */
+int __init of_scan_flat_dt_nodeprops(unsigned long node, int (*it)(const __be32 *prop,
+				     const char *uname, unsigned int len, void *data),
+			   void *data)
+{
+	const void *blob = initial_boot_params;
+	const __be32 *propp;
+	const char *namep;
+	int offset, rc = 0, len;
+
+	if (!blob)
+		return 0;
+
+	for (offset = fdt_first_property_offset(blob, node);
+	     offset >= 0 && offset >= node && !rc;
+	     offset = fdt_next_property_offset(blob, offset)) {
+
+		propp = fdt_getprop_by_offset(blob, offset, &namep, &len);
+		rc = it(propp, namep, len, data);
 	}
 	return rc;
 }
@@ -1016,12 +1124,17 @@ u64 __init dt_mem_next_cell(int s, const __be32 **cellp)
 	return of_read_number(p, s);
 }
 
+struct early_init_dt_scan_memory_iter {
+	void (*func)(struct early_init_dt_scan_memory_iter *self, u64 base, u64 size);
+};
+
 /**
  * early_init_dt_scan_memory - Look for an parse memory nodes
  */
 int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 				     int depth, void *data)
 {
+	struct early_init_dt_scan_memory_iter *iter = data;
 	const char *type = of_get_flat_dt_prop(node, "device_type", NULL);
 	const __be32 *reg, *endp;
 	int l;
@@ -1058,10 +1171,103 @@ int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 		pr_debug(" - %llx ,  %llx\n", (unsigned long long)base,
 		    (unsigned long long)size);
 
-		early_init_dt_add_memory_arch(base, size);
+		if (iter)
+			iter->func(iter, base, size);
+		else
+			early_init_dt_add_memory_arch(base, size);
 	}
 
 	return 0;
+}
+
+struct early_init_dt_is_available_memory_scan_data {
+	struct early_init_dt_scan_memory_iter ram_iter;
+	struct early_init_dt_scan_reserved_iter reserved_iter;
+
+	phys_addr_t base;
+	phys_addr_t size;
+
+	bool in_ram;
+	bool in_reserved;
+};
+
+static void __init
+__early_init_dt_is_available_memory_iter(struct early_init_dt_scan_memory_iter *iter,
+					 u64 base, u64 size)
+{
+	struct early_init_dt_is_available_memory_scan_data *data =
+		container_of(iter, struct early_init_dt_is_available_memory_scan_data, ram_iter);
+	phys_addr_t ram_base = base, ram_end = base + size, chk_end = data->base + data->size;
+
+	if (data->base >= base && data->base + data->size < base + size)
+		data->in_ram = true;
+	else
+		pr_err("[%pa, %pa) is not contained in the RAM region at [%pa, %pa)\n",
+		       &data->base, &chk_end, &ram_base, &ram_end);
+}
+
+static void __init
+__early_init_dt_is_reserved_memory_iter(struct early_init_dt_scan_reserved_iter *iter,
+					u64 base, u64 size)
+{
+	struct early_init_dt_is_available_memory_scan_data *data =
+		container_of(iter, struct early_init_dt_is_available_memory_scan_data, reserved_iter);
+	phys_addr_t res_base = base, res_end = base + size, chk_end = data->base + data->size;
+
+	if (!(base + size < data->base || base >= data->base + data->size)) {
+		pr_err("[%pa, %pa) overlaps the reserved region at [%pa, %pa)\n",
+		       &data->base, &chk_end, &res_base, &res_end);
+		data->in_reserved = true;
+	}
+}
+
+bool __init early_init_dt_is_available_memory(phys_addr_t base,
+					      phys_addr_t size)
+{
+	phys_addr_t end = base + size;
+	phys_addr_t fdt_base = __pa(initial_boot_params);
+	phys_addr_t fdt_size = fdt_totalsize(initial_boot_params);
+	struct early_init_dt_is_available_memory_scan_data scan_data = {
+		.ram_iter.func = __early_init_dt_is_available_memory_iter,
+		.reserved_iter.func = __early_init_dt_is_reserved_memory_iter,
+		.base = base,
+		.size = size,
+		.in_ram = false,
+		.in_reserved = false,
+	};
+	int n;
+
+	for (n = 0; ; n++) {
+		unsigned long long rsv_base, rsv_size;
+
+		fdt_get_mem_rsv(initial_boot_params, n, &rsv_base, &rsv_size);
+		if (!rsv_size)
+			break;
+
+		if (!(end < rsv_base || base >= rsv_base + rsv_size)) {
+			phys_addr_t pa_rsv_base = rsv_base;
+			phys_addr_t pa_rsv_end = rsv_base + rsv_size;
+
+			pr_err("found overlapping memory at [%pa, %pa) (/memreserve/)\n",
+			       &pa_rsv_base, &pa_rsv_end);
+			return false;
+		}
+	}
+
+	if (!(end < fdt_base || base >= fdt_base + fdt_size)) {
+		phys_addr_t fdt_end = fdt_base + fdt_size;
+
+		pr_err("found overlapping memory at [%pa, %pa) (fdt)\n",
+		       &fdt_base, &fdt_end);
+		return false;
+	}
+
+	of_scan_flat_dt(__fdt_scan_reserved_mem, &scan_data.reserved_iter);
+	of_scan_flat_dt(__fdt_scan_reserved_mem_avm, &scan_data.reserved_iter);
+
+	of_scan_flat_dt(early_init_dt_scan_memory, &scan_data.ram_iter);
+
+	return scan_data.in_ram && !scan_data.in_reserved;
 }
 
 int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,
@@ -1083,6 +1289,12 @@ int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,
 	p = of_get_flat_dt_prop(node, "bootargs", &l);
 	if (p != NULL && l > 0)
 		strlcpy(data, p, min((int)l, COMMAND_LINE_SIZE));
+	p = of_get_flat_dt_prop(node, "bootargs-append", &l);
+	if (p != NULL && l > 0) {
+		if (strlen(data) > 0)
+			strlcat(data, " ", COMMAND_LINE_SIZE);
+		strlcat(data, p, min_t(int, strlen(data) + (int)l, COMMAND_LINE_SIZE));
+	}
 
 	/*
 	 * CONFIG_CMDLINE is meant to be a default in case nothing else

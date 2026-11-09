@@ -38,6 +38,7 @@
 #include <net/netlink.h>
 #include <net/genetlink.h>
 #include <linux/suspend.h>
+#include <avm/enh/reboot_status.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/thermal.h>
@@ -426,6 +427,16 @@ static void handle_non_critical_trips(struct thermal_zone_device *tz,
 		       def_governor->throttle(tz, trip);
 }
 
+static int thermal_reboot_print_thermal_zone(struct thermal_zone_device *tz, void *data)
+{
+	int temp;
+
+	if (!thermal_zone_get_temp(tz, &temp))
+		pr_emerg("%s(%s): %d.%01d °C\n", dev_name(&tz->device), tz->type, temp / 1000, (temp % 1000) / 100);
+
+	return 0;
+}
+
 static void handle_critical_trips(struct thermal_zone_device *tz,
 				int trip, enum thermal_trip_type trip_type)
 {
@@ -446,7 +457,9 @@ static void handle_critical_trips(struct thermal_zone_device *tz,
 		dev_emerg(&tz->device,
 			  "critical temperature reached(%d C),shutting down\n",
 			  tz->temperature / 1000);
-		orderly_poweroff(true);
+		avm_set_reset_status(RS_TEMP_REBOOT);
+		for_each_thermal_zone(thermal_reboot_print_thermal_zone, NULL);
+		panic("OVERHEAT! Thermal shutdown to prevent damage: crash\n");
 	}
 }
 
@@ -641,6 +654,57 @@ static void thermal_zone_device_check(struct work_struct *work)
 						      thermal_zone_device,
 						      poll_queue.work);
 	thermal_zone_device_update(tz, THERMAL_EVENT_UNSPECIFIED);
+}
+
+int for_each_thermal_governor(int (*cb)(struct thermal_governor *, void *),
+			      void *data)
+{
+	struct thermal_governor *gov;
+	int ret = 0;
+
+	mutex_lock(&thermal_governor_lock);
+	list_for_each_entry(gov, &thermal_governor_list, governor_list) {
+		ret = cb(gov, data);
+		if (ret)
+			break;
+	}
+	mutex_unlock(&thermal_governor_lock);
+
+	return ret;
+}
+
+int for_each_thermal_cooling_device(int (*cb)(struct thermal_cooling_device *,
+					      void *), void *data)
+{
+	struct thermal_cooling_device *cdev;
+	int ret = 0;
+
+	mutex_lock(&thermal_list_lock);
+	list_for_each_entry(cdev, &thermal_cdev_list, node) {
+		ret = cb(cdev, data);
+		if (ret)
+			break;
+	}
+	mutex_unlock(&thermal_list_lock);
+
+	return ret;
+}
+
+int for_each_thermal_zone(int (*cb)(struct thermal_zone_device *, void *),
+			  void *data)
+{
+	struct thermal_zone_device *tz;
+	int ret = 0;
+
+	mutex_lock(&thermal_list_lock);
+	list_for_each_entry(tz, &thermal_tz_list, node) {
+		ret = cb(tz, data);
+		if (ret)
+			break;
+	}
+	mutex_unlock(&thermal_list_lock);
+
+	return ret;
 }
 
 /* sys I/F for thermal zone */

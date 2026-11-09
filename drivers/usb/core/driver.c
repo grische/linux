@@ -302,6 +302,13 @@ static int usb_probe_interface(struct device *dev)
 		return error;
 	}
 
+#if 1 /* == 20170908 AVM/VGJ - CHANGESET: noprobe Extension for AURA == */
+	if (udev->noprobe) {
+		dev_err(&intf->dev, "Probing is disabled for this device\n");
+		return error;
+	}
+#endif
+
 	id = usb_match_dynamic_id(intf, driver);
 	if (!id)
 		id = usb_match_id(intf, driver->id_table);
@@ -364,6 +371,10 @@ static int usb_probe_interface(struct device *dev)
 	/* If the LPM disable succeeded, balance the ref counts. */
 	if (!lpm_disable_error)
 		usb_unlocked_enable_lpm(udev);
+
+	/* == 20180328 AVM/VGJ - Inc USB use counter -> prevents suspension
+	 * The interface's driver must dec the counter to allow suspension ==*/
+	avm_usb_suspend_get_locked(udev);
 
 	usb_autosuspend_device(udev);
 	return error;
@@ -465,6 +476,9 @@ static int usb_unbind_interface(struct device *dev)
 	if (!lpm_disable_error)
 		usb_unlocked_enable_lpm(udev);
 
+	/* == 20180328 AVM/VGJ - Dec USB use counter -> allows suspension ==*/
+	avm_usb_suspend_put_locked(udev);
+
 	/* Unbound interfaces are always runtime-PM-disabled and -suspended */
 	if (driver->supports_autosuspend)
 		pm_runtime_disable(dev);
@@ -523,6 +537,10 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 	iface->needs_binding = 0;
 
 	iface->condition = USB_INTERFACE_BOUND;
+
+	/* == 20180328 AVM/VGJ - Inc USB use counter -> prevents suspension
+	 * The interface's driver must dec the counter to allow suspension ==*/
+	avm_usb_suspend_get_locked(interface_to_usbdev(iface));
 
 	/* Claimed interfaces are initially inactive (suspended) and
 	 * runtime-PM-enabled, but only if the driver has autosuspend

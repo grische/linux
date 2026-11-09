@@ -254,6 +254,7 @@ struct tc_red_qopt {
 #define TC_RED_ECN		1
 #define TC_RED_HARDDROP		2
 #define TC_RED_ADAPTATIVE	4
+#define TC_RED_OFFLOADED 8
 };
 
 struct tc_red_xstats {
@@ -335,6 +336,34 @@ struct tc_choke_xstats {
 	__u32		other;          /* Drops due to drop() calls */
 	__u32		marked;         /* Marked packets */
 	__u32		matched;	/* Drops due to flow match */
+};
+
+/* LLQ section */
+
+enum {
+	TCA_LLQ_UNSPEC,
+	TCA_LLQ_OPTIONS,
+	__TCA_LLQ_MAX,
+};
+
+#define TCA_LLQ_MAX	(__TCA_LLQ_MAX - 1)
+
+struct tc_llq_copt {
+	__u8 priority;
+	__u8 weight;
+};
+
+struct tc_llq_cinfo {
+	__u8 priority;
+	__u8 weight;
+	long deficit;
+	long quantum;
+};
+
+struct tc_llq_qopt {
+	__s32			maxq; /* biggest possible quantum in classes */
+	__s32			minq; /* smallest possible quantum in classes */
+	__u32			defaultclass;
 };
 
 /* HTB section */
@@ -616,6 +645,14 @@ struct tc_drr_stats {
 /* MQPRIO */
 #define TC_QOPT_BITMASK 15
 #define TC_QOPT_MAX_QUEUE 16
+
+enum {
+	TC_MQPRIO_HW_OFFLOAD_NONE, /* no offload requested */
+	TC_MQPRIO_HW_OFFLOAD_TCS, /* offload TCs, no queue counts */
+	__TC_MQPRIO_HW_OFFLOAD_MAX
+};
+
+#define TC_MQPRIO_HW_OFFLOAD_MAX (__TC_MQPRIO_HW_OFFLOAD_MAX - 1)
 
 struct tc_mqprio_qopt {
 	__u8	num_tc;

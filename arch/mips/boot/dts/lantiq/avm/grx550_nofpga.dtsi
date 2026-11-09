@@ -1,0 +1,9 @@
+/ {
+	chosen {
+		bootargs-append = "pcmlink.abmode=0x8003 Piglet_noemif.piglet_dectmode=0x111 avm,noambient_brightness avm,noisdn avm,nopots";
+	};
+};
+
+&ssogpio {
+	intel,sso-shift-clk-freq = <3125000>;
+};

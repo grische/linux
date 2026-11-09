@@ -36,11 +36,16 @@ static inline port_id br_make_port_id(__u8 priority, __u16 port_no)
 /* called under bridge lock */
 void br_init_port(struct net_bridge_port *p)
 {
-	struct switchdev_attr attr = {
+	struct switchdev_attr attr_age = {
 		.orig_dev = p->dev,
 		.id = SWITCHDEV_ATTR_ID_BRIDGE_AGEING_TIME,
 		.flags = SWITCHDEV_F_SKIP_EOPNOTSUPP | SWITCHDEV_F_DEFER,
 		.u.ageing_time = jiffies_to_clock_t(p->br->ageing_time),
+	};
+	struct switchdev_attr attr_port_flags = {
+		.orig_dev = p->dev,
+		.id = SWITCHDEV_ATTR_ID_PORT_BRIDGE_FLAGS,
+		.u.brport_flags = 0,
 	};
 	int err;
 
@@ -50,9 +55,17 @@ void br_init_port(struct net_bridge_port *p)
 	p->topology_change_ack = 0;
 	p->config_pending = 0;
 
-	err = switchdev_port_attr_set(p->dev, &attr);
+	err = switchdev_port_attr_set(p->dev, &attr_age);
 	if (err && err != -EOPNOTSUPP)
 		netdev_err(p->dev, "failed to set HW ageing time\n");
+
+	err = switchdev_port_attr_get(p->dev, &attr_port_flags);
+	if (err && err != -EOPNOTSUPP) {
+		netdev_err(p->dev, "failed to get the default bridge port flags\n");
+	} else if (!err) {
+		p->flags &= ~BR_PORT_FLAGS_HW_DEFAULT;
+		p->flags |= attr_port_flags.u.brport_flags & BR_PORT_FLAGS_HW_DEFAULT;
+	}
 }
 
 /* NO locks held */

@@ -97,7 +97,7 @@ static inline __u32 inotify_arg_to_mask(u32 arg)
 	mask = (FS_IN_IGNORED | FS_EVENT_ON_CHILD | FS_UNMOUNT);
 
 	/* mask off the flags used to open the fd */
-	mask |= (arg & INOTIFY_USER_MASK);
+	mask |= (arg & (INOTIFY_USER_MASK | IN_RECURSIVE));
 
 	return mask;
 }
@@ -813,8 +813,13 @@ static int __init inotify_user_setup(void)
 	BUILD_BUG_ON(IN_EXCL_UNLINK != FS_EXCL_UNLINK);
 	BUILD_BUG_ON(IN_ISDIR != FS_ISDIR);
 	BUILD_BUG_ON(IN_ONESHOT != FS_IN_ONESHOT);
+	BUILD_BUG_ON(IN_RECURSIVE != FS_EVENT_ON_CHILD_RECURSIVLY);
 
+#if defined(CONFIG_FSNOTIFY_RECURSIVE)
+	BUG_ON(hweight32(ALL_INOTIFY_BITS) != 22);
+#else
 	BUG_ON(hweight32(ALL_INOTIFY_BITS) != 21);
+#endif
 
 	inotify_inode_mark_cachep = KMEM_CACHE(inotify_inode_mark, SLAB_PANIC);
 

@@ -30,6 +30,7 @@ Optional properties:
 	       '1' is used which will be very slow.
 
   - read-only: this parameterless property disables writes to the eeprom
+  - avm,no-test: don't test if device really exists
 
 Example:
 

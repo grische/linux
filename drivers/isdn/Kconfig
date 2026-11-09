@@ -58,6 +58,8 @@ menuconfig ISDN_CAPI
 
 if ISDN_CAPI
 
+source "drivers/isdn/capi_oslib/Kconfig"
+
 source "drivers/isdn/capi/Kconfig"
 
 source "drivers/isdn/hardware/Kconfig"

@@ -212,6 +212,7 @@ struct dentry_operations {
 
 #define DCACHE_PAR_LOOKUP		0x10000000 /* being looked up (with parent locked shared) */
 #define DCACHE_DENTRY_CURSOR		0x20000000
+#define DCACHE_FSNOTIFY_PARENT_WATCHED_RECURSIVLY	0x40000000
 
 extern seqlock_t rename_lock;
 
