@@ -512,9 +512,6 @@ static void gic_mask_local_irq_all_vpes(struct irq_data *d)
 	struct gic_all_vpes_chip_data *cd;
 	int intr, cpu;
 
-	if (!mips_cps_multicluster_cpus())
-		return;
-
 	intr = GIC_HWIRQ_TO_LOCAL(d->hwirq);
 	cd = irq_data_get_irq_chip_data(d);
 	cd->mask = false;
@@ -527,9 +524,6 @@ static void gic_unmask_local_irq_all_vpes(struct irq_data *d)
 {
 	struct gic_all_vpes_chip_data *cd;
 	int intr, cpu;
-
-	if (!mips_cps_multicluster_cpus())
-		return;
 
 	intr = GIC_HWIRQ_TO_LOCAL(d->hwirq);
 	cd = irq_data_get_irq_chip_data(d);
@@ -698,10 +692,8 @@ static int gic_irq_domain_map(struct irq_domain *d, unsigned int virq,
 	if (!gic_local_irq_is_routable(intr))
 		return -EPERM;
 
-	if (mips_cps_multicluster_cpus()) {
-		for_each_online_cpu_gic(cpu, &gic_lock)
-			write_gic_vo_map(mips_gic_vx_map_reg(intr), map);
-	}
+	for_each_online_cpu_gic(cpu, &gic_lock)
+		write_gic_vo_map(mips_gic_vx_map_reg(intr), map);
 
 	return 0;
 }
