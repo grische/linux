@@ -1,0 +1,8 @@
+#! /bin/sh
+
+ln -fs `pwd`/linux_ubik2_debug.h ../../../include/linux/ubik2_debug.h 
+ln -fs `pwd`/linux_ubik2_interface.h ../../../include/linux/ubik2_interface.h 
+ln -fs `pwd`/linux_ubik2_ul.h ../../../include/linux/ubik2_ul.h 
+ln -fs `pwd`/linux_pcmlink_ul.h ../../../include/linux/pcmlink_ul.h 
+
+exit 0

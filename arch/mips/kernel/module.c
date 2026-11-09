@@ -34,6 +34,10 @@
 #include <linux/jump_label.h>
 
 #include <asm/pgtable.h>	/* MODULE_START */
+#if defined(CONFIG_AVM_ENHANCED)
+#include <avm/capi_oslib/zugriff.h>
+#include <asm/avm_enh/avm_enh.h>
+#endif /*--- #if defined(CONFIG_AVM_ENHANCED) ---*/
 
 struct mips_hi16 {
 	struct mips_hi16 *next;
@@ -45,12 +49,14 @@ static LIST_HEAD(dbe_list);
 static DEFINE_SPINLOCK(dbe_lock);
 
 #ifdef MODULE_START
+
 void *module_alloc(unsigned long size)
 {
 	return __vmalloc_node_range(size, 1, MODULE_START, MODULE_END,
 				GFP_KERNEL, PAGE_KERNEL, 0, NUMA_NO_NODE,
 				__builtin_return_address(0));
 }
+
 #endif
 
 int apply_r_mips_none(struct module *me, u32 *location, Elf_Addr v)
@@ -60,8 +66,14 @@ int apply_r_mips_none(struct module *me, u32 *location, Elf_Addr v)
 
 static int apply_r_mips_32_rel(struct module *me, u32 *location, Elf_Addr v)
 {
-	*location += v;
-
+#if defined(CONFIG_AVM_ENHANCED)
+	if ((u32)location & 0x3) {
+		/*--- supress unaligned trap-handling ---*/
+		u32 tmp = extract_unaligned_dword(location);
+		set_unaligned_dword(location, tmp + v);
+	} else
+#endif /*--- #if defined(CONFIG_AVM_ENHANCED) ---*/
+		*location += v;
 	return 0;
 }
 

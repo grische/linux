@@ -48,7 +48,7 @@ static __inline__ void atomic_##op(int i, atomic_t * v)			      \
 		int temp;						      \
 									      \
 		__asm__ __volatile__(					      \
-		"	.set	arch=r4000				\n"   \
+		"	.set	arch=mips32r2				\n"   \
 		"1:	ll	%0, %1		# atomic_" #op "	\n"   \
 		"	" #asm_op " %0, %2				\n"   \
 		"	sc	%0, %1					\n"   \
@@ -87,7 +87,7 @@ static __inline__ int atomic_##op##_return_relaxed(int i, atomic_t * v)	      \
 		int temp;						      \
 									      \
 		__asm__ __volatile__(					      \
-		"	.set	arch=r4000				\n"   \
+		"	.set	arch=mips32r2				\n"   \
 		"1:	ll	%1, %2		# atomic_" #op "_return	\n"   \
 		"	" #asm_op " %0, %1, %3				\n"   \
 		"	sc	%0, %2					\n"   \
@@ -135,7 +135,7 @@ static __inline__ int atomic_fetch_##op##_relaxed(int i, atomic_t * v)	      \
 		int temp;						      \
 									      \
 		__asm__ __volatile__(					      \
-		"	.set	arch=r4000				\n"   \
+		"	.set	arch=mips32r2				\n"   \
 		"1:	ll	%1, %2		# atomic_fetch_" #op "	\n"   \
 		"	" #asm_op " %0, %1, %3				\n"   \
 		"	sc	%0, %2					\n"   \
@@ -222,7 +222,7 @@ static __inline__ int atomic_sub_if_positive(int i, atomic_t * v)
 		int temp;
 
 		__asm__ __volatile__(
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"1:	ll	%1, %2		# atomic_sub_if_positive\n"
 		"	subu	%0, %1, %3				\n"
 		"	bltz	%0, 1f					\n"
@@ -297,7 +297,86 @@ static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
 	}
 	return c;
 }
+/*
+ * return the incremented value if value < max_value
+ * if incremented value == max_value so do not write and return -1
+ */
+static __inline__ int atomic_inc_with_max_return(atomic_t * v, unsigned int max_value)
+{
+	int result;
+	max_value -= 1; /* exclusiv */
 
+	smp_mb__before_llsc();
+
+	if (kernel_uses_llsc && R10000_LLSC_WAR) {
+		panic("atomic_inc_with_max_return not implemented\n");
+	} else if (kernel_uses_llsc) {
+		int temp;
+		int inc;
+
+		do {
+			__asm__ __volatile__(
+			"	.set	push							\n"
+			"	.set	mips32r2						\n"
+			"	ll	    %[temp], %[counter]	# atomic_add_return		\n"
+			"	sltu	%[inc], %[temp], %[max_value] # temp kleiner max_value 	\n"
+			"	addu	%[result], %[temp], %[inc]				\n"
+			"	sc	    %[result], %[counter]				\n"
+			"	.set	pop							\n"
+			: [inc] "=&r" (inc), [result] "=&r" (result), [temp] "=&r" (temp), [counter] "+m" (v->counter)
+			: [max_value] "Ir" (max_value)
+			);
+		} while (unlikely(!result));
+		if (inc == 0)
+			result = -1;
+	else
+		result = temp + inc;
+	} else {
+		panic("atomic_inc_with_max_return not implemented\n");
+	}
+
+	smp_llsc_mb();
+
+	return result;
+}
+
+/*
+ *  return the incremented value if value < max_value
+ *  if incremented value == max_value so write and return zero
+ */
+static __inline__ int atomic_inc_with_wrap_return(atomic_t * v, unsigned int max_value)
+{
+	int result;
+	max_value -= 1; /* exclusiv */
+
+	smp_mb__before_llsc();
+	if (kernel_uses_llsc && R10000_LLSC_WAR) {
+		panic("atomic_inc_with_max_return not implemented\n");
+	} else if (kernel_uses_llsc) {
+		int temp;
+		int inc;
+
+		do {
+			__asm__ __volatile__(
+			"	.set	push							\n"
+			"	.set	mips32r2						\n"
+			"	ll	    %[temp], %[counter]	# atomic_add_return		\n"
+			"	sltu	%[inc], %[temp], %[max_value] # temp kleiner max_value 	\n"
+			"	movz	%[temp], %[inc], %[inc]					\n"
+			"	addu	%[result], %[temp], %[inc]				\n"
+			"	sc	    %[result], %[counter]				\n"
+			"	.set	pop							\n"
+			: [inc] "=&r" (inc), [result] "=&r" (result), [temp] "=&r" (temp), [counter] "+m" (v->counter)
+			: [max_value] "Ir" (max_value)
+		);
+		} while (unlikely(!result));
+		result = temp + inc;
+	} else {
+		panic("atomic_inc_with_max_return not implemented\n");
+	}
+	smp_llsc_mb();
+	return result;
+}
 #define atomic_dec_return(v) atomic_sub_return(1, (v))
 #define atomic_inc_return(v) atomic_add_return(1, (v))
 
@@ -390,7 +469,7 @@ static __inline__ void atomic64_##op(long i, atomic64_t * v)		      \
 		long temp;						      \
 									      \
 		__asm__ __volatile__(					      \
-		"	.set	arch=r4000				\n"   \
+		"	.set	arch=mips32r2				\n"   \
 		"1:	lld	%0, %1		# atomic64_" #op "	\n"   \
 		"	" #asm_op " %0, %2				\n"   \
 		"	scd	%0, %1					\n"   \
@@ -429,7 +508,7 @@ static __inline__ long atomic64_##op##_return_relaxed(long i, atomic64_t * v) \
 		long temp;						      \
 									      \
 		__asm__ __volatile__(					      \
-		"	.set	arch=r4000				\n"   \
+		"	.set	arch=mips32r2				\n"   \
 		"1:	lld	%1, %2		# atomic64_" #op "_return\n"  \
 		"	" #asm_op " %0, %1, %3				\n"   \
 		"	scd	%0, %2					\n"   \
@@ -478,7 +557,7 @@ static __inline__ long atomic64_fetch_##op##_relaxed(long i, atomic64_t * v)  \
 		long temp;						      \
 									      \
 		__asm__ __volatile__(					      \
-		"	.set	arch=r4000				\n"   \
+		"	.set	arch=mips32r2				\n"   \
 		"1:	lld	%1, %2		# atomic64_fetch_" #op "\n"   \
 		"	" #asm_op " %0, %1, %3				\n"   \
 		"	scd	%0, %2					\n"   \
@@ -567,7 +646,7 @@ static __inline__ long atomic64_sub_if_positive(long i, atomic64_t * v)
 		long temp;
 
 		__asm__ __volatile__(
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"1:	lld	%1, %2		# atomic64_sub_if_positive\n"
 		"	dsubu	%0, %1, %3				\n"
 		"	bltz	%0, 1f					\n"

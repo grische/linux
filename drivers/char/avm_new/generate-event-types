@@ -1,0 +1,24 @@
+#!/bin/sh
+
+set -eu
+
+target="${objtree}/${obj}/avm_dist_event"
+work="${objtree}/${obj}/avm_dist_event/.build.tmp"
+
+srctree="$(realpath ${1%${obj}})"
+avm_dist_event="${srctree}/${obj}/avm_dist_event"
+
+trap "rm -rf ${work}" EXIT
+mkdir -p ${work}
+
+(
+	: ${PERL5LIB:=}
+	export PERL5LIB="$PERL5LIB:${avm_dist_event}"
+
+	cd "${work}"
+	perl ${avm_dist_event}/avm_event_generate.pl 1>/dev/null 2>&1
+)
+
+rsync --quiet --recursive --checksum "${work}/" "${target}/"
+
+cat ${target}/avm_event_gen_types.h

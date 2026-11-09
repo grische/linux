@@ -25,6 +25,13 @@
 
 #include "slab.h"
 
+#if defined(CONFIG_SLUB_AVM_ALLOC_LIST)
+#include <linux/proc_fs.h>
+#include <linux/sizes.h>
+#include <avm/sammel/simple_proc.h>
+#include <avm/enh/semi_seq.h>
+#endif
+
 enum slab_state slab_state;
 LIST_HEAD(slab_caches);
 DEFINE_MUTEX(slab_mutex);
@@ -33,7 +40,8 @@ struct kmem_cache *kmem_cache;
 /*
  * Set of flags that will prevent slab merging
  */
-#define SLAB_NEVER_MERGE (SLAB_RED_ZONE | SLAB_POISON | SLAB_STORE_USER | \
+#define SLAB_NEVER_MERGE (SLAB_RED_ZONE | SLAB_POISON | \
+		SLAB_STORE_USER | SLAB_STORE_USER_LITE | \
 		SLAB_TRACE | SLAB_DESTROY_BY_RCU | SLAB_NOLEAKTRACE | \
 		SLAB_FAILSLAB | SLAB_KASAN)
 
@@ -1031,8 +1039,10 @@ void __init create_kmalloc_caches(unsigned long flags)
  * To avoid unnecessary overhead, we pass through large allocation requests
  * directly to the page allocator. We use __GFP_COMP, because we will need to
  * know the allocation order to free the pages properly in kfree.
+ *
+ * avm: use as inline to force __RET_IP__ before kmalloc_order_trace
  */
-void *kmalloc_order(size_t size, gfp_t flags, unsigned int order)
+static inline void *__kmalloc_order(size_t size, gfp_t flags, unsigned int order)
 {
 	void *ret;
 	struct page *page;
@@ -1044,12 +1054,19 @@ void *kmalloc_order(size_t size, gfp_t flags, unsigned int order)
 	kasan_kmalloc_large(ret, size, flags);
 	return ret;
 }
+
+/*
+ */
+void *kmalloc_order(size_t size, gfp_t flags, unsigned int order)
+{
+	return __kmalloc_order(size, flags, order);
+}
 EXPORT_SYMBOL(kmalloc_order);
 
 #ifdef CONFIG_TRACING
 void *kmalloc_order_trace(size_t size, gfp_t flags, unsigned int order)
 {
-	void *ret = kmalloc_order(size, flags, order);
+	void *ret = __kmalloc_order(size, flags, order);
 	trace_kmalloc(_RET_IP_, ret, size, PAGE_SIZE << order, flags);
 	return ret;
 }
@@ -1168,6 +1185,25 @@ memcg_accumulate_slabinfo(struct kmem_cache *s, struct slabinfo *info)
 		info->num_objs += sinfo.num_objs;
 	}
 }
+
+#if defined(CONFIG_SLUB_AVM_ALLOC_LIST)
+/**
+ * @brief
+ * deliver active objects for kmem_cache-pool s
+ * @param s	cachepool
+ * @return active_objs
+ */
+unsigned int kmem_cache_active_objects(struct kmem_cache *s)
+{
+	struct slabinfo sinfo;
+
+	memset(&sinfo, 0, sizeof(sinfo));
+	get_slabinfo(s, &sinfo);
+
+	memcg_accumulate_slabinfo(s, &sinfo);
+	return sinfo.active_objs;
+}
+#endif/*--- #if defined(CONFIG_SLUB_AVM_ALLOC_LIST) ---*/
 
 static void cache_show(struct kmem_cache *s, struct seq_file *m)
 {
@@ -1357,3 +1393,221 @@ EXPORT_TRACEPOINT_SYMBOL(kmalloc_node);
 EXPORT_TRACEPOINT_SYMBOL(kmem_cache_alloc_node);
 EXPORT_TRACEPOINT_SYMBOL(kfree);
 EXPORT_TRACEPOINT_SYMBOL(kmem_cache_free);
+
+#if defined(CONFIG_SLUB_AVM_ALLOC_LIST)
+/**
+ */
+static char *human_time(char *buf, int len, unsigned long secs)
+{
+	unsigned long seconds, minutes, hours;
+
+	seconds = secs % 60;
+	secs /= 60;
+	minutes = secs % 60;
+	secs /= 60;
+	hours	= secs % 24;
+	if (hours) {
+		snprintf(buf, len, "%lu h %2lu min %2lu s", hours, minutes,
+			 seconds);
+	} else if (minutes) {
+		snprintf(buf, len, "%2lu min %2lu s", minutes, seconds);
+	} else {
+		snprintf(buf, len, "%2lu s", seconds);
+	}
+	return buf;
+}
+
+/**
+ * @brief show memory-usage-caller for cachepool
+ * @param cachep cachepool
+ * @param m seq-pointer
+ * @param threshsize only cache-pool-memory-usage greater this
+ * return void
+ */
+static void show_cache_toplist(struct kmem_cache *cachep, struct seq_file *m,
+			     struct _slab_avm_topalloclist *toplist,
+			     unsigned long threshsize)
+{
+	unsigned int i;
+	char tmp[128];
+
+	cache_avm_topalloc_list(toplist, cachep, 0);
+	if ((toplist->sum_count == 0) ||
+	    ((toplist->sum_count * cachep->object_size) < threshsize))
+		return;
+
+	sseq_printf(m, "%s: %5lu KiB (%lu)\n", cachep->name,
+		    (cachep->object_size * toplist->sum_count) >> 10,
+		    toplist->sum_count);
+	for (i = 0; i < toplist->entries; i++) {
+		struct _slab_avm_alloc_entry *p = &toplist->entry[i];
+		unsigned long long avg = p->sum_time;
+
+		if ((p->count * cachep->object_size) > threshsize / ARRAY_SIZE(toplist->entry)) {
+			do_div(avg, (p->count * HZ));
+			sseq_printf(m, " \t%6u entries (%5u KiB - avg-time %s) %pS\n",
+				    p->count,
+				    (cachep->object_size * p->count) >> 10,
+				    human_time(tmp, sizeof(tmp), (unsigned long)avg),
+				    (void *)p->caller);
+		}
+	}
+	if (toplist->ignored && toplist->entries)
+		sseq_printf(m, "... but %d callers ignored (too much different callers)\n",
+			    toplist->ignored);
+}
+/**
+ * @brief show all memory-usage-caller
+ * @param m seq-pointer
+ * @param threshsize only cachep greater this
+ * return void
+ */
+static void proc_show_slab_allocator(struct seq_file *m,
+				     struct _slab_avm_topalloclist *ptoplist,
+				     unsigned long threshsize)
+{
+	struct kmem_cache *cachep = NULL;
+	struct slabinfo sinfo;
+	unsigned long sum = 0;
+	unsigned int init = 0;
+
+	list_for_each_entry(cachep, &slab_caches, list) {
+
+		if (threshsize && (init == 0)) {
+			sseq_printf(m, "show all cache-pools greater %lu KiB:\n", threshsize >> 10);
+			init = 1;
+		}
+		memset(&sinfo, 0, sizeof(sinfo));
+		get_slabinfo(cachep, &sinfo);
+		memcg_accumulate_slabinfo(cachep, &sinfo);
+		if ((sinfo.active_objs * cachep->object_size) >= threshsize) {
+			show_cache_toplist(cachep, m, ptoplist, threshsize);
+		}
+		sum += sinfo.active_objs * cachep->object_size;
+	}
+	sseq_printf(m, "slab-pools use %lu MiB (netto)\n", sum >> 20);
+}
+
+static struct _slab_avm_topalloclist local_toplist;
+unsigned int slab_track_time;
+
+#ifdef CONFIG_SLABINFO
+
+#define SKIP_SPACES(p)	  { while ((*p == ' ') || (*p == '\t')) p++; }
+#define SKIP_NONSPACES(p) { while (*p && (*p != ' ') && (*p != '\t')) p++; }
+
+/**
+ * print out /proc/slabinfo per printk
+ */
+static void __show_slab(void)
+{
+	unsigned int active_objs;
+	char *ptxt;
+	void *p;
+	loff_t pos;
+	char buf[512 + 1];
+	struct seq_file seq;
+
+	memset(&seq, 0, sizeof(seq));
+	seq.size = sizeof(buf) - 1;
+	seq.buf  = buf;
+	pos = 0;
+
+	print_slabinfo_header(&seq);
+	p = seq_list_start(&slab_caches, pos);
+
+	seq.buf[seq.count] = 0;
+	pr_err("%s", seq.buf), seq.count = 0;
+	for (;;) {
+		struct kmem_cache *s;
+
+		if (!p || IS_ERR(p)) {
+			break;
+		}
+		s = list_entry(p, struct kmem_cache, list);
+		if (is_root_cache(s)) {
+			cache_show(s, &seq);
+			seq.buf[seq.count] = 0;
+			/*--- only if active_objs exist: ---*/
+			ptxt = seq.buf;
+			SKIP_NONSPACES(ptxt);
+			SKIP_SPACES(ptxt);
+			sscanf(ptxt, "%u", &active_objs);
+			if (active_objs) {
+				pr_err("%s", seq.buf);
+			}
+		}
+		seq.count = 0;
+		p = seq_list_next(p, &slab_caches, &pos);
+	}
+}
+#endif /* CONFIG_SLABINFO */
+
+/**
+ * @brief show slabinfo and all heavy memory-usage-caller
+ * use kernel-printk
+ * used in oom-notifier
+ */
+void show_slab(void)
+{
+	char buf[256];
+	struct semi_seq sseq;
+	struct seq_file *seq;
+
+	if (!mutex_trylock(&slab_mutex)) {
+		return;
+	}
+	seq = sseq_create(&sseq, KERN_ERR, buf, sizeof(buf));
+#ifdef CONFIG_SLABINFO
+	__show_slab();
+#endif /* CONFIG_SLABINFO */
+	proc_show_slab_allocator(seq, &local_toplist, SZ_1M);
+	mutex_unlock(&slab_mutex);
+}
+
+/**
+ * @brief show allocator-statistic
+ * @param m seq-pointer
+ * @param priv
+ * return void
+ */
+static void lproc_slab_allocators(struct seq_file *m, void *priv __maybe_unused)
+{
+	struct _slab_avm_topalloclist *ptoplist;
+
+	ptoplist = kzalloc(sizeof(struct _slab_avm_topalloclist), GFP_KERNEL);
+	if (ptoplist == NULL) {
+		return;
+	}
+	mutex_lock(&slab_mutex);
+	proc_show_slab_allocator(m, ptoplist, 0);
+	mutex_unlock(&slab_mutex);
+	kfree(ptoplist);
+}
+
+
+/**
+ * @brief delayed slab_allocator-trace on timer-context
+ */
+static void slab_allocator_on(unsigned long data __maybe_unused)
+{
+	pr_err("start slab_allocator-trace now  (use cat /proc/slab_allocators)\n");
+	slab_track_time = 1;
+}
+
+static DEFINE_TIMER(slab_allocator_timer, slab_allocator_on, 0, 0);
+/**
+ * @brief install /proc/slab_allocators
+ * return 0
+ */
+int __init avm_proc_slaballocator(void)
+{
+	/*--- pr_err("%s()\n", __func__); ---*/
+	add_simple_proc_file("slab_allocators", NULL,
+			     lproc_slab_allocators, NULL);
+
+	mod_timer(&slab_allocator_timer, jiffies + 45 * HZ);
+	return 0;
+}
+late_initcall(avm_proc_slaballocator);
+#endif/*--- #if defined(CONFIG_SLUB_AVM_ALLOC_LIST) ---*/

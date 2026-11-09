@@ -162,6 +162,8 @@ struct mii_bus {
 	void *priv;
 	int (*read)(struct mii_bus *bus, int addr, int regnum);
 	int (*write)(struct mii_bus *bus, int addr, int regnum, u16 val);
+	int (*mmd_read)(struct mii_bus *bus, int addr, int regnum, int devad);
+	int (*mmd_write)(struct mii_bus *bus, int addr, int regnum, int devad, u16 val);
 	int (*reset)(struct mii_bus *bus);
 
 	/*
@@ -507,6 +509,12 @@ struct phy_driver {
 	 */
 	int (*did_interrupt)(struct phy_device *phydev);
 
+	/*
+	 * Called before an ethernet device is detached
+	 * from the PHY.
+	 */
+	void (*detach)(struct phy_device *phydev);
+
 	/* Clears up any memory if needed */
 	void (*remove)(struct phy_device *phydev);
 
@@ -827,6 +835,7 @@ int phy_ethtool_ksettings_get(struct phy_device *phydev,
 			      struct ethtool_link_ksettings *cmd);
 int phy_ethtool_ksettings_set(struct phy_device *phydev,
 			      const struct ethtool_link_ksettings *cmd);
+int phy_ethtool_ioctl(struct phy_device *phydev, void *useraddr);
 int phy_mii_ioctl(struct phy_device *phydev, struct ifreq *ifr, int cmd);
 int phy_start_interrupts(struct phy_device *phydev);
 void phy_print_status(struct phy_device *phydev);

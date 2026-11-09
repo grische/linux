@@ -112,4 +112,11 @@ config OF_OVERLAY
 config OF_NUMA
 	bool
 
+config AVM_INVALID_DTB_V17
+	bool "Support invalid v17 dtbs"
+	help
+	  Some urlader versions emit dtbs that claim to be in v17 format, but
+	  set size_dt_strings and size_dt_struct in the header to 0. Mitigate
+	  this by parsing them as v16 dtbs.
+
 endif # OF

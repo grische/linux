@@ -647,11 +647,11 @@ static int ehci_run (struct usb_hcd *hcd)
 	ehci->last_periodic_enable = ktime_get_real();
 
 	temp = HC_VERSION(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
-	ehci_info (ehci,
-		"USB %x.%x started, EHCI %x.%02x%s\n",
-		((ehci->sbrn & 0xf0)>>4), (ehci->sbrn & 0x0f),
-		temp >> 8, temp & 0xff,
-		ignore_oc ? ", overcurrent ignored" : "");
+	ehci_info(ehci,
+		  "USB %x.%x started, EHCI %x.%02x%s\n",
+		  ((ehci->sbrn & 0xf0) >> 4), (ehci->sbrn & 0x0f),
+		  temp >> 8, temp & 0xff,
+		  (ignore_oc || ehci->ignore_oc) ? ", overcurrent ignored" : "");
 
 	ehci_writel(ehci, INTR_MASK,
 		    &ehci->regs->intr_enable); /* Turn On Interrupts */

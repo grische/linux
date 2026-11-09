@@ -223,8 +223,16 @@ static int __init br_init(void)
 
 	brioctl_set(br_ioctl_deviceless_stub);
 
+	err = br_flood_rl_init();
+	if (err)
+		goto err_out6;
+
 #if IS_ENABLED(CONFIG_ATM_LANE)
 	br_fdb_test_addr_hook = br_fdb_test_addr;
+#endif
+
+#ifdef CONFIG_MCAST_SNOOPING
+	br_mcast_snoop_init();
 #endif
 
 #if IS_MODULE(CONFIG_BRIDGE_NETFILTER)
@@ -235,6 +243,8 @@ static int __init br_init(void)
 
 	return 0;
 
+err_out6:
+	br_netlink_fini();
 err_out5:
 	unregister_switchdev_notifier(&br_switchdev_notifier);
 err_out4:
@@ -253,6 +263,7 @@ err_out:
 static void __exit br_deinit(void)
 {
 	stp_proto_unregister(&br_stp_proto);
+	br_flood_rl_fini();
 	br_netlink_fini();
 	unregister_switchdev_notifier(&br_switchdev_notifier);
 	unregister_netdevice_notifier(&br_device_notifier);
@@ -266,6 +277,9 @@ static void __exit br_deinit(void)
 	br_fdb_test_addr_hook = NULL;
 #endif
 	br_fdb_fini();
+#ifdef CONFIG_MCAST_SNOOPING
+	br_mcast_snoop_deinit();
+#endif
 }
 
 module_init(br_init)

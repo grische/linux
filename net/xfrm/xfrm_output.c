@@ -18,6 +18,17 @@
 #include <linux/spinlock.h>
 #include <net/dst.h>
 #include <net/xfrm.h>
+#if defined(CONFIG_PPA_MPE_IP97)
+#include <net/ppa/ppa_api.h>
+#endif
+
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#ifdef AVM_PA_LOCAL_OUT_RECEIVE
+#define AVM_PA_XFRM
+static struct avm_pa_dev_info xfrm_out_dev_info;
+#endif
+#endif
 
 static int xfrm_output2(struct net *net, struct sock *sk, struct sk_buff *skb);
 
@@ -137,11 +148,71 @@ int xfrm_output_resume(struct sk_buff *skb, int err)
 	struct net *net = xs_net(skb_dst(skb)->xfrm);
 
 	while (likely((err = xfrm_output_one(skb, err)) == 0)) {
-		nf_reset(skb);
+#if defined(CONFIG_PPA_MPE_IP97)
+		if (ppa_hook_session_add_fn) {
+#if IS_ENABLED(CONFIG_INTEL_IPQOS_ACCEL_DISABLE)
+			/* check for 13th bit in NFMARK set by IPQOS classifier */
+			/* If this bit is set, dont call PPA session add fn*/
+			bool accel_st = 0;
+#if IS_ENABLED(CONFIG_NETWORK_EXTMARK)
+			GET_DATA_FROM_MARK_OPT(skb->extmark, ACCELSEL_MASK,
+					       ACCELSEL_START_BIT_POS, accel_st);
+#endif /* CONFIG_NETWORK_EXTMARK*/
+			if (accel_st == 0) {
+#endif /* CONFIG_INTEL_IPQOS_ACCEL_DISABLE*/
 
-		err = skb_dst(skb)->ops->local_out(net, skb->sk, skb);
-		if (unlikely(err != 1))
-			goto out;
+				struct nf_conn *ct = NULL;
+				enum ip_conntrack_info ctinfo;
+				uint32_t flags;
+
+				ct = nf_ct_get(skb, &ctinfo);
+
+				flags = 0; /* post routing */
+				flags |= CTINFO2DIR(ctinfo) == IP_CT_DIR_ORIGINAL ?
+						 PPA_F_SESSION_ORG_DIR :
+						 PPA_F_SESSION_REPLY_DIR;
+
+				ppa_hook_session_add_fn(skb, ct, flags);
+#if IS_ENABLED(CONFIG_INTEL_IPQOS_ACCEL_DISABLE)
+			}
+#endif
+		}
+#endif
+		nf_reset_no_generic_ct(skb);
+
+#ifdef AVM_PA_XFRM
+		/* Now encrypted, try to accelerate the other half.
+		 * Reset ingress_pid_handle to allow for a secondary session.
+		 */
+		if (!skb_dst(skb)->xfrm) {
+			AVM_PKT_INFO(skb)->ingress_pid_handle = 0;
+			/* The packet is wildy different now and we are going to
+			 * open a separate session for the encrypted packet. Retry
+			 * acceleration even someone said to not accelerate
+			 * the decrypted packet.
+			 */
+			AVM_PKT_INFO(skb)->do_not_accelerate = 0;
+			/* Record local_out_pid_handle, this will enable the general
+			 * call to avm_pa_local_out_receive() down the road
+			 * to open a session.
+			 */
+			AVM_PKT_INFO(skb)->local_out_pid_handle = xfrm_out_dev_info.pid_handle;
+		}
+		/* We want to invert the likely indication because avm_pa
+		 * very likely accelerates the packet. We take the opportunity
+		 * and do a static call optimization for __ip_local_out as well.
+		 */
+		if (skb_dst(skb)->ops->local_out == __ip_local_out) {
+			err = __ip_local_out(net, skb->sk, skb);
+			if (likely(err != 1)) /* likely accelerated */
+				goto out;
+		} else
+#endif
+		{
+			err = skb_dst(skb)->ops->local_out(net, skb->sk, skb);
+			if (unlikely(err != 1))
+				goto out;
+		}
 
 		if (!skb_dst(skb)->xfrm)
 			return dst_output(net, skb->sk, skb);
@@ -202,6 +273,10 @@ int xfrm_output(struct sock *sk, struct sk_buff *skb)
 	struct net *net = dev_net(skb_dst(skb)->dev);
 	int err;
 
+#ifdef AVM_PA_XFRM
+	avm_pa_add_xfrm_session(&xfrm_out_dev_info, skb, skb_dst(skb)->xfrm);
+#endif
+
 	if (skb_is_gso(skb))
 		return xfrm_output_gso(net, sk, skb);
 
@@ -253,3 +328,36 @@ void xfrm_local_error(struct sk_buff *skb, int mtu)
 	xfrm_state_put_afinfo(afinfo);
 }
 EXPORT_SYMBOL_GPL(xfrm_local_error);
+
+#ifdef AVM_PA_XFRM
+static void xfrm_out_transmit(void *arg, struct sk_buff *skb)
+{
+	int ret;
+
+	ret = xfrm_output(NULL, skb);
+	if (unlikely(ret < 0))
+		net_err_ratelimited("%s failed: %d\n", __func__, ret);
+}
+
+static void __init xfrm_output_avm_pa_register(void)
+{
+	struct avm_pa_pid_cfg cfg = {0};
+	int ret;
+
+	snprintf(cfg.name, sizeof(cfg.name), "xfrm_out");
+	cfg.framing = avm_pa_framing_ipdev;
+	cfg.default_mtu = 0xffff;
+	cfg.tx_func = xfrm_out_transmit;
+	ret = avm_pa_dev_pid_register(&xfrm_out_dev_info, &cfg);
+	if (ret < 0)
+		pr_err("%s: failed to register avm_pa pid %s: %d\n",
+		       __func__, cfg.name, ret);
+}
+#endif
+
+void __init xfrm_output_init(void)
+{
+#ifdef AVM_PA_XFRM
+	xfrm_output_avm_pa_register();
+#endif
+}

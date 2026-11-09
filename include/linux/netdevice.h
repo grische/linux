@@ -54,6 +54,13 @@
 #include <uapi/linux/pkt_cls.h>
 #include <linux/hashtable.h>
 
+#ifdef CONFIG_AVM_PA
+/* Cannot include avm_pa.h */
+struct avm_pa_dev_info;
+/* transitional define to allow older avm_pa tags, to be removed */
+#define NETDEVICE_H_NO_AVM_PA_H
+#endif
+
 struct netpoll_info;
 struct device;
 struct phy_device;
@@ -1752,6 +1759,8 @@ struct net_device {
 	struct netdev_hw_addr_list	mc;
 	struct netdev_hw_addr_list	dev_addrs;
 
+	unsigned char local_addr_mask[MAX_ADDR_LEN];
+
 #ifdef CONFIG_SYSFS
 	struct kset		*queues_kset;
 #endif
@@ -1874,6 +1883,11 @@ struct net_device {
 		struct pcpu_dstats __percpu		*dstats;
 		struct pcpu_vstats __percpu		*vstats;
 	};
+
+#ifdef CONFIG_AVM_PA
+	u8			avm_pa[32];
+#define AVM_PA_DEVINFO(dev)	((struct avm_pa_dev_info *) (dev)->avm_pa)
+#endif
 
 	struct garp_port __rcu	*garp_port;
 	struct mrp_port __rcu	*mrp_port;
@@ -2233,6 +2247,12 @@ struct packet_type {
 	bool			(*id_match)(struct packet_type *ptype,
 					    struct sock *sk);
 	void			*af_packet_priv;
+
+#ifdef CONFIG_AVM_PA
+	u8			avm_pa[32];
+#define AVM_PA_PTYPE_DEVINFO(ptype)	((struct avm_pa_dev_info *) (ptype)->avm_pa)
+#endif
+
 	struct list_head	list;
 };
 

@@ -699,6 +699,14 @@ config TRACING_EVENTS_GPIO
 	help
 	  Enable tracing events for gpio subsystem
 
+config TRACE_FSNOTIFY_EVENTS
+	bool "Trace fsnotify events"
+	depends on FSNOTIFY
+	select GENERIC_TRACER
+	default n
+	help
+	  Enable tracing fsnotify events
+
 endif # FTRACE
 
 endif # TRACING_SUPPORT

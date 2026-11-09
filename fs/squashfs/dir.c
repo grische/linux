@@ -75,14 +75,14 @@ static int get_dir_index_using_offset(struct super_block *sb,
 		if (err < 0)
 			break;
 
-		index = le32_to_cpu(dir_index.index);
+		index = squash_le32_to_cpu(dir_index.index);
 		if (index > f_pos)
 			/*
 			 * Found the index we're looking for.
 			 */
 			break;
 
-		size = le32_to_cpu(dir_index.size) + 1;
+		size = squash_le32_to_cpu(dir_index.size) + 1;
 
 		/* size should never be larger than SQUASHFS_NAME_LEN */
 		if (size > SQUASHFS_NAME_LEN)
@@ -94,7 +94,7 @@ static int get_dir_index_using_offset(struct super_block *sb,
 			break;
 
 		length = index;
-		*next_block = le32_to_cpu(dir_index.start_block) +
+		*next_block = squash_le32_to_cpu(dir_index.start_block) +
 					msblk->directory_table;
 	}
 
@@ -171,7 +171,7 @@ static int squashfs_readdir(struct file *file, struct dir_context *ctx)
 
 		length += sizeof(dirh);
 
-		dir_count = le32_to_cpu(dirh.count) + 1;
+		dir_count = squash_le32_to_cpu(dirh.count) + 1;
 
 		if (dir_count > SQUASHFS_DIR_COUNT)
 			goto failed_read;
@@ -185,7 +185,7 @@ static int squashfs_readdir(struct file *file, struct dir_context *ctx)
 			if (err < 0)
 				goto failed_read;
 
-			size = le16_to_cpu(dire->size) + 1;
+			size = squash_le16_to_cpu(dire->size) + 1;
 
 			/* size should never be larger than SQUASHFS_NAME_LEN */
 			if (size > SQUASHFS_NAME_LEN)
@@ -202,9 +202,9 @@ static int squashfs_readdir(struct file *file, struct dir_context *ctx)
 				continue;
 
 			dire->name[size] = '\0';
-			inode_number = le32_to_cpu(dirh.inode_number) +
-				((short) le16_to_cpu(dire->inode_number));
-			type = le16_to_cpu(dire->type);
+			inode_number = squash_le32_to_cpu(dirh.inode_number) +
+				((short) squash_le16_to_cpu(dire->inode_number));
+			type = squash_le16_to_cpu(dire->type);
 
 			if (type > SQUASHFS_MAX_DIR_TYPE)
 				goto failed_read;

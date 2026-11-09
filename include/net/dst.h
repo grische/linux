@@ -51,13 +51,13 @@ struct dst_entry {
 #define DST_HOST		0x0001
 #define DST_NOXFRM		0x0002
 #define DST_NOPOLICY		0x0004
-#define DST_NOHASH		0x0008
 #define DST_NOCACHE		0x0010
 #define DST_NOCOUNT		0x0020
 #define DST_FAKE_RTABLE		0x0040
 #define DST_XFRM_TUNNEL		0x0080
 #define DST_XFRM_QUEUE		0x0100
 #define DST_METADATA		0x0200
+#define DST_NOGC		0x0400
 
 	unsigned short		pending_confirm;
 
@@ -278,6 +278,8 @@ static inline struct dst_entry *dst_clone(struct dst_entry *dst)
 
 void dst_release(struct dst_entry *dst);
 
+void dst_release_immediate(struct dst_entry *dst);
+
 static inline void refdst_drop(unsigned long refdst)
 {
 	if (!(refdst & SKB_DST_NOREF))
@@ -334,7 +336,7 @@ static inline void skb_dst_force(struct sk_buff *skb)
  */
 static inline bool dst_hold_safe(struct dst_entry *dst)
 {
-	if (dst->flags & DST_NOCACHE)
+	if (dst->flags & (DST_NOCACHE | DST_NOGC))
 		return atomic_inc_not_zero(&dst->__refcnt);
 	dst_hold(dst);
 	return true;
@@ -569,5 +571,13 @@ static inline struct xfrm_state *dst_xfrm(const struct dst_entry *dst)
 	return dst->xfrm;
 }
 #endif
+
+static inline void skb_dst_update_pmtu(struct sk_buff *skb, u32 mtu)
+{
+	struct dst_entry *dst = skb_dst(skb);
+
+	if (dst && dst->ops->update_pmtu)
+		dst->ops->update_pmtu(dst, NULL, skb, mtu);
+}
 
 #endif /* _NET_DST_H */

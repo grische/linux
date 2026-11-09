@@ -61,4 +61,6 @@ config ISDN_DRV_AVMB1_C4
 	  Enable support for the AVM C4/C2 PCI cards.
 	  These cards handle 4/2 BRI ISDN lines (8/4 channels).
 
+source "drivers/isdn/isdn_fon5/Kconfig"
+
 endif # CAPI_AVM

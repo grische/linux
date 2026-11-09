@@ -45,6 +45,16 @@ config REGULATOR_VIRTUAL_CONSUMER
 
 	  If unsure, say no.
 
+if REGULATOR_VIRTUAL_CONSUMER
+
+config REGULATOR_VIRTUAL_CONSUMER_PLATDEV
+	tristate "Virtual regulator consumer platform device support"
+	help
+	  This driver provides a platform virtual device for virtual consumer
+	  driver. This is mainly useful for test purposes.
+
+endif
+
 config REGULATOR_USERSPACE_CONSUMER
 	tristate "Userspace regulator consumer support"
 	help
@@ -720,6 +730,12 @@ config REGULATOR_STW481X_VMMC
 	  This driver supports the internal VMMC regulator in the STw481x
 	  PMIC chips.
 
+config REGULATOR_MP8864
+    bool "MPS MP8864 Power regulators"
+    depends on I2C
+    help
+      This driver supports MP8864 voltage regulator chips.
+
 config REGULATOR_TPS51632
 	tristate "TI TPS51632 Power Regulator"
 	depends on I2C
@@ -826,6 +842,15 @@ config REGULATOR_TPS65912
 	depends on MFD_TPS65912
 	help
 	    This driver supports TPS65912 voltage regulator chip.
+
+config REGULATOR_TPS65273
+    tristate "TI TPS65273 Power regulators"
+    depends on I2C && OF
+    select REGMAP_I2C
+    help
+      This driver supports TPS65273 voltage regulator chips. TPS65273
+	  provides dual synchronous step-down converters with I2C controlled
+	  VID and current sharing.
 
 config REGULATOR_TPS80031
 	tristate "TI TPS80031/TPS80032 power regulator driver"

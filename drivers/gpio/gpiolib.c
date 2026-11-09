@@ -171,6 +171,19 @@ static int gpiochip_find_base(int ngpio)
 	}
 }
 
+void __iomem *gpiod_avm_get_inputreg_and_bit(struct gpio_desc *desc, int *bit)
+{
+	struct gpio_chip	*chip;
+
+	chip = gpiod_to_chip(desc);
+
+	if (!chip->avm_get_inputreg_and_bit)
+		return NULL;
+
+	return chip->avm_get_inputreg_and_bit(chip, gpio_chip_hwgpio(desc), bit);
+}
+EXPORT_SYMBOL_GPL(gpiod_avm_get_inputreg_and_bit);
+
 /**
  * gpiod_get_direction - return the current direction of a GPIO
  * @desc:	GPIO to get the direction of

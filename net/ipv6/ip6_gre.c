@@ -562,6 +562,8 @@ static inline int ip6gre_xmit_ipv4(struct sk_buff *skb, struct net_device *dev)
 	if (t->parms.flags & IP6_TNL_F_USE_ORIG_FWMARK)
 		fl6.flowi6_mark = skb->mark;
 
+	fl6.flowi6_uid = sock_net_uid(dev_net(dev), NULL);
+
 	err = gre_handle_offloads(skb, !!(t->parms.o_flags & TUNNEL_CSUM));
 	if (err)
 		return -1;
@@ -620,6 +622,8 @@ static inline int ip6gre_xmit_ipv6(struct sk_buff *skb, struct net_device *dev)
 		fl6.flowlabel |= ip6_flowlabel(ipv6h);
 	if (t->parms.flags & IP6_TNL_F_USE_ORIG_FWMARK)
 		fl6.flowi6_mark = skb->mark;
+
+	fl6.flowi6_uid = sock_net_uid(dev_net(dev), NULL);
 
 	if (gre_handle_offloads(skb, !!(t->parms.o_flags & TUNNEL_CSUM)))
 		return -1;
@@ -1569,6 +1573,15 @@ static struct rtnl_link_ops ip6gre_tap_ops __read_mostly = {
 	.get_link_net	= ip6_tnl_get_link_net,
 };
 
+#ifdef CONFIG_PPA
+extern uint32_t (*ppa_is_ipv6_gretap_fn)(struct net_device *dev);
+
+static u32 ppa_is_ipv6_gretap(struct net_device *dev)
+{
+	return (dev && (dev->netdev_ops == (&ip6gre_tap_netdev_ops)));
+}
+#endif
+
 /*
  *	And now the modules code and kernel interface.
  */
@@ -1597,6 +1610,10 @@ static int __init ip6gre_init(void)
 	if (err < 0)
 		goto tap_ops_failed;
 
+#ifdef CONFIG_PPA
+	ppa_is_ipv6_gretap_fn = ppa_is_ipv6_gretap;
+#endif
+
 out:
 	return err;
 
@@ -1611,6 +1628,9 @@ add_proto_failed:
 
 static void __exit ip6gre_fini(void)
 {
+#ifdef CONFIG_PPA
+	ppa_is_ipv6_gretap_fn = NULL;
+#endif
 	rtnl_link_unregister(&ip6gre_tap_ops);
 	rtnl_link_unregister(&ip6gre_link_ops);
 	inet6_del_protocol(&ip6gre_protocol, IPPROTO_GRE);

@@ -578,6 +578,15 @@ config DEVPORT
 	  Say Y here if you want to support the /dev/port device. The /dev/port
 	  device is similar to /dev/mem, but for I/O ports.
 
+source "drivers/char/tffs/Kconfig"
+
+source "drivers/char/avm_new/Kconfig"
+source "drivers/char/avm_net_trace/Kconfig"
+source "drivers/char/avm_power/Kconfig"
+source "drivers/char/Piglet_noemif/Kconfig"
+source "drivers/char/ubik2/Kconfig"
+source "drivers/char/dect_io/Kconfig"
+
 source "drivers/s390/char/Kconfig"
 
 config TILE_SROM
@@ -591,7 +600,36 @@ config TILE_SROM
 	  device appear much like a simple EEPROM, and knows
 	  how to partition a single ROM for multiple purposes.
 
+config  LTQ_VOIP_TIMER
+        tristate "VoIP Timer Driver"
+        default m
+        ---help---
+		Jiffies based Timer Driver.It gives timeout in milli sec.
+		Applications can use this to create the list of timers.
+		Once the timer expired the registered callback function will
+		called.
+
 source "drivers/char/xillybus/Kconfig"
 
+config LTQ_MPS2
+	tristate "Lantiq mps2 driver"
+	depends on SOC_GRX500||SOC_TYPE_GRX500_TEP
+	default y
+	---help---
+	  Turn on this option to enable mps2 driver.
+
+config LTQ_ICC
+	tristate "Lantiq icc driver"
+	depends on LTQ_MPS2
+	default y
+	---help---
+	  Turn on this option to enable icc driver.
+
+config LTQ_SYSTEM_RESET
+	tristate "Lantiq system reset driver"
+	depends on LTQ_ICC
+	default y
+	---help---
+	  Turn on this option to enable system reset driver.
 endmenu
 

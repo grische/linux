@@ -230,7 +230,7 @@ static inline void invalidate_tcache_page(unsigned long addr)
 	__asm__ __volatile__(						\
 	"	.set push					\n"	\
 	"	.set noreorder					\n"	\
-	"	.set mips3					\n"	\
+	"	.set mips32r2					\n"	\
 	"	cache %1, 0x000(%0); cache %1, 0x010(%0)	\n"	\
 	"	cache %1, 0x020(%0); cache %1, 0x030(%0)	\n"	\
 	"	cache %1, 0x040(%0); cache %1, 0x050(%0)	\n"	\
@@ -256,7 +256,7 @@ static inline void invalidate_tcache_page(unsigned long addr)
 	__asm__ __volatile__(						\
 	"	.set push					\n"	\
 	"	.set noreorder					\n"	\
-	"	.set mips3					\n"	\
+	"	.set mips32r2					\n"	\
 	"	cache %1, 0x000(%0); cache %1, 0x020(%0)	\n"	\
 	"	cache %1, 0x040(%0); cache %1, 0x060(%0)	\n"	\
 	"	cache %1, 0x080(%0); cache %1, 0x0a0(%0)	\n"	\
@@ -282,7 +282,7 @@ static inline void invalidate_tcache_page(unsigned long addr)
 	__asm__ __volatile__(						\
 	"	.set push					\n"	\
 	"	.set noreorder					\n"	\
-	"	.set mips3					\n"	\
+	"	.set mips32r2					\n"	\
 	"	cache %1, 0x000(%0); cache %1, 0x040(%0)	\n"	\
 	"	cache %1, 0x080(%0); cache %1, 0x0c0(%0)	\n"	\
 	"	cache %1, 0x100(%0); cache %1, 0x140(%0)	\n"	\
@@ -308,7 +308,7 @@ static inline void invalidate_tcache_page(unsigned long addr)
 	__asm__ __volatile__(						\
 	"	.set push					\n"	\
 	"	.set noreorder					\n"	\
-	"	.set mips3					\n"	\
+	"	.set mips32r2					\n"	\
 	"	cache %1, 0x000(%0); cache %1, 0x080(%0)	\n"	\
 	"	cache %1, 0x100(%0); cache %1, 0x180(%0)	\n"	\
 	"	cache %1, 0x200(%0); cache %1, 0x280(%0)	\n"	\

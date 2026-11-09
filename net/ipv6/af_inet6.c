@@ -67,6 +67,10 @@
 
 #include "ip6_offload.h"
 
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#endif
+
 MODULE_AUTHOR("Cast of dozens");
 MODULE_DESCRIPTION("IPv6 protocol stack for Linux");
 MODULE_LICENSE("GPL");
@@ -695,6 +699,7 @@ int inet6_sk_rebuild_header(struct sock *sk)
 		fl6.flowi6_mark = sk->sk_mark;
 		fl6.fl6_dport = inet->inet_dport;
 		fl6.fl6_sport = inet->inet_sport;
+		fl6.flowi6_uid = sk->sk_uid;
 		security_sk_classify_flow(sk, flowi6_to_flowi(&fl6));
 
 		rcu_read_lock();
@@ -743,12 +748,28 @@ static struct packet_type ipv6_packet_type __read_mostly = {
 
 static int __init ipv6_packet_init(void)
 {
+#ifdef CONFIG_AVM_PA
+	struct avm_pa_dev_info *ip6_dev = AVM_PA_PTYPE_DEVINFO(&ipv6_packet_type);
+	struct avm_pa_pid_cfg cfg = {0};
+
+	snprintf(cfg.name, sizeof(cfg.name), "ipv6");
+	cfg.framing = avm_pa_framing_ptype;
+	cfg.default_mtu = 0xffff;
+	cfg.ptype = &ipv6_packet_type;
+	if (avm_pa_dev_pid_register(ip6_dev, &cfg) < 0) {
+		pr_err("%s: Cannot register avm_pa pid %s\n",
+		       __func__, cfg.name);
+	}
+#endif
 	dev_add_pack(&ipv6_packet_type);
 	return 0;
 }
 
 static void ipv6_packet_cleanup(void)
 {
+#ifdef CONFIG_AVM_PA
+	avm_pa_dev_unregister_sync(AVM_PA_PTYPE_DEVINFO(&ipv6_packet_type));
+#endif
 	dev_remove_pack(&ipv6_packet_type);
 }
 

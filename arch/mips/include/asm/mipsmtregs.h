@@ -31,6 +31,9 @@
 #define read_c0_vpeconf1()		__read_32bit_c0_register($1, 3)
 #define write_c0_vpeconf1(val)		__write_32bit_c0_register($1, 3, val)
 
+#define read_c0_yqmask() __read_32bit_c0_register($1, 4)
+#define write_c0_yqmask(val) __write_32bit_c0_register($1, 4, val)
+
 #define read_c0_tcstatus()		__read_32bit_c0_register($2, 1)
 #define write_c0_tcstatus(val)		__write_32bit_c0_register($2, 1, val)
 
@@ -368,6 +371,19 @@ do {									\
 	ehb();								\
 } while (0)
 
+#define mips_mt_yield(yq)                  \
+	({                                 \
+		unsigned int __yq = (yq);  \
+		unsigned int __res;        \
+		__asm__ __volatile__(      \
+			".set  mips32r2\n" \
+			".set  mt\n"       \
+			"yield %0,%z1\n"   \
+			: "=d"(__res)      \
+			: "dJ"(__yq));     \
+                                           \
+		__res;                     \
+	})
 
 /* you *must* set the target tc (settc) before trying to use these */
 #define read_vpe_c0_vpecontrol()	mftc0(1, 1)
@@ -376,6 +392,8 @@ do {									\
 #define write_vpe_c0_vpeconf0(val)	mttc0(1, 2, val)
 #define read_vpe_c0_vpeconf1()		mftc0(1, 3)
 #define write_vpe_c0_vpeconf1(val)	mttc0(1, 3, val)
+#define read_vpe_c0_vpeschedule()	mftc0(1, 5)
+#define write_vpe_c0_vpeschedule(val)	mttc0(1, 5, val)
 #define read_vpe_c0_count()		mftc0(9, 0)
 #define write_vpe_c0_count(val)		mttc0(9, 0, val)
 #define read_vpe_c0_status()		mftc0(12, 0)
@@ -407,12 +425,18 @@ do {									\
 #define write_tc_c0_tchalt(val)		mttc0(2, 4, val)
 #define read_tc_c0_tccontext()		mftc0(2, 5)
 #define write_tc_c0_tccontext(val)	mttc0(2, 5, val)
+#define read_tc_c0_tcschedule()		mftc0(2, 6)
+#define write_tc_c0_tcschedule(val)	mttc0(2, 6, val)
+#define read_tc_c0_tcschefback()	mftc0(2, 7)
+#define write_tc_c0_tcschefback(val)	mttc0(2, 7, val)
 
 /* GPR */
 #define read_tc_gpr_sp()		mftgpr(29)
 #define write_tc_gpr_sp(val)		mttgpr(29, val)
 #define read_tc_gpr_gp()		mftgpr(28)
 #define write_tc_gpr_gp(val)		mttgpr(28, val)
+#define read_tc_gpr_ra()		mftgpr(31)
+#define write_tc_gpr_ra(val)		mttgpr(31, val)
 
 __BUILD_SET_C0(mvpcontrol)
 

@@ -58,6 +58,10 @@
 #include <net/l3mdev.h>
 #include <net/lwtunnel.h>
 
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#endif
+
 static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb_dst(skb);
@@ -359,6 +363,10 @@ static inline int ip6_forward_finish(struct net *net, struct sock *sk,
 	__IP6_INC_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTFORWDATAGRAMS);
 	__IP6_ADD_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTOCTETS, skb->len);
 
+#ifdef CONFIG_AVM_PA
+	avm_pa_mark_routed(skb);
+#endif
+
 	return dst_output(net, sk, skb);
 }
 
@@ -578,6 +586,9 @@ static void ip6_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 
 #ifdef CONFIG_NET_SCHED
 	to->tc_index = from->tc_index;
+#endif
+#ifdef CONFIG_AVM_PA
+	memcpy(AVM_PKT_INFO(to), AVM_PKT_INFO(from), sizeof(*AVM_PKT_INFO(to)));
 #endif
 	nf_copy(to, from);
 	skb_copy_secmark(to, from);

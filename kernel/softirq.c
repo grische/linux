@@ -26,6 +26,11 @@
 #include <linux/smpboot.h>
 #include <linux/tick.h>
 #include <linux/irq.h>
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+#include <linux/avm_profile.h>
+#endif
+
+#include <avm/power/power.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
@@ -261,9 +266,9 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 
 	pending = local_softirq_pending();
 	account_irq_enter_time(current);
-
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
 	in_hardirq = lockdep_softirq_start();
+	avm_sum_softirq_enter();
 
 restart:
 	/* Reset the pending bitmask before enabling irqs */
@@ -274,6 +279,7 @@ restart:
 	h = softirq_vec;
 
 	while ((softirq_bit = ffs(pending))) {
+		struct _runtime_stat *pts;
 		unsigned int vec_nr;
 		int prev_count;
 
@@ -284,9 +290,20 @@ restart:
 
 		kstat_incr_softirqs_this_cpu(vec_nr);
 
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+		avm_simple_profiling_log(avm_profile_data_type_sw_irq_begin,
+					 (unsigned long)(h->action), (unsigned int)h);
+#endif
 		trace_softirq_entry(vec_nr);
+		pts = avm_softirq_enter(vec_nr);
 		h->action(h);
+		avm_softirq_leave(pts);
 		trace_softirq_exit(vec_nr);
+
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+		avm_simple_profiling_log(avm_profile_data_type_sw_irq_end,
+					 (unsigned long)(h->action), (unsigned int)h);
+#endif
 		if (unlikely(prev_count != preempt_count())) {
 			pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
 			       vec_nr, softirq_to_name[vec_nr], h->action,
@@ -308,7 +325,7 @@ restart:
 
 		wakeup_softirqd();
 	}
-
+	avm_sum_softirq_leave();
 	lockdep_softirq_end(in_hardirq);
 	account_irq_exit_time(current);
 	__local_bh_enable(SOFTIRQ_OFFSET);
@@ -472,6 +489,10 @@ void __tasklet_schedule(struct tasklet_struct *t)
 	t->next = NULL;
 	*__this_cpu_read(tasklet_vec.tail) = t;
 	__this_cpu_write(tasklet_vec.tail, &(t->next));
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_trigger_tasklet_begin,
+				 (unsigned long)(t->func), TASKLET_SOFTIRQ);
+#endif
 	raise_softirq_irqoff(TASKLET_SOFTIRQ);
 	local_irq_restore(flags);
 }
@@ -485,6 +506,10 @@ void __tasklet_hi_schedule(struct tasklet_struct *t)
 	t->next = NULL;
 	*__this_cpu_read(tasklet_hi_vec.tail) = t;
 	__this_cpu_write(tasklet_hi_vec.tail,  &(t->next));
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_trigger_tasklet_begin,
+				 (unsigned long)(t->func), HI_SOFTIRQ);
+#endif
 	raise_softirq_irqoff(HI_SOFTIRQ);
 	local_irq_restore(flags);
 }
@@ -511,6 +536,7 @@ static __latent_entropy void tasklet_action(struct softirq_action *a)
 	local_irq_enable();
 
 	while (list) {
+		struct _runtime_stat *pfunc;
 		struct tasklet_struct *t = list;
 
 		list = list->next;
@@ -520,7 +546,19 @@ static __latent_entropy void tasklet_action(struct softirq_action *a)
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
 							&t->state))
 					BUG();
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+			avm_simple_profiling_log(avm_profile_data_type_trigger_tasklet_end,
+						 (unsigned long)(t->func), TASKLET_SOFTIRQ);
+			avm_simple_profiling_log(avm_profile_data_type_tasklet_begin,
+						 (unsigned long)(t->func), (unsigned int)(t->data));
+#endif
+				pfunc = avm_taskletfunc_enter(t->func, TASKLET_SOFTIRQ);
 				t->func(t->data);
+				avm_taskletfunc_leave(pfunc);
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+			avm_simple_profiling_log(avm_profile_data_type_tasklet_end,
+						 (unsigned long)(t->func), (unsigned int)(t->data));
+#endif
 				tasklet_unlock(t);
 				continue;
 			}
@@ -547,6 +585,7 @@ static __latent_entropy void tasklet_hi_action(struct softirq_action *a)
 	local_irq_enable();
 
 	while (list) {
+		struct _runtime_stat *pfunc;
 		struct tasklet_struct *t = list;
 
 		list = list->next;
@@ -556,7 +595,19 @@ static __latent_entropy void tasklet_hi_action(struct softirq_action *a)
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
 							&t->state))
 					BUG();
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+				avm_simple_profiling_log(avm_profile_data_type_trigger_tasklet_end,
+							 (unsigned long)(t->func), HI_SOFTIRQ);
+				avm_simple_profiling_log(avm_profile_data_type_hi_tasklet_begin,
+							 (unsigned long)(t->func), (unsigned int)(t->data));
+#endif
+				pfunc = avm_taskletfunc_enter(t->func, HI_SOFTIRQ);
 				t->func(t->data);
+				avm_taskletfunc_leave(pfunc);
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+				avm_simple_profiling_log(avm_profile_data_type_hi_tasklet_end,
+							 (unsigned long)(t->func), (unsigned int)(t->data));
+#endif
 				tasklet_unlock(t);
 				continue;
 			}

@@ -329,7 +329,7 @@ static struct Qdisc *qdisc_leaf(struct Qdisc *p, u32 classid)
 
 /* Find queueing discipline by name */
 
-static struct Qdisc_ops *qdisc_lookup_ops(struct nlattr *kind)
+struct Qdisc_ops *qdisc_lookup_ops(struct nlattr *kind)
 {
 	struct Qdisc_ops *q = NULL;
 
@@ -346,6 +346,7 @@ static struct Qdisc_ops *qdisc_lookup_ops(struct nlattr *kind)
 	}
 	return q;
 }
+EXPORT_SYMBOL(qdisc_lookup_ops);
 
 /* The linklayer setting were not transferred from iproute2, in older
  * versions, and the rate tables lookup systems have been dropped in
@@ -959,32 +960,33 @@ static struct Qdisc *qdisc_create(struct net_device *dev,
 
 	sch->handle = handle;
 
+	if (tca[TCA_STAB]) {
+		stab = qdisc_get_stab(tca[TCA_STAB]);
+		if (IS_ERR(stab)) {
+			err = PTR_ERR(stab);
+			goto err_out4;
+		}
+		rcu_assign_pointer(sch->stab, stab);
+	}
 	if (!ops->init || (err = ops->init(sch, tca[TCA_OPTIONS])) == 0) {
 		if (qdisc_is_percpu_stats(sch)) {
 			sch->cpu_bstats =
 				netdev_alloc_pcpu_stats(struct gnet_stats_basic_cpu);
 			if (!sch->cpu_bstats)
-				goto err_out4;
+				goto err_out5;
 
 			sch->cpu_qstats = alloc_percpu(struct gnet_stats_queue);
 			if (!sch->cpu_qstats)
-				goto err_out4;
+				goto err_out5;
 		}
 
-		if (tca[TCA_STAB]) {
-			stab = qdisc_get_stab(tca[TCA_STAB]);
-			if (IS_ERR(stab)) {
-				err = PTR_ERR(stab);
-				goto err_out4;
-			}
-			rcu_assign_pointer(sch->stab, stab);
-		}
+
 		if (tca[TCA_RATE]) {
 			seqcount_t *running;
 
 			err = -EOPNOTSUPP;
 			if (sch->flags & TCQ_F_MQROOT)
-				goto err_out4;
+				goto err_out5;
 
 			if ((sch->parent != TC_H_ROOT) &&
 			    !(sch->flags & TCQ_F_INGRESS) &&
@@ -1000,7 +1002,7 @@ static struct Qdisc *qdisc_create(struct net_device *dev,
 						running,
 						tca[TCA_RATE]);
 			if (err)
-				goto err_out4;
+				goto err_out5;
 		}
 
 		qdisc_hash_add(sch);
@@ -1010,6 +1012,8 @@ static struct Qdisc *qdisc_create(struct net_device *dev,
 	/* ops->init() failed, we call ->destroy() like qdisc_create_dflt() */
 	if (ops->destroy)
 		ops->destroy(sch);
+err_out4:
+	qdisc_put_stab(rtnl_dereference(sch->stab));
 err_out3:
 	dev_put(dev);
 	kfree((char *) sch - sch->padded);
@@ -1019,31 +1023,22 @@ err_out:
 	*errp = err;
 	return NULL;
 
-err_out4:
+err_out5:
 	free_percpu(sch->cpu_bstats);
 	free_percpu(sch->cpu_qstats);
 	/*
 	 * Any broken qdiscs that would require a ops->reset() here?
 	 * The qdisc was never in action so it shouldn't be necessary.
 	 */
-	qdisc_put_stab(rtnl_dereference(sch->stab));
 	if (ops->destroy)
 		ops->destroy(sch);
-	goto err_out3;
+	goto err_out4;
 }
 
 static int qdisc_change(struct Qdisc *sch, struct nlattr **tca)
 {
 	struct qdisc_size_table *ostab, *stab = NULL;
 	int err = 0;
-
-	if (tca[TCA_OPTIONS]) {
-		if (sch->ops->change == NULL)
-			return -EINVAL;
-		err = sch->ops->change(sch, tca[TCA_OPTIONS]);
-		if (err)
-			return err;
-	}
 
 	if (tca[TCA_STAB]) {
 		stab = qdisc_get_stab(tca[TCA_STAB]);
@@ -1054,6 +1049,14 @@ static int qdisc_change(struct Qdisc *sch, struct nlattr **tca)
 	ostab = rtnl_dereference(sch->stab);
 	rcu_assign_pointer(sch->stab, stab);
 	qdisc_put_stab(ostab);
+
+	if (tca[TCA_OPTIONS]) {
+		if (sch->ops->change == NULL)
+			return -EINVAL;
+		err = sch->ops->change(sch, tca[TCA_OPTIONS]);
+		if (err)
+			return err;
+	}
 
 	if (tca[TCA_RATE]) {
 		/* NB: ignores errors from replace_estimator

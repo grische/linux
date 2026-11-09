@@ -90,7 +90,7 @@ all-$(CONFIG_SYS_SUPPORTS_ZBOOT)+= vmlinuz
 # machines may also.  Since BFD is incredibly buggy with respect to
 # crossformat linking we rely on the elf2ecoff tool for format conversion.
 #
-cflags-y			+= -G 0 -mno-abicalls -fno-pic -pipe
+cflags-y			+= -G 0 -mno-abicalls -fno-pic -pipe -mno-branch-likely
 cflags-y			+= -msoft-float
 LDFLAGS_vmlinux			+= -G 0 -static -n -nostdlib
 KBUILD_AFLAGS_MODULE		+= -mlong-calls
@@ -143,8 +143,13 @@ cflags-$(CONFIG_CPU_R4X00)	+= -march=r4600 -Wa,--trap
 cflags-$(CONFIG_CPU_TX49XX)	+= -march=r4600 -Wa,--trap
 cflags-$(CONFIG_CPU_MIPS32_R1)	+= $(call cc-option,-march=mips32,-mips32 -U_MIPS_ISA -D_MIPS_ISA=_MIPS_ISA_MIPS32) \
 			-Wa,-mips32 -Wa,--trap
-cflags-$(CONFIG_CPU_MIPS32_R2)	+= $(call cc-option,-march=mips32r2,-mips32r2 -U_MIPS_ISA -D_MIPS_ISA=_MIPS_ISA_MIPS32) \
-			-Wa,-mips32r2 -Wa,--trap
+ifdef CONFIG_SOC_TYPE_GRX500_TEP
+cflags-$(CONFIG_CPU_MIPS32_R2)	+= $(call cc-option,-march=4kec,-mips32r2 -U_MIPS_ISA -D_MIPS_ISA=_MIPS_ISA_MIPS32) \
+			-Wa,-march=4kec -Wa,--trap
+else
+cflags-$(CONFIG_CPU_MIPS32_R2)	+= $(call cc-option,-march=interaptiv -mtune=interaptiv,-mips32r2 -U_MIPS_ISA -D_MIPS_ISA=_MIPS_ISA_MIPS32) \
+			-Wa,-march=interaptiv -Wa,-mtune=interaptiv -Wa,--trap
+endif
 cflags-$(CONFIG_CPU_MIPS32_R6)	+= -march=mips32r6 -Wa,--trap
 cflags-$(CONFIG_CPU_MIPS64_R1)	+= $(call cc-option,-march=mips64,-mips64 -U_MIPS_ISA -D_MIPS_ISA=_MIPS_ISA_MIPS64) \
 			-Wa,-mips64 -Wa,--trap
@@ -203,6 +208,15 @@ endif
 toolchain-virt				:= $(call cc-option-yn,$(mips-cflags) -mvirt)
 cflags-$(toolchain-virt)		+= -DTOOLCHAIN_SUPPORTS_VIRT
 
+ifeq ($(CONFIG_CPU_HAS_DSP_ASE),y)
+cflags-y				+= $(call cc-option,-mdsp -Wa,-mdsp)
+else
+cflags-y				+= $(call cc-option,-mno-dsp -Wa,-mno-dsp)
+endif
+ifeq ($(CONFIG_CPU_HAS_DSP2_ASE),y)
+cflags-y				+= $(call cc-option,-mdspr2 -Wa,-mdspr2)
+endif
+
 #
 # Firmware support
 #
@@ -210,6 +224,8 @@ libs-$(CONFIG_FW_ARC)		+= arch/mips/fw/arc/
 libs-$(CONFIG_FW_CFE)		+= arch/mips/fw/cfe/
 libs-$(CONFIG_FW_SNIPROM)	+= arch/mips/fw/sni/
 libs-y				+= arch/mips/fw/lib/
+
+libs-y  += arch/mips/avm_enh/
 
 #
 # Kernel compression
@@ -287,7 +303,7 @@ OBJCOPYFLAGS		+= --remove-section=.reginfo
 head-y := arch/mips/kernel/head.o
 
 libs-y			+= arch/mips/lib/
-libs-y			+= arch/mips/math-emu/
+libs-$(CONFIG_MIPS_FPU_EMULATOR)	+= arch/mips/math-emu/
 
 # See arch/mips/Kbuild for content of core part of the kernel
 core-y += arch/mips/

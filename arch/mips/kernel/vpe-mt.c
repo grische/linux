@@ -87,6 +87,8 @@ int vpe_run(struct vpe *v)
 	 */
 	val = read_tc_c0_tcstatus();
 	val = (val & ~(TCSTATUS_DA | TCSTATUS_IXMT)) | TCSTATUS_A;
+	// allow DSP instructions
+	val = val | TCSTATUS_TMX;
 	write_tc_c0_tcstatus(val);
 
 	write_tc_c0_tchalt(read_tc_c0_tchalt() & ~TCHALT_H);

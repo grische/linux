@@ -33,8 +33,50 @@
 #include "hub.h"
 #include "otg_whitelist.h"
 
+/* == 20160302 AVM/VGJ - CHANGESET: AVM Power Meter for DWC3 USB Controller == */
+#ifdef CONFIG_AVM_POWERMETER
+#include <avm/power/power.h>
+#include <linux/avm_hw_config.h>
+#endif /*--- #ifdef CONFIG_AVM_POWERMETER ---*/
+
 #define USB_VENDOR_GENESYS_LOGIC		0x05e3
 #define HUB_QUIRK_CHECK_PORT_AUTOSUSPEND	0x01
+
+/* 20170227 AVM/VGJ USB KPI */
+#if defined (CONFIG_AVM_KERNEL)
+
+#define AVM_RECONNECT_ERROR_MS_THRESHOLD 2500
+
+unsigned long disconnect_time[2];
+unsigned int disconnect_device_id[2];
+
+int reconnect_count = 0;
+module_param(reconnect_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(reconnect_count, "Count of reconnects");
+
+int enum_error_count = 0;
+module_param(enum_error_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(enum_error_count, "Count of enumeration errors");
+
+int overcurrent_error_count = 0;
+module_param(overcurrent_error_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(overcurrent_error_count, "Count of overcurrent errors");
+
+#if defined (CONFIG_AVM_USB_SUSPEND)
+int suspend_count = 0;
+module_param(suspend_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(suspend_count, "Count of suspends");
+
+int reset_resume_count = 0;
+module_param(reset_resume_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(reset_resume_count, "Count of resets during resume");
+
+int resume_error_count = 0;
+module_param(resume_error_count, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(resume_error_count, "Count of failed resumes");
+#endif
+
+#endif
 
 /* Protect struct usb_device->state and ->children members
  * Note: Both are also protected by ->dev.sem, except that ->state can
@@ -2119,6 +2161,36 @@ void usb_disconnect(struct usb_device **pdev)
 	dev_info(&udev->dev, "USB disconnect, device number %d\n",
 			udev->devnum);
 
+/* == 20160302 AVM/VGJ - CHANGESET: AVM Power Meter for DWC3 USB Controller == */
+#if defined(CONFIG_AVM_POWERMETER) && defined(CONFIG_USB_DWC3_HOST)
+	if (udev->level == 1) {
+		unsigned nextmA = 0;
+		unsigned avm_powerdevice;
+
+		// Buses 1 and 2 belong to one port and buses 3 and 4 to the other
+		avm_powerdevice = (udev->bus->busnum < 3) ?
+					  powerdevice_usb_host :
+					  powerdevice_usb_host2;
+		printk(KERN_INFO
+		       "Bus#%u disconnect: AVM Powermeter changed to %u mA\n",
+		       udev->bus->busnum, nextmA);
+		PowerManagmentRessourceInfo(avm_powerdevice, nextmA);
+	}
+#endif // CONFIG_AVM_POWERMETER
+
+/* 20170227 AVM/VGJ store disconnect timestamp to check possible reconnects */ 
+#if defined (CONFIG_AVM_KERNEL)
+	// Only check reconnects of devices directly connected to root-hub
+	if (udev->level == 1) {
+		int port_index;
+		unsigned int device_id;
+		port_index = (udev->bus->busnum < 3)? 0 : 1;	
+		disconnect_time[port_index] = jiffies;
+		device_id = (udev->descriptor.idVendor << 16) | udev->descriptor.idProduct;
+		disconnect_device_id[port_index] = device_id;
+	}
+#endif
+
 	/*
 	 * Ensure that the pm runtime code knows that the USB device
 	 * is in the process of being disconnected.
@@ -2126,6 +2198,17 @@ void usb_disconnect(struct usb_device **pdev)
 	pm_runtime_barrier(&udev->dev);
 
 	usb_lock_device(udev);
+
+#ifdef CONFIG_AVM_USB_SUSPEND
+	/* == 20180220 AVM/VGJ - Blacklist device, if disconnected recently after suspend (fixed) == */
+	if (udev->port_is_suspended && ((jiffies - udev->avm_usb_suspend_timestamp) < msecs_to_jiffies(1000))) {
+		suspend_error_count++;
+		avm_usb_suspend_add_to_blacklist(udev);
+	}
+
+	/* == 20170209 AVM/VGJ - Deletes suspend timer and disables suspend == */
+	avm_usb_suspend_stop(udev);
+#endif	
 
 	hub_disconnect_children(udev);
 
@@ -2278,7 +2361,6 @@ static int usb_enumerate_device_otg(struct usb_device *udev)
 #endif
 	return err;
 }
-
 
 /**
  * usb_enumerate_device - Read device configs/intfs/otg (usbcore-internal)
@@ -2448,6 +2530,43 @@ int usb_new_device(struct usb_device *udev)
 
 	/* Tell the world! */
 	announce_device(udev);
+
+/* == 20160302 AVM/VGJ - CHANGESET: AVM Power Meter for DWC3 USB Controller == */
+#if defined(CONFIG_AVM_POWERMETER) && defined(CONFIG_USB_DWC3_HOST)
+	if (udev->level == 1) {
+		unsigned nextmA = (udev->speed == USB_SPEED_SUPER) ? 150 : 100;
+		unsigned avm_powerdevice;
+
+		// Buses 1 and 2 belong to one port and buses 3 and 4 to the other
+		avm_powerdevice = (udev->bus->busnum < 3) ?
+					  powerdevice_usb_host :
+					  powerdevice_usb_host2;
+		printk(KERN_INFO
+		       "Bus#%u connect: AVM Powermeter changed to %u mA\n",
+		       udev->bus->busnum, nextmA);
+		PowerManagmentRessourceInfo(avm_powerdevice, nextmA);
+	}
+#endif // CONFIG_AVM_POWERMETER
+
+/* 20170227 AVM/VGJ If connect comes too fast after disconnect -> reconnect error */ 
+#if defined (CONFIG_AVM_KERNEL)
+	// Only check reconnects of devices directly connected to root-hub
+	if (udev->level == 1) {
+		unsigned long jiffies_diff;
+		unsigned int device_id;
+		int port_index;
+		port_index = (udev->bus->busnum < 3)? 0 : 1;
+		// Check device_id to make sure that the stored time belongs to the same device 
+		device_id = (udev->descriptor.idVendor << 16) | udev->descriptor.idProduct;
+		if ( device_id == disconnect_device_id[port_index] ) {
+			jiffies_diff = jiffies - disconnect_time[port_index];	
+			if ( jiffies_diff < msecs_to_jiffies(AVM_RECONNECT_ERROR_MS_THRESHOLD) ) {
+				printk(KERN_ERR "Spontaneous reconnect\n");
+				reconnect_count++;
+			}
+		}
+	}
+#endif
 
 	if (udev->serial)
 		add_device_randomness(udev->serial, strlen(udev->serial));
@@ -2912,7 +3031,8 @@ static void usb_unlock_port(struct usb_port *port_dev)
 	__release(&port_dev->status_lock);
 }
 
-#ifdef	CONFIG_PM
+#if defined (CONFIG_PM) || defined (CONFIG_AVM_USB_SUSPEND)
+//#ifdef	CONFIG_PM
 
 /* Check if a port is suspended(USB2.0 port) or in U3 state(USB3.0 port) */
 static int port_is_suspended(struct usb_hub *hub, unsigned portstatus)
@@ -2948,10 +3068,23 @@ static int check_port_resume_type(struct usb_device *udev,
 		/* pass */;
 	}
 	/* Is the device still present? */
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	/* AVM/VGJ 20180420 Do not treat port_is_suspended as No Device Error */
+	else if (status ||
+#else
 	else if (status || port_is_suspended(hub, portstatus) ||
+#endif
 			!port_is_power_on(hub, portstatus)) {
 		if (status >= 0)
 			status = -ENODEV;
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	/* AVM/VGJ 20180420 follow up port_is_suspended with reset resume */
+	} else if (port_is_suspended(hub, portstatus)) {
+		dev_info(hub->intfdev,
+				"port %d status %04x.%04x still suspended\n",
+				port1, portchange, portstatus);
+		udev->reset_resume = 1;
+#endif
 	} else if (!(portstatus & USB_PORT_STAT_CONNECTION)) {
 		if (retries--) {
 			usleep_range(200, 300);
@@ -3224,12 +3357,30 @@ int usb_port_suspend(struct usb_device *udev, pm_message_t msg)
 		if (!PMSG_IS_AUTO(msg))
 			status = 0;
 	} else {
-		dev_dbg(&udev->dev, "usb %ssuspend, wakeup %d\n",
+		/* == 20170209 AVM/VGJ - Show also without CONFIG_USB_DEBUG == */
+		dev_info(&udev->dev, "usb %ssuspend, wakeup %d\n",
 				(PMSG_IS_AUTO(msg) ? "auto-" : ""),
 				udev->do_remote_wakeup);
 		if (really_suspend) {
 			udev->port_is_suspended = 1;
 
+/* == 20171110 AVM/VGJ - CHANGESET: AVM Power Meter for DWC3 USB Controller == */
+#if defined(CONFIG_AVM_POWERMETER) && defined(CONFIG_USB_DWC3_HOST)
+	if (udev->level == 1) {
+		unsigned nextmA = 50;
+		unsigned avm_powerdevice;
+
+		// Buses 1 and 2 belong to one port and buses 3 and 4 to the other
+		avm_powerdevice = (udev->bus->busnum < 3)? powerdevice_usb_host : powerdevice_usb_host2;
+		printk (KERN_INFO "Bus#%u suspend: AVM Powermeter changed to %u mA\n", udev->bus->busnum, nextmA);
+		PowerManagmentRessourceInfo(avm_powerdevice, nextmA);
+	}
+#endif // CONFIG_AVM_POWERMETER
+
+#if defined (CONFIG_AVM_USB_SUSPEND)
+			udev->avm_usb_suspend_timestamp = jiffies;
+			suspend_count++;
+#endif
 			/* device has up to 10 msec to fully suspend */
 			msleep(10);
 		}
@@ -3263,7 +3414,8 @@ static int finish_port_resume(struct usb_device *udev)
 	u16	devstatus = 0;
 
 	/* caller owns the udev device lock */
-	dev_dbg(&udev->dev, "%s\n",
+	/* == 20170209 AVM/VGJ - Show also without CONFIG_USB_DEBUG == */
+	dev_info(&udev->dev, "%s\n",
 		udev->reset_resume ? "finish reset-resume" : "finish resume");
 
 	/* usb ch9 identifies four variants of SUSPENDED, based on what
@@ -3309,6 +3461,12 @@ static int finish_port_resume(struct usb_device *udev)
 			goto retry_reset_resume;
 		}
 	}
+
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	if (udev->reset_resume) {
+		reset_resume_count++;
+	}
+#endif
 
 	if (status) {
 		dev_dbg(&udev->dev, "gone after usb resume? status %d\n",
@@ -3456,7 +3614,8 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 		dev_dbg(&port_dev->dev, "can't resume, status %d\n", status);
 	} else {
 		/* drive resume for USB_RESUME_TIMEOUT msec */
-		dev_dbg(&udev->dev, "usb %sresume\n",
+		/* == 20180328 AVM/VGJ - Show also without CONFIG_USB_DEBUG == */
+		dev_info(&udev->dev, "usb %sresume\n",
 				(PMSG_IS_AUTO(msg) ? "auto-" : ""));
 		msleep(USB_RESUME_TIMEOUT);
 
@@ -3482,6 +3641,36 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 				usb_clear_port_feature(hub->hdev, port1,
 						USB_PORT_FEAT_C_SUSPEND);
 		}
+
+/* == 20171110 AVM/VGJ - Reset AVM Power Meter with active values == */
+#if defined(CONFIG_AVM_POWERMETER) && defined(CONFIG_USB_DWC3_HOST)
+		if (udev->level == 1) {
+			unsigned nextmA;
+			unsigned avm_powerdevice;
+
+			if (udev->config) {
+				if (udev->speed == USB_SPEED_SUPER) {
+					nextmA = (udev->config->desc.bMaxPower * 8);
+					if (nextmA <= 150) {
+						nextmA = 150;
+					}
+				} else {
+					nextmA = (udev->config->desc.bMaxPower * 2);
+					/* A device should display at least 100 mA in AVM_POWERMETER */
+					if (nextmA < 100) {
+						nextmA = 100;
+					}
+				}
+			} else {
+				nextmA = (udev->speed == USB_SPEED_SUPER)? 150: 100;
+			}
+
+			// Buses 1 and 2 belong to one port and buses 3 and 4 to the other
+			avm_powerdevice = (udev->bus->busnum < 3)? powerdevice_usb_host : powerdevice_usb_host2;
+			printk (KERN_INFO "Bus#%u resume: AVM Powermeter changed to %u mA\n", udev->bus->busnum, nextmA);
+			PowerManagmentRessourceInfo(avm_powerdevice, nextmA);
+		}
+#endif // CONFIG_AVM_POWERMETER
 	}
 
 	if (udev->persist_enabled)
@@ -3493,7 +3682,12 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	if (status == 0)
 		status = finish_port_resume(udev);
 	if (status < 0) {
-		dev_dbg(&udev->dev, "can't resume, status %d\n", status);
+#if defined (CONFIG_AVM_USB_SUSPEND)
+		avm_usb_suspend_add_to_blacklist(udev);
+		resume_error_count++;
+#endif 
+		/* == 20170228 AVM/VGJ - Show also without CONFIG_USB_DEBUG == */
+		dev_info(&udev->dev, "can't resume, status %d\n", status);
 		hub_port_logical_disconnect(hub, port1);
 	} else  {
 		/* Try to enable USB2 hardware LPM */
@@ -4791,6 +4985,22 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 	if (portchange & (USB_PORT_STAT_C_CONNECTION |
 				USB_PORT_STAT_C_ENABLE)) {
 		status = hub_port_debounce_be_stable(hub, port1);
+
+#ifdef CONFIG_AVM_USB_SUSPEND
+		/* == 20200819 AVM/WKR - Reset Workaorund for GRX: extra USB 2.0 reset helps USB 3.0 device to switch device to super-speed ==*/
+		if (status > 0
+		    && (status & USB_PORT_STAT_CONNECTION)
+		    && (hcd->driver->flags & HCD_USB3)
+		    && (!hdev->parent)
+		    && !hub_is_superspeed(hdev)
+		    && (portchange & USB_PORT_STAT_C_CONNECTION) ) {
+			dev_info(&port_dev->dev,
+				"reset USB 2.0 root port %d after connect debounce\n", port1);
+			set_port_feature(hdev, port1, USB_PORT_FEAT_RESET);
+			status = hub_port_debounce_be_stable(hub, port1);
+		}
+#endif
+
 		if (status < 0) {
 			if (status != -ENODEV &&
 				port1 != unreliable_port &&
@@ -4972,9 +5182,14 @@ loop:
 	if (hub->hdev->parent ||
 			!hcd->driver->port_handed_over ||
 			!(hcd->driver->port_handed_over)(hcd, port1)) {
-		if (status != -ENOTCONN && status != -ENODEV)
+		if (status != -ENOTCONN && status != -ENODEV) {
 			dev_err(&port_dev->dev,
 					"unable to enumerate USB device\n");
+/* 20170316 AVM/VGJ increment enumeration error */
+#if defined (CONFIG_AVM_KERNEL)
+			enum_error_count++;
+#endif
+		}
 	}
 
 done:

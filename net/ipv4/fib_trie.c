@@ -1717,7 +1717,7 @@ struct fib_table *fib_trie_unmerge(struct fib_table *oldtb)
 	lt = (struct trie *)local_tb->tb_data;
 
 	while ((l = leaf_walk_rcu(&tp, key)) != NULL) {
-		struct key_vector *local_l = NULL, *local_tp;
+		struct key_vector *local_l = NULL, *local_tp = NULL;
 
 		hlist_for_each_entry_rcu(fa, &l->leaf, fa_list) {
 			struct fib_alias *new_fa;
@@ -2406,6 +2406,7 @@ static const char *const rtn_type_names[__RTN_MAX] = {
 	[RTN_THROW] = "THROW",
 	[RTN_NAT] = "NAT",
 	[RTN_XRESOLVE] = "XRESOLVE",
+	[RTN_POLICY_FAILED] = "POLICY_FAILED",
 };
 
 static inline const char *rtn_type(char *buf, size_t len, unsigned int t)

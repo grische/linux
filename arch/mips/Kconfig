@@ -373,8 +373,6 @@ config LANTIQ
 	bool "Lantiq based platforms"
 	select DMA_NONCOHERENT
 	select IRQ_MIPS_CPU
-	select CEVT_R4K
-	select CSRC_R4K
 	select SYS_HAS_CPU_MIPS32_R1
 	select SYS_HAS_CPU_MIPS32_R2
 	select SYS_SUPPORTS_BIG_ENDIAN
@@ -383,8 +381,9 @@ config LANTIQ
 	select SYS_SUPPORTS_MULTITHREADING
 	select SYS_HAS_EARLY_PRINTK
 	select GPIOLIB
-	select SWAP_IO_SPACE
+##	select SWAP_IO_SPACE
 	select BOOT_RAW
+	select HAVE_MACH_CLKDEV
 	select CLKDEV_LOOKUP
 	select USE_OF
 	select PINCTRL
@@ -1154,6 +1153,10 @@ config SYNC_R4K
 config MIPS_MACHINE
 	def_bool n
 
+config IMAGE_CMDLINE_HACK
+	bool "OpenWrt specific image command line hack"
+	default n
+
 config NO_IOPORT_MAP
 	def_bool n
 
@@ -1758,6 +1761,27 @@ config CPU_MIPS32_3_5_EVA
 	  One of its primary benefits is an increase in the maximum size
 	  of lowmem (up to 3GB). If unsure, say 'N' here.
 
+config LTQ_EVA_2GB
+	bool "EVA support for 2GB memory"
+	depends on CPU_MIPS32_3_5_EVA
+	depends on SOC_GRX500
+	help
+	  Choose this for EVA 2GB support.
+
+config LTQ_EVA_1GB
+	bool "EVA support for 1GB memory"
+	depends on CPU_MIPS32_3_5_EVA
+	depends on SOC_GRX500
+	help
+	  Choose this for EVA 1GB support.
+
+config LTQ_EVA_LEGACY
+	bool "EVA setting for legacy operation"
+	depends on CPU_MIPS32_3_5_EVA
+	depends on SOC_GRX500
+	help
+	  Choose this for EVA legacy(512MB) support
+
 config CPU_MIPS32_R5_FEATURES
 	bool "MIPS32 Release 5 Features"
 	depends on SYS_HAS_CPU_MIPS32_R5
@@ -2177,6 +2201,25 @@ config PAGE_SIZE_64KB
 
 endchoice
 
+config MAX_ZONEDMA_SIZE
+	int "Maximum ZONE_DMA Size in (MB)"
+	depends on ZONE_DMA && SOC_GRX500
+	range 16 256
+	default "16"
+	help
+	  Allows to specify the MAX size of ZONE_DMA . By default it is 16MB.
+
+config THREAD_SIZE_ORDER
+	int "Kernel stack size order (2^n)"
+	default 2
+	help
+	  Kernel stack size order (normaly 1)
+	  On 4K page size:
+	    1 ==>  8K stack
+	    2 ==> 16K stack
+	    3 ==> 32K stack
+
+
 config FORCE_MAX_ZONEORDER
 	int "Maximum zone order"
 	range 14 64 if MIPS_HUGE_TLB_SUPPORT && PAGE_SIZE_64KB
@@ -2251,7 +2294,7 @@ config MIPS_MT_SMP
 	depends on SYS_SUPPORTS_MULTITHREADING && !CPU_MIPSR6
 	select CPU_MIPSR2_IRQ_VI
 	select CPU_MIPSR2_IRQ_EI
-	select SYNC_R4K
+	#select SYNC_R4K
 	select MIPS_MT
 	select SMP
 	select SMP_UP
@@ -2316,6 +2359,8 @@ config MIPS_VPE_LOADER_CMP
 	default "y"
 	depends on MIPS_VPE_LOADER && MIPS_CMP
 
+source "arch/mips/avm_enh/Kconfig"
+
 config MIPS_VPE_LOADER_MT
 	bool
 	default "y"
@@ -2350,9 +2395,10 @@ config MIPS_CMP
 	bool "MIPS CMP framework support (DEPRECATED)"
 	depends on SYS_SUPPORTS_MIPS_CMP && !CPU_MIPSR6
 	select SMP
-	select SYNC_R4K
+	select SYNC_R4K if (CEVT_R4K || CSRC_R4K)
 	select SYS_SUPPORTS_SMP
 	select WEAK_ORDERING
+	select SYS_SUPPORTS_HOTPLUG_CPU
 	default n
 	help
 	  Select this if you are using a bootloader which implements the "CMP
@@ -2361,6 +2407,40 @@ config MIPS_CMP
 
 	  Unless you have a specific need, you should use CONFIG_MIPS_CPS
 	  instead of this.
+
+config LTQ_VMB
+	bool "Lantiq VPE Management Block (VMB)"
+	depends on MIPS_CMP && (SOC_GRX500 || MIPS_MALTA)
+	default n
+	help
+	 Lantiq VPE Management Block support to launch Secondary FW/Linux
+
+config AVM_VMB
+	bool "VPE Management Block (VMB) - minmal version by AVM"
+	depends on MIPS_CMP && (SOC_GRX500 || MIPS_MALTA) && ! LTQ_VMB
+	default n
+	help
+	 VPE Management Block support to launch Linux
+
+config LTQ_ITC
+	bool "Inter Thread Communication support (ITC)"
+	depends on MIPS_CMP && SOC_GRX500
+	default n
+	help
+	 Used to Synchronise Multiple TCs. Currently ITC cells are used a Semaphores.
+
+config LTQ_DYN_CPU_ALLOC
+	bool "Dynamic CPU allocation in vmb_cpu_alloc"
+	depends on LTQ_VMB
+	default n
+	help
+	 Option to select CPU dynamically using vmb_cpu_alloc. This overrides the mapping on CPU to FW/Linux.	
+
+
+config LOAD_ADDR
+	hex "Load address"
+	help
+		Used to give start address
 
 config MIPS_CPS
 	bool "MIPS Coherent Processing System support"
@@ -2456,6 +2536,12 @@ config XKS01
 	bool
 
 config CPU_HAS_RIXI
+	bool
+
+config CPU_HAS_DSP_ASE
+	bool
+
+config CPU_HAS_DSP2_ASE
 	bool
 
 #
@@ -2892,6 +2978,20 @@ config MIPS_O32_FP64_SUPPORT
 
 	  If unsure, say N.
 
+config MIPS_FPU_EMULATOR
+	bool "MIPS FPU Emulator"
+	default y
+	help
+	  This option lets you disable the built-in MIPS FPU (Coprocessor 1)
+	  emulator, which handles floating-point instructions on processors
+	  without a hardware FPU.  It is generally a good idea to keep the
+	  emulator built-in, unless you are perfectly sure you have a
+	  complete soft-float environment.  With the emulator disabled, all
+	  users of float operations will be killed with an illegal instr-
+	  uction exception.
+
+	  Say Y, please.
+
 config USE_OF
 	bool
 	select OF
@@ -3181,6 +3281,26 @@ endif
 source "drivers/cpuidle/Kconfig"
 
 endmenu
+
+config AVM_IPI_YIELD
+	bool
+	default no
+
+config AVM_YIELD
+	bool "AVM Yield extension"
+	default no
+	depends on AVM_VMB
+	select AVM_IPI_YIELD
+	help
+	  This option will enable yield-thread-context
+
+config AVM_IRQ_HACK
+	bool "AVM IRQ Hack"
+	default no
+	help
+	  This option will enable the irq_hack module which allows to acquire
+	  hardware IRQs. If they are not actively used by hardware these
+	  interrupts can e.g. be used to trigger action on specific CPUs.
 
 source "net/Kconfig"
 

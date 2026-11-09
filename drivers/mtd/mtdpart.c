@@ -29,6 +29,7 @@
 #include <linux/kmod.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
+#include <linux/of.h>
 #include <linux/err.h>
 
 #include "mtdcore.h"
@@ -349,44 +350,30 @@ static const struct mtd_ooblayout_ops part_ooblayout_ops = {
 	.free = part_ooblayout_free,
 };
 
+static int part_max_bad_blocks(struct mtd_info *mtd, loff_t ofs, size_t len)
+{
+	struct mtd_part *part = mtd_to_part(mtd);
+
+	return part->master->_max_bad_blocks(part->master,
+					     ofs + part->offset, len);
+}
+
 static inline void free_partition(struct mtd_part *p)
 {
 	kfree(p->mtd.name);
 	kfree(p);
 }
 
-/*
- * This function unregisters and destroy all slave MTD objects which are
- * attached to the given master MTD object.
- */
-
-int del_mtd_partitions(struct mtd_info *master)
-{
-	struct mtd_part *slave, *next;
-	int ret, err = 0;
-
-	mutex_lock(&mtd_partitions_mutex);
-	list_for_each_entry_safe(slave, next, &mtd_partitions, list)
-		if (slave->master == master) {
-			ret = del_mtd_device(&slave->mtd);
-			if (ret < 0) {
-				err = ret;
-				continue;
-			}
-			list_del(&slave->list);
-			free_partition(slave);
-		}
-	mutex_unlock(&mtd_partitions_mutex);
-
-	return err;
-}
-
 static struct mtd_part *allocate_partition(struct mtd_info *master,
 			const struct mtd_partition *part, int partno,
 			uint64_t cur_offset)
 {
+	int wr_alignment = (master->flags & MTD_NO_ERASE) ? master->writesize :
+							    master->erasesize;
 	struct mtd_part *slave;
+	u32 remainder;
 	char *name;
+	u64 tmp;
 
 	/* allocate the partition structure */
 	slave = kzalloc(sizeof(*slave), GFP_KERNEL);
@@ -424,6 +411,7 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 	slave->mtd.dev.parent = IS_ENABLED(CONFIG_MTD_PARTITIONED_MASTER) ?
 				&master->dev :
 				master->dev.parent;
+	slave->mtd.dev.of_node = part->of_node;
 
 	slave->mtd._read = part_read;
 	slave->mtd._write = part_write;
@@ -475,6 +463,8 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 		slave->mtd._block_isbad = part_block_isbad;
 	if (master->_block_markbad)
 		slave->mtd._block_markbad = part_block_markbad;
+	if (master->_max_bad_blocks)
+		slave->mtd._max_bad_blocks = part_max_bad_blocks;
 
 	if (master->_get_device)
 		slave->mtd._get_device = part_get_device;
@@ -488,10 +478,11 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 	if (slave->offset == MTDPART_OFS_APPEND)
 		slave->offset = cur_offset;
 	if (slave->offset == MTDPART_OFS_NXTBLK) {
+		tmp = cur_offset;
 		slave->offset = cur_offset;
-		if (mtd_mod_by_eb(cur_offset, master) != 0) {
-			/* Round up to next erasesize */
-			slave->offset = (mtd_div_by_eb(cur_offset, master) + 1) * master->erasesize;
+		remainder = do_div(tmp, wr_alignment);
+		if (remainder) {
+			slave->offset += wr_alignment - remainder;
 			printk(KERN_NOTICE "Moving partition %d: "
 			       "0x%012llx -> 0x%012llx\n", partno,
 			       (unsigned long long)cur_offset, (unsigned long long)slave->offset);
@@ -556,20 +547,23 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 		slave->mtd.erasesize = master->erasesize;
 	}
 
-	if ((slave->mtd.flags & MTD_WRITEABLE) &&
-	    mtd_mod_by_eb(slave->offset, &slave->mtd)) {
+	tmp = slave->offset;
+	remainder = do_div(tmp, wr_alignment);
+	if ((slave->mtd.flags & MTD_WRITEABLE) && remainder) {
 		/* Doesn't start on a boundary of major erase size */
 		/* FIXME: Let it be writable if it is on a boundary of
 		 * _minor_ erase size though */
 		slave->mtd.flags &= ~MTD_WRITEABLE;
-		printk(KERN_WARNING"mtd: partition \"%s\" doesn't start on an erase block boundary -- force read-only\n",
-			part->name);
+		printk(KERN_WARNING "mtd: partition \"%s\" doesn't start on an erase/write block boundary -- force read-only\n",
+		       part->name);
 	}
-	if ((slave->mtd.flags & MTD_WRITEABLE) &&
-	    mtd_mod_by_eb(slave->mtd.size, &slave->mtd)) {
+
+	tmp = slave->mtd.size;
+	remainder = do_div(tmp, wr_alignment);
+	if ((slave->mtd.flags & MTD_WRITEABLE) && remainder) {
 		slave->mtd.flags &= ~MTD_WRITEABLE;
-		printk(KERN_WARNING"mtd: partition \"%s\" doesn't end on an erase block -- force read-only\n",
-			part->name);
+		printk(KERN_WARNING "mtd: partition \"%s\" doesn't end on an erase/write block -- force read-only\n",
+		       part->name);
 	}
 
 	mtd_set_ooblayout(&slave->mtd, &part_ooblayout_ops);
@@ -656,6 +650,50 @@ int mtd_add_partition(struct mtd_info *master, const char *name,
 }
 EXPORT_SYMBOL_GPL(mtd_add_partition);
 
+/**
+ * __mtd_del_partition - delete MTD partition
+ *
+ * @priv: internal MTD struct for partition to be deleted
+ *
+ * This function must be called with the partitions mutex locked.
+ */
+static int __mtd_del_partition(struct mtd_part *priv)
+{
+	int err;
+
+	sysfs_remove_files(&priv->mtd.dev.kobj, mtd_partition_attrs);
+
+	err = del_mtd_device(&priv->mtd);
+	if (err)
+		return err;
+
+	list_del(&priv->list);
+	free_partition(priv);
+
+	return 0;
+}
+
+/*
+ * This function unregisters and destroy all slave MTD objects which are
+ * attached to the given master MTD object.
+ */
+int del_mtd_partitions(struct mtd_info *master)
+{
+	struct mtd_part *slave, *next;
+	int ret, err = 0;
+
+	mutex_lock(&mtd_partitions_mutex);
+	list_for_each_entry_safe (slave, next, &mtd_partitions, list)
+		if (slave->master == master) {
+			ret = __mtd_del_partition(slave);
+			if (ret < 0)
+				err = ret;
+		}
+	mutex_unlock(&mtd_partitions_mutex);
+
+	return err;
+}
+
 int mtd_del_partition(struct mtd_info *master, int partno)
 {
 	struct mtd_part *slave, *next;
@@ -665,14 +703,7 @@ int mtd_del_partition(struct mtd_info *master, int partno)
 	list_for_each_entry_safe(slave, next, &mtd_partitions, list)
 		if ((slave->master == master) &&
 		    (slave->mtd.index == partno)) {
-			sysfs_remove_files(&slave->mtd.dev.kobj,
-					   mtd_partition_attrs);
-			ret = del_mtd_device(&slave->mtd);
-			if (ret < 0)
-				break;
-
-			list_del(&slave->list);
-			free_partition(slave);
+			ret = __mtd_del_partition(slave);
 			break;
 		}
 	mutex_unlock(&mtd_partitions_mutex);
@@ -779,14 +810,72 @@ void deregister_mtd_parser(struct mtd_part_parser *p)
 EXPORT_SYMBOL_GPL(deregister_mtd_parser);
 
 /*
+ * Parses the linux,part-probe device tree property.
+ * When a non null value is returned it has to be freed with kfree() by
+ * the caller.
+ */
+static const char *const *of_get_probes(struct device_node *dp)
+{
+	const char *cp;
+	int cplen;
+	unsigned int l;
+	unsigned int count;
+	const char **res;
+
+	cp = of_get_property(dp, "linux,part-probe", &cplen);
+	if (cp == NULL)
+		return NULL;
+
+	count = 0;
+	for (l = 0; l != cplen; l++)
+		if (cp[l] == 0)
+			count++;
+
+	res = kzalloc((count + 1) * sizeof(*res), GFP_KERNEL);
+	if (!res)
+		return NULL;
+	count = 0;
+	while (cplen > 0) {
+		res[count] = cp;
+		l = strlen(cp) + 1;
+		cp += l;
+		cplen -= l;
+		count++;
+	}
+	return res;
+}
+
+/*
  * Do not forget to update 'parse_mtd_partitions()' kerneldoc comment if you
  * are changing this array!
  */
-static const char * const default_mtd_part_types[] = {
+static const char *const default_mtd_part_types[] = {
+	"avmpart",
 	"cmdlinepart",
 	"ofpart",
 	NULL
 };
+
+static int mtd_part_do_parse(struct mtd_part_parser *parser,
+			     struct mtd_info *master,
+			     struct mtd_partitions *pparts,
+			     struct mtd_part_parser_data *data)
+{
+	int ret;
+
+	ret = (*parser->parse_fn)(master, &pparts->parts, data);
+	pr_debug("%s: parser %s: %i\n", master->name, parser->name, ret);
+	if (ret <= 0)
+		return ret;
+
+	pr_notice("%d %s partitions found on MTD device %s\n", ret,
+		  parser->name, master->name);
+
+	pparts->nr_parts = ret;
+	pparts->parser = parser;
+
+	return ret;
+}
 
 /**
  * parse_mtd_partitions - parse MTD partitions
@@ -815,6 +904,13 @@ int parse_mtd_partitions(struct mtd_info *master, const char *const *types,
 {
 	struct mtd_part_parser *parser;
 	int ret, err = 0;
+	const char *const *types_of = NULL;
+
+	if (mtd_get_of_node(master)) {
+		types_of = of_get_probes(mtd_get_of_node(master));
+		if (types_of != NULL)
+			types = types_of;
+	}
 
 	if (!types)
 		types = default_mtd_part_types;
@@ -828,16 +924,10 @@ int parse_mtd_partitions(struct mtd_info *master, const char *const *types,
 			 parser ? parser->name : NULL);
 		if (!parser)
 			continue;
-		ret = (*parser->parse_fn)(master, &pparts->parts, data);
-		pr_debug("%s: parser %s: %i\n",
-			 master->name, parser->name, ret);
-		if (ret > 0) {
-			printk(KERN_NOTICE "%d %s partitions found on MTD device %s\n",
-			       ret, parser->name, master->name);
-			pparts->nr_parts = ret;
-			pparts->parser = parser;
+		ret = mtd_part_do_parse(parser, master, pparts, data);
+		/* Found partitions! */
+		if (ret > 0)
 			return 0;
-		}
 		mtd_part_parser_put(parser);
 		/*
 		 * Stash the first error we see; only report it if no parser
@@ -846,6 +936,7 @@ int parse_mtd_partitions(struct mtd_info *master, const char *const *types,
 		if (ret < 0 && !err)
 			err = ret;
 	}
+	kfree(types_of);
 	return err;
 }
 
@@ -891,3 +982,16 @@ uint64_t mtd_get_device_size(const struct mtd_info *mtd)
 	return mtd_to_part(mtd)->master->size;
 }
 EXPORT_SYMBOL_GPL(mtd_get_device_size);
+
+// AVM/TKL: needed for setting up panic mode
+struct mtd_info *get_mtd_part_master(struct mtd_info *mtd)
+{
+	struct mtd_info *master = NULL;
+
+	if (mtd_is_partition(mtd)) {
+		master = mtd_to_part(mtd)->master;
+	}
+
+	return master;
+}
+EXPORT_SYMBOL(get_mtd_part_master);

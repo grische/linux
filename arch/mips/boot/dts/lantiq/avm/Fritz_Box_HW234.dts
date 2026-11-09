@@ -1,0 +1,19 @@
+/dts-v1/;
+
+#include "hw234.dtsi"
+
+/ {
+
+    model = "AVM6890 (GRX550, HW234) Main model";
+
+    chosen {
+        //bootargs-append = "maxcpus=4 cca=5 pci=pcie_bus_perf";
+    };
+
+    avm-hw-revision{
+        compatible = "avm,avm_hw_revision";
+        revision = "234";
+        subrevision = "0";
+    };
+
+};

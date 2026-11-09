@@ -1,0 +1,11 @@
+/ {
+	mei@E116000 {
+		compatible = "lantiq,mei-xrx300";
+		reg = <0xE116000 0x100>;
+		interrupts = <63>;
+	};
+};
+
+&pcie2 {
+	intel,inbound-swap = <0>;
+};

@@ -53,6 +53,11 @@
 /* This inode cares about things that happen to its children.  Always set for
  * dnotify and inotify. */
 #define FS_EVENT_ON_CHILD	0x08000000
+/**
+ * This inode cares about things that happen to its children and their children.
+ * May be configured for inotify by using the IN_RECURSIVE flag.
+ */
+#define FS_EVENT_ON_CHILD_RECURSIVLY	0x10000000
 
 /* This is a list of all events that may get sent to a parernt based on fs event
  * happening to inodes inside that directory */
@@ -60,6 +65,14 @@
 				   FS_CLOSE_WRITE | FS_CLOSE_NOWRITE | FS_OPEN |\
 				   FS_MOVED_FROM | FS_MOVED_TO | FS_CREATE |\
 				   FS_DELETE | FS_OPEN_PERM | FS_ACCESS_PERM)
+
+/**
+ * This is a list of all events that are allowed to propagate recursivly upwards
+ * the dentry tree
+ */
+#define FS_EVENTS_POSS_ON_CHILD_RECURSIVLY   (FS_CLOSE_WRITE | FS_CLOSE_NOWRITE |\
+				   FS_MOVED_FROM | FS_MOVED_TO | FS_CREATE |\
+				   FS_DELETE)
 
 #define FS_MOVE			(FS_MOVED_FROM | FS_MOVED_TO)
 
@@ -72,7 +85,7 @@
 			     FS_UNMOUNT | FS_Q_OVERFLOW | FS_IN_IGNORED | \
 			     FS_OPEN_PERM | FS_ACCESS_PERM | FS_EXCL_UNLINK | \
 			     FS_ISDIR | FS_IN_ONESHOT | FS_DN_RENAME | \
-			     FS_DN_MULTISHOT | FS_EVENT_ON_CHILD)
+			     FS_DN_MULTISHOT | FS_EVENT_ON_CHILD | FS_EVENT_ON_CHILD_RECURSIVLY)
 
 struct fsnotify_group;
 struct fsnotify_event;
@@ -262,12 +275,24 @@ static inline int fsnotify_inode_watches_children(struct inode *inode)
 	return inode->i_fsnotify_mask & FS_EVENTS_POSS_ON_CHILD;
 }
 
+static inline int fsnotify_inode_watches_children_recursivly(struct inode *inode)
+{
+	/* FS_EVENT_ON_CHILD is set if the inode may care */
+	if (!(inode->i_fsnotify_mask & FS_EVENT_ON_CHILD_RECURSIVLY))
+		return 0;
+	/* this inode might care about child events, does it care about the
+	 * specific set of events that can happen on a child? */
+	return inode->i_fsnotify_mask & FS_EVENTS_POSS_ON_CHILD_RECURSIVLY;
+}
+
 /*
  * Update the dentry with a flag indicating the interest of its parent to receive
  * filesystem events when those events happens to this dentry->d_inode.
  */
 static inline void fsnotify_update_flags(struct dentry *dentry)
 {
+	struct dentry *parent;
+
 	assert_spin_locked(&dentry->d_lock);
 
 	/*
@@ -281,6 +306,13 @@ static inline void fsnotify_update_flags(struct dentry *dentry)
 		dentry->d_flags |= DCACHE_FSNOTIFY_PARENT_WATCHED;
 	else
 		dentry->d_flags &= ~DCACHE_FSNOTIFY_PARENT_WATCHED;
+
+	parent = dentry->d_parent;
+	if (parent->d_flags & DCACHE_FSNOTIFY_PARENT_WATCHED_RECURSIVLY
+			|| (parent->d_inode && fsnotify_inode_watches_children_recursivly(parent->d_inode)))
+		dentry->d_flags |= DCACHE_FSNOTIFY_PARENT_WATCHED_RECURSIVLY;
+	else
+		dentry->d_flags &= ~DCACHE_FSNOTIFY_PARENT_WATCHED_RECURSIVLY;
 }
 
 /* called from fsnotify listeners, such as fanotify or dnotify */
@@ -386,6 +418,15 @@ static inline void fsnotify_unmount_inodes(struct super_block *sb)
 {}
 
 #endif	/* CONFIG_FSNOTIFY */
+
+#if defined(CONFIG_FSNOTIFY) && defined(CONFIG_FSNOTIFY_RECURSIVE)
+extern int __fsnotify_parent_recursive(struct path *path, struct dentry *dentry, struct dentry *first_parent, const char* name, __u32 mask, u32 cookie);
+#else
+static inline int __fsnotify_parent_recursive(struct path *path, struct dentry *dentry, struct dentry *first_parent, const char *name, __u32 mask, u32 cookie)
+{
+	return 0;
+}
+#endif
 
 #endif	/* __KERNEL __ */
 

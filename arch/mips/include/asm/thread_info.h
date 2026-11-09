@@ -82,6 +82,11 @@ static inline struct thread_info *current_thread_info(void)
 #define THREAD_SIZE_ORDER (0)
 #endif
 
+#ifdef CONFIG_THREAD_SIZE_ORDER
+#undef THREAD_SIZE_ORDER
+#define THREAD_SIZE_ORDER (CONFIG_THREAD_SIZE_ORDER)
+#endif
+
 #define THREAD_SIZE (PAGE_SIZE << THREAD_SIZE_ORDER)
 #define THREAD_MASK (THREAD_SIZE - 1UL)
 
@@ -102,6 +107,7 @@ static inline struct thread_info *current_thread_info(void)
 #define TIF_UPROBE		6	/* breakpointed or singlestepping */
 #define TIF_RESTORE_SIGMASK	9	/* restore signal mask in do_signal() */
 #define TIF_USEDFPU		16	/* FPU was used by this task this quantum (SMP) */
+#define TIF_YIELDCONTEXT	17	/* If set, we are in non-linux yield-context */
 #define TIF_MEMDIE		18	/* is terminating due to OOM killer */
 #define TIF_NOHZ		19	/* in adaptive nohz mode */
 #define TIF_FIXADE		20	/* Fix address errors in software */
@@ -137,6 +143,7 @@ static inline struct thread_info *current_thread_info(void)
 #define _TIF_USEDMSA		(1<<TIF_USEDMSA)
 #define _TIF_MSA_CTX_LIVE	(1<<TIF_MSA_CTX_LIVE)
 #define _TIF_SYSCALL_TRACEPOINT	(1<<TIF_SYSCALL_TRACEPOINT)
+#define _TIF_YIELDCONTEXT	(1 << TIF_YIELDCONTEXT)
 
 #define _TIF_WORK_SYSCALL_ENTRY	(_TIF_NOHZ | _TIF_SYSCALL_TRACE |	\
 				 _TIF_SYSCALL_AUDIT | \

@@ -31,4 +31,5 @@ static inline void device_tree_init(void) { }
 extern char *mips_get_machine_name(void);
 extern void mips_set_machine_name(const char *name);
 
+#include <asm/prealloc_memory.h>
 #endif /* __ASM_PROM_H */

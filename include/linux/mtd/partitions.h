@@ -41,6 +41,7 @@ struct mtd_partition {
 	uint64_t size;			/* partition size */
 	uint64_t offset;		/* offset within the master MTD space */
 	uint32_t mask_flags;		/* master MTD flags to mask out for this partition */
+	struct device_node *of_node;
 };
 
 #define MTDPART_OFS_RETAIN	(-3)
@@ -101,5 +102,8 @@ int mtd_add_partition(struct mtd_info *master, const char *name,
 		      long long offset, long long length);
 int mtd_del_partition(struct mtd_info *master, int partno);
 uint64_t mtd_get_device_size(const struct mtd_info *mtd);
+
+// AVM/TKL: needed for setting up panic mode
+struct mtd_info *get_mtd_part_master(struct mtd_info *mtd);
 
 #endif

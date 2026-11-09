@@ -860,8 +860,13 @@ void scsi_io_completion(struct scsi_cmnd *cmd, unsigned int good_bytes)
 				/* Detected disc change.  Set a bit
 				 * and quietly refuse further access.
 				 */
+#if defined (CONFIG_AVM_USB_SUSPEND)
+				action = ACTION_DELAYED_RETRY;
+				printk(KERN_INFO "%s(): unit attention - retry\n", __func__);
+#else
 				cmd->device->changed = 1;
 				action = ACTION_FAIL;
+#endif
 			} else {
 				/* Must have been a power glitch, or a
 				 * bus reset.  Could not have been a

@@ -142,6 +142,7 @@ void __iomem * __ioremap(phys_addr_t phys_addr, phys_addr_t size, unsigned long 
 	if (!size || last_addr < phys_addr)
 		return NULL;
 
+#ifndef CONFIG_SOC_GRX500
 	/*
 	 * Map uncached objects in the low 512mb of address space using KSEG1,
 	 * otherwise map using page tables.
@@ -149,6 +150,7 @@ void __iomem * __ioremap(phys_addr_t phys_addr, phys_addr_t size, unsigned long 
 	if (IS_LOW512(phys_addr) && IS_LOW512(last_addr) &&
 	    flags == _CACHE_UNCACHED)
 		return (void __iomem *) CKSEG1ADDR(phys_addr);
+#endif
 
 	/*
 	 * Don't allow anybody to remap RAM that may be allocated by the page
@@ -191,8 +193,10 @@ void __iounmap(const volatile void __iomem *addr)
 {
 	struct vm_struct *p;
 
+#ifndef CONFIG_SOC_GRX500
 	if (IS_KSEG1(addr))
 		return;
+#endif
 
 	p = remove_vm_area((void *) (PAGE_MASK & (unsigned long __force) addr));
 	if (!p)

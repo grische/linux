@@ -42,6 +42,87 @@ struct resource iomem_resource = {
 };
 EXPORT_SYMBOL(iomem_resource);
 
+#ifdef CONFIG_AVM_ENHANCED
+#ifdef CONFIG_MIPS_UR8
+struct resource nwss_tx_queue_resource = { .name = "NWSS Tx Queue",
+					   .start = 0,
+					   .end = 17,
+					   .flags = IORESOURCE_DMA };
+EXPORT_SYMBOL(nwss_tx_queue_resource);
+
+struct resource nwss_tx_completion_queue_resource = {
+	.name = "NWSS Tx Completion Queue",
+	.start = 0,
+	.end = 3,
+	.flags = IORESOURCE_DMA
+};
+EXPORT_SYMBOL(nwss_tx_completion_queue_resource);
+
+struct resource nwss_rx_queue_resource = { .name = "NWSS Rx Queue",
+					   .start = 0,
+					   .end = 7,
+					   .flags = IORESOURCE_DMA };
+EXPORT_SYMBOL(nwss_rx_queue_resource);
+
+struct resource nwss_free_buffer_queue_resource = {
+	.name = "NWSS Free Buffer Descriptor Queue",
+	.start = 0,
+	.end = 3,
+	.flags = IORESOURCE_DMA
+};
+EXPORT_SYMBOL(nwss_free_buffer_queue_resource);
+
+struct resource nwss_free_packet_queue_resource = {
+	.name = "NWSS Free Packet Descriptor Queue",
+	.start = 0,
+	.end = 1,
+	.flags = IORESOURCE_DMA
+};
+EXPORT_SYMBOL(nwss_free_packet_queue_resource);
+
+struct resource timer_resource = { .name = "timer",
+				   .start = 0,
+				   .end = 3,
+				   .flags = IORESOURCE_IO };
+EXPORT_SYMBOL(timer_resource);
+#endif /*--- #ifdef CONFIG_MIPS_UR8 ---*/
+
+struct resource sflash_resource = {
+	.name = "SFLASH",
+	.start = 0,
+	.end = 1024 * 1024,
+	.flags = IORESOURCE_MEM,
+};
+EXPORT_SYMBOL(sflash_resource);
+
+struct resource nand_flash_resource = {
+	.name = "NAND",
+	.start = 0,
+	.end = 1024 * 1024, /*--- Angaben in MByte ---*/
+	.flags = IORESOURCE_MEM,
+};
+EXPORT_SYMBOL(nand_flash_resource);
+
+struct resource avm_gpio_resource = {
+	.name = "gpio",
+	.start = 0,
+#if defined(CONFIG_SOC_QCA955X) || defined(CONFIG_SOC_AR934X) ||               \
+	defined(CONFIG_SOC_QCA953X)
+	.end = 116, /*--- 0..22, Shiftregister: 101..116 ---*/
+#elif defined(CONFIG_ARCH_IPQ806X_DT)
+	.end = 69,
+#else /*--- #if defined (CONFIG_SOC_QCA955X) || defined(CONFIG_SOC_AR934X) ---*/
+	.end = 64,
+#endif /*--- #else ---*/ /*--- #if defined (CONFIG_SOC_QCA955X) || defined(CONFIG_SOC_AR934X) ---*/
+	.flags = IORESOURCE_IO
+};
+EXPORT_SYMBOL(avm_gpio_resource);
+
+extern struct resource gpio_resource __alias(avm_gpio_resource);
+EXPORT_SYMBOL(gpio_resource);
+
+#endif /* CONFIG_AVM_ENHANCED */
+
 /* constraints to be met while allocating resources */
 struct resource_constraint {
 	resource_size_t min, max, align;
@@ -169,15 +250,67 @@ static const struct file_operations proc_iomem_operations = {
 	.release	= seq_release,
 };
 
+#ifdef CONFIG_AVM_ENHANCED
+static int io_avm_gpio_open(struct inode *inode, struct file *file)
+{
+	int res = seq_open(file, &resource_op);
+	if (!res) {
+		struct seq_file *m = file->private_data;
+		m->private = &avm_gpio_resource;
+	}
+	return res;
+}
+
+static struct file_operations proc_gpio_operations = {
+	.open = io_avm_gpio_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+};
+#endif /* CONFIG_AVM_ENHANCED */
+
 static int __init ioresources_init(void)
 {
 	proc_create("ioports", 0, NULL, &proc_ioports_operations);
 	proc_create("iomem", 0, NULL, &proc_iomem_operations);
+
+#ifdef CONFIG_AVM_ENHANCED
+	proc_create("gpio", 0, NULL, &proc_gpio_operations);
+#endif
+
 	return 0;
 }
 __initcall(ioresources_init);
 
 #endif /* CONFIG_PROC_FS */
+
+#ifdef CONFIG_AVM_ENHANCED
+void print_resource_tree(struct resource *root __attribute__((unused)),
+			 unsigned int level __attribute__((unused)))
+{
+#if defined(DEBUG_RESOURCE)
+	static const char *indent[] = { "  ",
+					"    ",
+					"      ",
+					"        ",
+					"          ",
+					"            ",
+					"              ",
+					"                " };
+
+	if (level == 0)
+		printk(KERN_ERR "[resource-tree] ");
+	while (root) {
+		printk(KERN_ERR "%d:%s[%s] (0x%x - 0x%x)\n", level,
+		       indent[level], root->name, root->start, root->end);
+		if (root->child) {
+			print_resource_tree(root->child, level + 1);
+		}
+		root = root->sibling;
+	}
+#endif /*--- #if defined(DEBUG_RESOURCE) ---*/
+}
+#endif
 
 static void free_resource(struct resource *res)
 {
@@ -219,13 +352,33 @@ static struct resource * __request_resource(struct resource *root, struct resour
 	resource_size_t start = new->start;
 	resource_size_t end = new->end;
 	struct resource *tmp, **p;
+#if defined(CONFIG_AVM_ENHANCED) && defined(DEBUG_RESOURCE)
+	const int debug_resource = 1;
+#else
+	const int debug_resource = 0;
+#endif
 
-	if (end < start)
+	if (end < start) {
+		if (debug_resource)
+			pr_err("[request_resource] %s: end 0x%x < start "
+			       "0x%x\n",
+			       new->name, end, start);
 		return root;
-	if (start < root->start)
+	}
+	if (start < root->start) {
+		if (debug_resource)
+			pr_err("[request_resource] %s: start 0x%x < root->start "
+			       "0x%x\n",
+			       new->name, start, root->start);
 		return root;
-	if (end > root->end)
+	}
+	if (end > root->end) {
+		if (debug_resource)
+			pr_err("[request_resource] %s: end 0x%x > root->end "
+			       "0x%x\n",
+			       new->name, end, root->end);
 		return root;
+	}
 	p = &root->child;
 	for (;;) {
 		tmp = *p;

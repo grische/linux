@@ -48,6 +48,9 @@
 #include <asm/div64.h>
 #include <asm/timex.h>
 #include <asm/io.h>
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+#include <linux/avm_profile.h>
+#endif
 
 #include "tick-internal.h"
 
@@ -1315,9 +1318,17 @@ static void call_timer_fn(struct timer_list *timer, void (*fn)(unsigned long),
 	 */
 	lock_map_acquire(&lockdep_map);
 
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_timer_begin,
+				 (unsigned long)fn, (unsigned int)data);
+#endif /*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING) ---*/
 	trace_timer_expire_entry(timer);
 	fn(data);
 	trace_timer_expire_exit(timer);
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_timer_end,
+				 (unsigned long)fn, (unsigned int)data);
+#endif /*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING) ---*/
 
 	lock_map_release(&lockdep_map);
 

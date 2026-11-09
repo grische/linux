@@ -1,0 +1,724 @@
+digraph structs {
+	compound=true;
+	rankdir=TB;
+	node [shape=record];
+	subgraph cluster_struct__avm_event_ambient_brightness{
+		fontcolor = "red";
+		label = "struct _avm_event_ambient_brightness";
+		struct__avm_event_ambient_brightness [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<value> unsigned int: value|<maxvalue> unsigned int: maxvalue}"];
+	};
+	subgraph cluster_struct__avm_event_checkpoint{
+		fontcolor = "red";
+		label = "struct _avm_event_checkpoint";
+		struct__avm_event_checkpoint [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<node_id> uint32_t: node_id|<checkpoints> uint64_t: checkpoints}"];
+	};
+	subgraph cluster_struct__avm_event_cmd{
+		fontcolor = "red";
+		label = "struct _avm_event_cmd";
+		struct__avm_event_cmd [fontcolor="green",shape=record,label="{ <cmd> enum __avm_event_cmd: cmd|<param> union _avm_event_cmd_param: param}"];
+	};
+	subgraph cluster_struct__avm_event_cmd_param_register{
+		fontcolor = "red";
+		label = "struct _avm_event_cmd_param_register";
+		struct__avm_event_cmd_param_register [fontcolor="green",shape=record,label="{ <mask> struct _avm_event_id_mask: mask|<Name> char: Name}"];
+	};
+	subgraph cluster_struct__avm_event_cmd_param_release{
+		fontcolor = "red";
+		label = "struct _avm_event_cmd_param_release";
+		struct__avm_event_cmd_param_release [fontcolor="green",shape=record,label="{ <Name> char: Name}"];
+	};
+	subgraph cluster_struct__avm_event_cmd_param_source_trigger{
+		fontcolor = "red";
+		label = "struct _avm_event_cmd_param_source_trigger";
+		struct__avm_event_cmd_param_source_trigger [fontcolor="green",shape=record,label="{ <id> enum _avm_event_id: id|<data_length> unsigned int: data_length}"];
+	};
+	subgraph cluster_struct__avm_event_cmd_param_trigger{
+		fontcolor = "red";
+		label = "struct _avm_event_cmd_param_trigger";
+		struct__avm_event_cmd_param_trigger [fontcolor="green",shape=record,label="{ <id> enum _avm_event_id: id}"];
+	};
+	subgraph cluster_struct__avm_event_cpu_idle{
+		fontcolor = "red";
+		label = "struct _avm_event_cpu_idle";
+		struct__avm_event_cpu_idle [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<cpu_idle> unsigned char: cpu_idle|<dsl_dsp_idle> unsigned char: dsl_dsp_idle|<voice_dsp_idle> unsigned char: voice_dsp_idle|<mem_strictlyused> unsigned char: mem_strictlyused|<mem_cacheused> unsigned char: mem_cacheused|<mem_physfree> unsigned char: mem_physfree|<cputype> enum _cputype: cputype}"];
+	};
+	subgraph cluster_struct__avm_event_cpu_run{
+		fontcolor = "red";
+		label = "struct _avm_event_cpu_run";
+		struct__avm_event_cpu_run [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<cputype> enum _cputype: cputype|<cpu_run> unsigned char: cpu_run}"];
+	};
+	subgraph cluster_struct__avm_event_fax_file{
+		fontcolor = "red";
+		label = "struct _avm_event_fax_file";
+		struct__avm_event_fax_file [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<action> enum fax_file_event_type: action|<date> time_t: date}"];
+	};
+	subgraph cluster_struct__avm_event_fax_status{
+		fontcolor = "red";
+		label = "struct _avm_event_fax_status";
+		struct__avm_event_fax_status [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<fax_receive_mode> enum fax_receive_mode: fax_receive_mode|<fax_storage_dest> enum fax_storage_dest: fax_storage_dest|<dirname_length> unsigned int: dirname_length|<dirname> unsigned char: dirname}"];
+	};
+	subgraph cluster_struct__avm_event_firmware_update_available{
+		fontcolor = "red";
+		label = "struct _avm_event_firmware_update_available";
+		struct__avm_event_firmware_update_available [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<type> enum avm_event_firmware_type: type|<version_length> unsigned int: version_length|<version> unsigned char: version}"];
+	};
+	subgraph cluster_struct__avm_event_header{
+		fontcolor = "red";
+		label = "struct _avm_event_header";
+		struct__avm_event_header [fontcolor="green",shape=record,label="{ <id> enum _avm_event_id: id}"];
+	};
+	subgraph cluster_struct__avm_event_id_mask{
+		fontcolor = "red";
+		label = "struct _avm_event_id_mask";
+		struct__avm_event_id_mask [fontcolor="green",shape=record,label="{ <mask> avm_event_mask_fieldentry: mask}"];
+	};
+	subgraph cluster_struct__avm_event_internet_new_ip{
+		fontcolor = "red";
+		label = "struct _avm_event_internet_new_ip";
+		struct__avm_event_internet_new_ip [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<sel> enum avm_event_internet_new_ip_param_sel: sel\n(Select-Key for next union)|<params> union avm_event_internet_new_ip_param: params\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct__avm_event_led_info{
+		fontcolor = "red";
+		label = "struct _avm_event_led_info";
+		struct__avm_event_led_info [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<mode> unsigned int: mode|<param1> unsigned int: param1|<param2> unsigned int: param2|<gpio_driver_type> unsigned int: gpio_driver_type|<gpio> unsigned int: gpio|<pos> unsigned int: pos|<name> char: name}"];
+	};
+	subgraph cluster_struct__avm_event_led_status{
+		fontcolor = "red";
+		label = "struct _avm_event_led_status";
+		struct__avm_event_led_status [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<led> enum _led_event: led|<state> unsigned int: state|<param_len> unsigned int: param_len|<params> unsigned char: params}"];
+	};
+	subgraph cluster_struct__avm_event_log{
+		fontcolor = "red";
+		label = "struct _avm_event_log";
+		struct__avm_event_log [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<logtype> enum _avm_logtype: logtype|<loglen> unsigned int: loglen|<logpointer> unsigned int: logpointer|<checksum> unsigned int: checksum|<rebootflag> unsigned int: rebootflag}"];
+	};
+	subgraph cluster_struct__avm_event_mass_storage_mount{
+		fontcolor = "red";
+		label = "struct _avm_event_mass_storage_mount";
+		struct__avm_event_mass_storage_mount [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<size> unsigned long long: size|<free> unsigned long long: free|<name_length> unsigned int: name_length|<name> unsigned char: name}"];
+	};
+	subgraph cluster_struct__avm_event_mass_storage_unmount{
+		fontcolor = "red";
+		label = "struct _avm_event_mass_storage_unmount";
+		struct__avm_event_mass_storage_unmount [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<name_length> unsigned int: name_length|<name> unsigned char: name}"];
+	};
+	subgraph cluster_struct__avm_event_piglet{
+		fontcolor = "red";
+		label = "struct _avm_event_piglet";
+		struct__avm_event_piglet [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<type> enum _avm_piglettype: type}"];
+	};
+	subgraph cluster_struct__avm_event_pm_info_stat{
+		fontcolor = "red";
+		label = "struct _avm_event_pm_info_stat";
+		struct__avm_event_pm_info_stat [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<reserved1> unsigned char: reserved1|<rate_sumact> unsigned char: rate_sumact|<rate_sumcum> unsigned char: rate_sumcum|<rate_systemact> unsigned char: rate_systemact|<rate_systemcum> unsigned char: rate_systemcum|<system_status> unsigned char: system_status|<rate_dspact> unsigned char: rate_dspact|<rate_dspcum> unsigned char: rate_dspcum|<rate_wlanact> unsigned char: rate_wlanact|<rate_wlancum> unsigned char: rate_wlancum|<wlan_devices> unsigned char: wlan_devices|<wlan_status> unsigned char: wlan_status|<rate_ethact> unsigned char: rate_ethact|<rate_ethcum> unsigned char: rate_ethcum|<eth_status> unsigned short: eth_status|<rate_abact> unsigned char: rate_abact|<rate_abcum> unsigned char: rate_abcum|<isdn_status> unsigned short: isdn_status|<rate_dectact> unsigned char: rate_dectact|<rate_dectcum> unsigned char: rate_dectcum|<rate_battchargeact> unsigned char: rate_battchargeact|<rate_battchargecum> unsigned char: rate_battchargecum|<dect_status> unsigned char: dect_status|<rate_usbhostact> unsigned char: rate_usbhostact|<rate_usbhostcum> unsigned char: rate_usbhostcum|<usb_status> unsigned char: usb_status|<act_temperature> signed char: act_temperature|<min_temperature> signed char: min_temperature|<max_temperature> signed char: max_temperature|<avg_temperature> signed char: avg_temperature|<rate_lteact> unsigned char: rate_lteact|<rate_ltecum> unsigned char: rate_ltecum|<rate_dvbcact> unsigned char: rate_dvbcact|<rate_dvbccum> unsigned char: rate_dvbccum|<rate_plcact> unsigned char: rate_plcact|<rate_plccum> unsigned char: rate_plccum}"];
+	};
+	subgraph cluster_struct__avm_event_powerline_status{
+		fontcolor = "red";
+		label = "struct _avm_event_powerline_status";
+		struct__avm_event_powerline_status [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<status> enum ePLCState: status}"];
+	};
+	subgraph cluster_struct__avm_event_powermanagment_remote{
+		fontcolor = "red";
+		label = "struct _avm_event_powermanagment_remote";
+		struct__avm_event_powermanagment_remote [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<remote_action> enum avm_event_powermanagment_remote_action: remote_action\n(Select-Key for next union)|<param> union avm_event_powermanagment_remote_union: param\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct__avm_event_powermanagment_remote_ressourceinfo{
+		fontcolor = "red";
+		label = "struct _avm_event_powermanagment_remote_ressourceinfo";
+		struct__avm_event_powermanagment_remote_ressourceinfo [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<device> enum _powermanagment_device: device|<power_rate> unsigned int: power_rate}"];
+	};
+	subgraph cluster_struct__avm_event_powermanagment_status{
+		fontcolor = "red";
+		label = "struct _avm_event_powermanagment_status";
+		struct__avm_event_powermanagment_status [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<substatus> enum _powermanagment_status_type: substatus\n(Select-Key for next union)|<param> union __powermanagment_status_union: param\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct__avm_event_push_button{
+		fontcolor = "red";
+		label = "struct _avm_event_push_button";
+		struct__avm_event_push_button [fontcolor="green",shape=record,label="{ <id> enum _avm_event_id: id|<key> enum _avm_event_push_button_key: key|<pressed> uint32_t: pressed}"];
+	};
+	subgraph cluster_struct__avm_event_remotepcmlink{
+		fontcolor = "red";
+		label = "struct _avm_event_remotepcmlink";
+		struct__avm_event_remotepcmlink [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<type> enum _avm_remotepcmlinktype: type|<sharedlen> unsigned int: sharedlen|<sharedpointer> unsigned int: sharedpointer}"];
+	};
+	subgraph cluster_struct__avm_event_remotewatchdog{
+		fontcolor = "red";
+		label = "struct _avm_event_remotewatchdog";
+		struct__avm_event_remotewatchdog [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<cmd> enum _avm_remote_wdt_cmd: cmd|<name> char: name|<param> unsigned int: param}"];
+	};
+	subgraph cluster_struct__avm_event_rpc{
+		fontcolor = "red";
+		label = "struct _avm_event_rpc";
+		struct__avm_event_rpc [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<type> enum _avm_rpctype: type|<id> unsigned int: id|<length> unsigned int: length|<message> unsigned char: message}"];
+	};
+	subgraph cluster_struct__avm_event_smarthome{
+		fontcolor = "red";
+		label = "struct _avm_event_smarthome";
+		struct__avm_event_smarthome [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<length> uint16_t: length|<ident> char: ident|<type> uint16_t: type|<payload> struct {}: payload}"];
+	};
+	subgraph cluster_struct__avm_event_smarthome_switch_status{
+		fontcolor = "red";
+		label = "struct _avm_event_smarthome_switch_status";
+		struct__avm_event_smarthome_switch_status [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<type> enum avm_event_switch_type: type|<value> unsigned int: value|<ain_length> unsigned int: ain_length|<ain> unsigned char: ain}"];
+	};
+	subgraph cluster_struct__avm_event_telefonprofile{
+		fontcolor = "red";
+		label = "struct _avm_event_telefonprofile";
+		struct__avm_event_telefonprofile [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<on> unsigned int: on}"];
+	};
+	subgraph cluster_struct__avm_event_telephony_missed_call{
+		fontcolor = "red";
+		label = "struct _avm_event_telephony_missed_call";
+		struct__avm_event_telephony_missed_call [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<length> unsigned int: length|<p> struct _avm_event_telephony_missed_call_params: p}"];
+	};
+	subgraph cluster_struct__avm_event_telephony_missed_call_params{
+		fontcolor = "red";
+		label = "struct _avm_event_telephony_missed_call_params";
+		struct__avm_event_telephony_missed_call_params [fontcolor="green",shape=record,label="{ <id> enum avm_event_telephony_param_sel: id\n(Select-Key for next union)|<params> union avm_event_telephony_call_params: params\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct__avm_event_temperature{
+		fontcolor = "red";
+		label = "struct _avm_event_temperature";
+		struct__avm_event_temperature [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<temperature> int: temperature}"];
+	};
+	subgraph cluster_struct__avm_event_user_mode_source_notify{
+		fontcolor = "red";
+		label = "struct _avm_event_user_mode_source_notify";
+		struct__avm_event_user_mode_source_notify [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<id> enum _avm_event_id: id}"];
+	};
+	subgraph cluster_struct__avm_event_wlan{
+		fontcolor = "red";
+		label = "struct _avm_event_wlan";
+		struct__avm_event_wlan [fontcolor="green",shape=record,label="{ <header> struct _avm_event_header: header|<mac> char: mac|<u1> unsigned int: u1|<event> unsigned int: event|<info> unsigned int: info|<status> unsigned int: status|<u2> unsigned int: u2|<if_name> char: if_name|<ev_initiator> unsigned int: ev_initiator|<ev_reason> unsigned int: ev_reason|<avm_capabilities> unsigned int: avm_capabilities|<u3> unsigned int: u3|<credentials> struct avm_event_wlan_credentials: credentials}"];
+	};
+	subgraph cluster_struct__cpmac_event_struct{
+		fontcolor = "red";
+		label = "struct _cpmac_event_struct";
+		struct__cpmac_event_struct [fontcolor="green",shape=record,label="{ <ports> unsigned int: ports|<port> struct cpmac_port: port}"];
+	};
+	subgraph cluster_struct_avm_event_ambient_brightness{
+		fontcolor = "red";
+		label = "struct avm_event_ambient_brightness";
+		struct_avm_event_ambient_brightness [fontcolor="green",shape=record,label="{ <value> unsigned int: value|<maxvalue> unsigned int: maxvalue}"];
+	};
+	subgraph cluster_struct_avm_event_boykott{
+		fontcolor = "red";
+		label = "struct avm_event_boykott";
+		struct_avm_event_boykott [fontcolor="green",shape=record,label="{ <dummy> struct {}: dummy}"];
+	};
+	subgraph cluster_struct_avm_event_checkpoint{
+		fontcolor = "red";
+		label = "struct avm_event_checkpoint";
+		struct_avm_event_checkpoint [fontcolor="green",shape=record,label="{ <node_id> uint32_t: node_id|<checkpoints> uint64_t: checkpoints}"];
+	};
+	subgraph cluster_struct_avm_event_cpu_idle{
+		fontcolor = "red";
+		label = "struct avm_event_cpu_idle";
+		struct_avm_event_cpu_idle [fontcolor="green",shape=record,label="{ <cpu_idle> unsigned char: cpu_idle|<dsl_dsp_idle> unsigned char: dsl_dsp_idle|<voice_dsp_idle> unsigned char: voice_dsp_idle|<mem_strictlyused> unsigned char: mem_strictlyused|<mem_cacheused> unsigned char: mem_cacheused|<mem_physfree> unsigned char: mem_physfree|<cputype> enum _cputype: cputype}"];
+	};
+	subgraph cluster_struct_avm_event_cpu_run{
+		fontcolor = "red";
+		label = "struct avm_event_cpu_run";
+		struct_avm_event_cpu_run [fontcolor="green",shape=record,label="{ <cputype> enum _cputype: cputype|<cpu_run> unsigned char: cpu_run}"];
+	};
+	subgraph cluster_struct_avm_event_data{
+		fontcolor = "red";
+		label = "struct avm_event_data";
+		struct_avm_event_data [fontcolor="green",shape=record,label="{ <id> enum _avm_event_id: id\n(Select-Key for next union)|<data> union avm_event_data_union: data\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct_avm_event_fax_file{
+		fontcolor = "red";
+		label = "struct avm_event_fax_file";
+		struct_avm_event_fax_file [fontcolor="green",shape=record,label="{ <action> enum fax_file_event_type: action|<date> time_t: date}"];
+	};
+	subgraph cluster_struct_avm_event_fax_status{
+		fontcolor = "red";
+		label = "struct avm_event_fax_status";
+		struct_avm_event_fax_status [fontcolor="green",shape=record,label="{ <fax_receive_mode> enum fax_receive_mode: fax_receive_mode|<fax_storage_dest> enum fax_storage_dest: fax_storage_dest|<dirname_length> unsigned int: dirname_length|<dirname> unsigned char: dirname}"];
+	};
+	subgraph cluster_struct_avm_event_firmware_update_available{
+		fontcolor = "red";
+		label = "struct avm_event_firmware_update_available";
+		struct_avm_event_firmware_update_available [fontcolor="green",shape=record,label="{ <type> enum avm_event_firmware_type: type|<version_length> unsigned int: version_length|<version> unsigned char: version}"];
+	};
+	subgraph cluster_struct_avm_event_internet_new_ip{
+		fontcolor = "red";
+		label = "struct avm_event_internet_new_ip";
+		struct_avm_event_internet_new_ip [fontcolor="green",shape=record,label="{ <sel> enum avm_event_internet_new_ip_param_sel: sel\n(Select-Key for next union)|<params> union avm_event_internet_new_ip_param: params\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct_avm_event_led_info{
+		fontcolor = "red";
+		label = "struct avm_event_led_info";
+		struct_avm_event_led_info [fontcolor="green",shape=record,label="{ <mode> unsigned int: mode|<param1> unsigned int: param1|<param2> unsigned int: param2|<gpio_driver_type> unsigned int: gpio_driver_type|<gpio> unsigned int: gpio|<pos> unsigned int: pos|<name> char: name}"];
+	};
+	subgraph cluster_struct_avm_event_led_status{
+		fontcolor = "red";
+		label = "struct avm_event_led_status";
+		struct_avm_event_led_status [fontcolor="green",shape=record,label="{ <led> enum _led_event: led|<state> unsigned int: state|<param_len> unsigned int: param_len|<params> unsigned char: params}"];
+	};
+	subgraph cluster_struct_avm_event_log{
+		fontcolor = "red";
+		label = "struct avm_event_log";
+		struct_avm_event_log [fontcolor="green",shape=record,label="{ <logtype> enum _avm_logtype: logtype|<loglen> unsigned int: loglen|<logpointer> unsigned int: logpointer|<checksum> unsigned int: checksum|<rebootflag> unsigned int: rebootflag}"];
+	};
+	subgraph cluster_struct_avm_event_mass_storage_mount{
+		fontcolor = "red";
+		label = "struct avm_event_mass_storage_mount";
+		struct_avm_event_mass_storage_mount [fontcolor="green",shape=record,label="{ <size> unsigned long long: size|<free> unsigned long long: free|<name_length> unsigned int: name_length|<name> unsigned char: name}"];
+	};
+	subgraph cluster_struct_avm_event_mass_storage_unmount{
+		fontcolor = "red";
+		label = "struct avm_event_mass_storage_unmount";
+		struct_avm_event_mass_storage_unmount [fontcolor="green",shape=record,label="{ <name_length> unsigned int: name_length|<name> unsigned char: name}"];
+	};
+	subgraph cluster_struct_avm_event_message{
+		fontcolor = "red";
+		label = "struct avm_event_message";
+		struct_avm_event_message [fontcolor="green",shape=record,label="{ <length> uint32_t: length\n(length for total)|<magic> uint32_t: magic|<nonce> uint32_t: nonce|<flags> uint32_t: flags|<result> int32_t: result|<transmitter_handle> uint32_t: transmitter_handle|<receiver_handle> uint32_t: receiver_handle|<type> enum avm_event_msg_type: type\n(Select-Key for next union)|<message> union avm_event_message_union: message\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct_avm_event_piglet{
+		fontcolor = "red";
+		label = "struct avm_event_piglet";
+		struct_avm_event_piglet [fontcolor="green",shape=record,label="{ <type> enum _avm_piglettype: type}"];
+	};
+	subgraph cluster_struct_avm_event_ping{
+		fontcolor = "red";
+		label = "struct avm_event_ping";
+		struct_avm_event_ping [fontcolor="green",shape=record,label="{ <seq> uint32_t: seq}"];
+	};
+	subgraph cluster_struct_avm_event_pm_info_stat{
+		fontcolor = "red";
+		label = "struct avm_event_pm_info_stat";
+		struct_avm_event_pm_info_stat [fontcolor="green",shape=record,label="{ <reserved1> unsigned char: reserved1|<rate_sumact> unsigned char: rate_sumact|<rate_sumcum> unsigned char: rate_sumcum|<rate_systemact> unsigned char: rate_systemact|<rate_systemcum> unsigned char: rate_systemcum|<system_status> unsigned char: system_status|<rate_dspact> unsigned char: rate_dspact|<rate_dspcum> unsigned char: rate_dspcum|<rate_wlanact> unsigned char: rate_wlanact|<rate_wlancum> unsigned char: rate_wlancum|<wlan_devices> unsigned char: wlan_devices|<wlan_status> unsigned char: wlan_status|<rate_ethact> unsigned char: rate_ethact|<rate_ethcum> unsigned char: rate_ethcum|<eth_status> unsigned short: eth_status|<rate_abact> unsigned char: rate_abact|<rate_abcum> unsigned char: rate_abcum|<isdn_status> unsigned short: isdn_status|<rate_dectact> unsigned char: rate_dectact|<rate_dectcum> unsigned char: rate_dectcum|<rate_battchargeact> unsigned char: rate_battchargeact|<rate_battchargecum> unsigned char: rate_battchargecum|<dect_status> unsigned char: dect_status|<rate_usbhostact> unsigned char: rate_usbhostact|<rate_usbhostcum> unsigned char: rate_usbhostcum|<usb_status> unsigned char: usb_status|<act_temperature> signed char: act_temperature|<min_temperature> signed char: min_temperature|<max_temperature> signed char: max_temperature|<avg_temperature> signed char: avg_temperature|<rate_lteact> unsigned char: rate_lteact|<rate_ltecum> unsigned char: rate_ltecum|<rate_dvbcact> unsigned char: rate_dvbcact|<rate_dvbccum> unsigned char: rate_dvbccum|<rate_plcact> unsigned char: rate_plcact|<rate_plccum> unsigned char: rate_plccum}"];
+	};
+	subgraph cluster_struct_avm_event_powerline_status{
+		fontcolor = "red";
+		label = "struct avm_event_powerline_status";
+		struct_avm_event_powerline_status [fontcolor="green",shape=record,label="{ <status> enum ePLCState: status}"];
+	};
+	subgraph cluster_struct_avm_event_powermanagment_remote{
+		fontcolor = "red";
+		label = "struct avm_event_powermanagment_remote";
+		struct_avm_event_powermanagment_remote [fontcolor="green",shape=record,label="{ <remote_action> enum avm_event_powermanagment_remote_action: remote_action\n(Select-Key for next union)|<param> union avm_event_powermanagment_remote_union: param\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct_avm_event_powermanagment_remote_ressourceinfo{
+		fontcolor = "red";
+		label = "struct avm_event_powermanagment_remote_ressourceinfo";
+		struct_avm_event_powermanagment_remote_ressourceinfo [fontcolor="green",shape=record,label="{ <device> enum _powermanagment_device: device|<power_rate> unsigned int: power_rate}"];
+	};
+	subgraph cluster_struct_avm_event_powermanagment_status{
+		fontcolor = "red";
+		label = "struct avm_event_powermanagment_status";
+		struct_avm_event_powermanagment_status [fontcolor="green",shape=record,label="{ <substatus> enum _powermanagment_status_type: substatus\n(Select-Key for next union)|<param> union __powermanagment_status_union: param\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct_avm_event_push_button{
+		fontcolor = "red";
+		label = "struct avm_event_push_button";
+		struct_avm_event_push_button [fontcolor="green",shape=record,label="{ <key> enum _avm_event_push_button_key: key|<pressed> uint32_t: pressed}"];
+	};
+	subgraph cluster_struct_avm_event_remote_source_trigger_request{
+		fontcolor = "red";
+		label = "struct avm_event_remote_source_trigger_request";
+		struct_avm_event_remote_source_trigger_request [fontcolor="green",shape=record,label="{ <data> struct avm_event_data: data}"];
+	};
+	subgraph cluster_struct_avm_event_remotepcmlink{
+		fontcolor = "red";
+		label = "struct avm_event_remotepcmlink";
+		struct_avm_event_remotepcmlink [fontcolor="green",shape=record,label="{ <type> enum _avm_remotepcmlinktype: type|<sharedlen> unsigned int: sharedlen|<sharedpointer> unsigned int: sharedpointer}"];
+	};
+	subgraph cluster_struct_avm_event_remotewatchdog{
+		fontcolor = "red";
+		label = "struct avm_event_remotewatchdog";
+		struct_avm_event_remotewatchdog [fontcolor="green",shape=record,label="{ <cmd> enum _avm_remote_wdt_cmd: cmd|<name> char: name|<param> unsigned int: param}"];
+	};
+	subgraph cluster_struct_avm_event_rpc{
+		fontcolor = "red";
+		label = "struct avm_event_rpc";
+		struct_avm_event_rpc [fontcolor="green",shape=record,label="{ <type> enum _avm_rpctype: type|<id> unsigned int: id|<length> unsigned int: length|<message> unsigned char: message}"];
+	};
+	subgraph cluster_struct_avm_event_smarthome{
+		fontcolor = "red";
+		label = "struct avm_event_smarthome";
+		struct_avm_event_smarthome [fontcolor="green",shape=record,label="{ <length> uint16_t: length|<ident> char: ident|<type> uint16_t: type|<payload> struct {}: payload}"];
+	};
+	subgraph cluster_struct_avm_event_smarthome_switch_status{
+		fontcolor = "red";
+		label = "struct avm_event_smarthome_switch_status";
+		struct_avm_event_smarthome_switch_status [fontcolor="green",shape=record,label="{ <type> enum avm_event_switch_type: type|<value> unsigned int: value|<ain_length> unsigned int: ain_length|<ain> unsigned char: ain}"];
+	};
+	subgraph cluster_struct_avm_event_source_notifier{
+		fontcolor = "red";
+		label = "struct avm_event_source_notifier";
+		struct_avm_event_source_notifier [fontcolor="green",shape=record,label="{ <id> enum _avm_event_id: id}"];
+	};
+	subgraph cluster_struct_avm_event_source_register{
+		fontcolor = "red";
+		label = "struct avm_event_source_register";
+		struct_avm_event_source_register [fontcolor="green",shape=record,label="{ <id_mask> struct _avm_event_id_mask: id_mask|<name> char: name}"];
+	};
+	subgraph cluster_struct_avm_event_source_unregister{
+		fontcolor = "red";
+		label = "struct avm_event_source_unregister";
+		struct_avm_event_source_unregister [fontcolor="green",shape=record,label="{ <id_mask> struct _avm_event_id_mask: id_mask|<name> char: name}"];
+	};
+	subgraph cluster_struct_avm_event_telefon_up{
+		fontcolor = "red";
+		label = "struct avm_event_telefon_up";
+		struct_avm_event_telefon_up [fontcolor="green",shape=record,label="{ <dummy> struct {}: dummy}"];
+	};
+	subgraph cluster_struct_avm_event_telefonprofile{
+		fontcolor = "red";
+		label = "struct avm_event_telefonprofile";
+		struct_avm_event_telefonprofile [fontcolor="green",shape=record,label="{ <on> unsigned int: on}"];
+	};
+	subgraph cluster_struct_avm_event_telephony_missed_call{
+		fontcolor = "red";
+		label = "struct avm_event_telephony_missed_call";
+		struct_avm_event_telephony_missed_call [fontcolor="green",shape=record,label="{ <length> unsigned int: length|<p> struct _avm_event_telephony_missed_call_params: p}"];
+	};
+	subgraph cluster_struct_avm_event_telephony_string{
+		fontcolor = "red";
+		label = "struct avm_event_telephony_string";
+		struct_avm_event_telephony_string [fontcolor="green",shape=record,label="{ <length> unsigned int: length|<string> unsigned char: string}"];
+	};
+	subgraph cluster_struct_avm_event_temperature{
+		fontcolor = "red";
+		label = "struct avm_event_temperature";
+		struct_avm_event_temperature [fontcolor="green",shape=record,label="{ <temperature> int: temperature}"];
+	};
+	subgraph cluster_struct_avm_event_tffs{
+		fontcolor = "red";
+		label = "struct avm_event_tffs";
+		struct_avm_event_tffs [fontcolor="green",shape=record,label="{ <src_id> uint32_t: src_id|<dst_id> uint32_t: dst_id|<seq_nr> uint32_t: seq_nr|<ack> uint32_t: ack|<srv_handle> uint64_t: srv_handle|<clt_handle> uint64_t: clt_handle|<result> int32_t: result|<type> enum avm_event_tffs_call_type: type\n(Select-Key for next union)|<call> union avm_event_tffs_call_union: call\n(Select-Key used here)}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_cleanup{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_cleanup";
+		struct_avm_event_tffs_cleanup [fontcolor="green",shape=record,label="{ <dummy> uint32_t: dummy}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_close{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_close";
+		struct_avm_event_tffs_close [fontcolor="green",shape=record,label="{ <dummy> uint32_t: dummy}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_deinit{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_deinit";
+		struct_avm_event_tffs_deinit [fontcolor="green",shape=record,label="{ <dummy> uint32_t: dummy}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_info{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_info";
+		struct_avm_event_tffs_info [fontcolor="green",shape=record,label="{ <fill_level> uint32_t: fill_level}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_init{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_init";
+		struct_avm_event_tffs_init [fontcolor="green",shape=record,label="{ <mem_offset> int64_t: mem_offset|<max_seg_size> uint32_t: max_seg_size}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_notify{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_notify";
+		struct_avm_event_tffs_notify [fontcolor="green",shape=record,label="{ <id> uint32_t: id|<event> enum avm_event_tffs_notify_event: event}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_open{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_open";
+		struct_avm_event_tffs_open [fontcolor="green",shape=record,label="{ <id> uint32_t: id|<mode> enum avm_event_tffs_open_mode: mode|<max_segment_size> uint32_t: max_segment_size}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_paniclog{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_paniclog";
+		struct_avm_event_tffs_paniclog [fontcolor="green",shape=record,label="{ <buff_addr> uint64_t: buff_addr|<len> uint64_t: len|<crc> int32_t: crc}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_read{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_read";
+		struct_avm_event_tffs_read [fontcolor="green",shape=record,label="{ <buff_addr> uint64_t: buff_addr|<len> uint64_t: len|<id> uint32_t: id|<crc> int32_t: crc}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_reindex{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_reindex";
+		struct_avm_event_tffs_reindex [fontcolor="green",shape=record,label="{ <dummy> uint32_t: dummy}"];
+	};
+	subgraph cluster_struct_avm_event_tffs_write{
+		fontcolor = "red";
+		label = "struct avm_event_tffs_write";
+		struct_avm_event_tffs_write [fontcolor="green",shape=record,label="{ <buff_addr> uint64_t: buff_addr|<len> uint64_t: len|<id> uint32_t: id|<final> uint32_t: final|<crc> int32_t: crc}"];
+	};
+	subgraph cluster_struct_avm_event_unserialised{
+		fontcolor = "red";
+		label = "struct avm_event_unserialised";
+		struct_avm_event_unserialised [fontcolor="green",shape=record,label="{ <evnt_id> uint64_t: evnt_id|<data_len> uint32_t: data_len|<data> unsigned char: data}"];
+	};
+	subgraph cluster_struct_avm_event_user_mode_source_notify{
+		fontcolor = "red";
+		label = "struct avm_event_user_mode_source_notify";
+		struct_avm_event_user_mode_source_notify [fontcolor="green",shape=record,label="{ <id> enum _avm_event_id: id}"];
+	};
+	subgraph cluster_struct_avm_event_wlan{
+		fontcolor = "red";
+		label = "struct avm_event_wlan";
+		struct_avm_event_wlan [fontcolor="green",shape=record,label="{ <mac> char: mac|<u1> union avm_event_wlan_client_status_u1: u1|<event> wlan_event: event|<info> wlan_info: info|<status> enum wlan_sm_states: status|<u2> union avm_event_wlan_client_status_u2: u2|<if_name> char: if_name|<ev_initiator> unsigned int: ev_initiator|<ev_reason> unsigned int: ev_reason|<avm_capabilities> unsigned int: avm_capabilities|<u3> union avm_event_wlan_client_status_u3: u3|<credentials> struct avm_event_wlan_credentials: credentials}"];
+	};
+	subgraph cluster_struct_avm_event_wlan_credentials{
+		fontcolor = "red";
+		label = "struct avm_event_wlan_credentials";
+		struct_avm_event_wlan_credentials [fontcolor="green",shape=record,label="{ <ssid> char: ssid|<bssid> unsigned char: bssid|<key> char: key|<security> unsigned int: security}"];
+	};
+	subgraph cluster_struct_avm_event_wlan_power{
+		fontcolor = "red";
+		label = "struct avm_event_wlan_power";
+		struct_avm_event_wlan_power [fontcolor="green",shape=record,label="{ <power> unsigned int: power}"];
+	};
+	subgraph cluster_struct_cpmac_event_struct{
+		fontcolor = "red";
+		label = "struct cpmac_event_struct";
+		struct_cpmac_event_struct [fontcolor="green",shape=record,label="{ <event_header> struct _avm_event_header: event_header|<ports> unsigned int: ports|<port> struct cpmac_port: port}"];
+	};
+	subgraph cluster_struct_cpmac_port{
+		fontcolor = "red";
+		label = "struct cpmac_port";
+		struct_cpmac_port [fontcolor="green",shape=record,label="{ <cable> uint8_t: cable|<link> uint8_t: link|<speed100> uint8_t: speed100|<fullduplex> uint8_t: fullduplex|<speed> enum _avm_event_ethernet_speed: speed|<maxspeed> enum _avm_event_ethernet_speed: maxspeed}"];
+	};
+	subgraph cluster_struct_wlan_event_data_client_common{
+		fontcolor = "red";
+		label = "struct wlan_event_data_client_common";
+		struct_wlan_event_data_client_common [fontcolor="green",shape=record,label="{ <mac> uint8_t: mac|<iface> char: iface|<initiator> char: initiator}"];
+	};
+	subgraph cluster_struct_wlan_event_data_client_connect_info{
+		fontcolor = "red";
+		label = "struct wlan_event_data_client_connect_info";
+		struct_wlan_event_data_client_connect_info [fontcolor="green",shape=record,label="{ <common> struct wlan_event_data_client_common: common|<info_context> uint8_t: info_context|<reason> uint8_t: reason|<max_node_count> uint32_t: max_node_count|<ieee80211_code> uint16_t: ieee80211_code}"];
+	};
+	subgraph cluster_struct_wlan_event_data_client_state_change{
+		fontcolor = "red";
+		label = "struct wlan_event_data_client_state_change";
+		struct_wlan_event_data_client_state_change [fontcolor="green",shape=record,label="{ <common> struct wlan_event_data_client_common: common|<state> uint8_t: state}"];
+	};
+	subgraph cluster_struct_wlan_event_data_client_state_idle{
+		fontcolor = "red";
+		label = "struct wlan_event_data_client_state_idle";
+		struct_wlan_event_data_client_state_idle [fontcolor="green",shape=record,label="{ <common> struct wlan_event_data_client_common: common|<idle> uint8_t: idle}"];
+	};
+	subgraph cluster_struct_wlan_event_data_radio_recovery{
+		fontcolor = "red";
+		label = "struct wlan_event_data_radio_recovery";
+		struct_wlan_event_data_radio_recovery [fontcolor="green",shape=record,label="{ <radio_id> int: radio_id|<state> enum wlan_event_radio_recovery_state: state}"];
+	};
+	subgraph cluster_struct_wlan_event_data_scan_common{
+		fontcolor = "red";
+		label = "struct wlan_event_data_scan_common";
+		struct_wlan_event_data_scan_common [fontcolor="green",shape=record,label="{ <iface> char: iface|<initiator> char: initiator}"];
+	};
+	subgraph cluster_struct_wlan_event_data_scan_event_info{
+		fontcolor = "red";
+		label = "struct wlan_event_data_scan_event_info";
+		struct_wlan_event_data_scan_event_info [fontcolor="green",shape=record,label="{ <common> struct wlan_event_data_scan_common: common|<event_type> enum wlan_event_scan_type: event_type}"];
+	};
+	subgraph cluster_struct_wlan_event_def{
+		fontcolor = "red";
+		label = "struct wlan_event_def";
+		struct_wlan_event_def [fontcolor="green",shape=record,label="{ <event_id> enum wlan_event_id: event_id\n(Select-Key for next union)|<event_data> union wlan_event_data: event_data\n(Select-Key used here)}"];
+	};
+	subgraph cluster_union___powermanagment_status_union{
+		fontcolor = "red";
+		label = "union __powermanagment_status_union";
+		union___powermanagment_status_union [shape=record,fontcolor="blue",label="{ <dsl_status> unsigned int: dsl_status}"];
+	};
+	subgraph cluster_union__avm_event_cmd_param{
+		fontcolor = "red";
+		label = "union _avm_event_cmd_param";
+		union__avm_event_cmd_param [shape=record,fontcolor="blue",label="{ <avm_event_cmd_param_register> struct _avm_event_cmd_param_register: avm_event_cmd_param_register|<avm_event_cmd_param_release> struct _avm_event_cmd_param_release: avm_event_cmd_param_release|<avm_event_cmd_param_trigger> struct _avm_event_cmd_param_trigger: avm_event_cmd_param_trigger|<avm_event_cmd_param_source_register> struct _avm_event_cmd_param_register: avm_event_cmd_param_source_register|<avm_event_cmd_param_source_trigger> struct _avm_event_cmd_param_source_trigger: avm_event_cmd_param_source_trigger}"];
+	};
+	subgraph cluster_union_avm_event_data_union{
+		fontcolor = "red";
+		label = "union avm_event_data_union";
+		union_avm_event_data_union [shape=record,fontcolor="blue",label="{ <appl_status> struct avm_event_boykott: appl_status|<autoprov> struct avm_event_boykott: autoprov|<capiotcp_startstop> struct avm_event_boykott: capiotcp_startstop|<dsl_connect_status> struct avm_event_boykott: dsl_connect_status|<dsl_get> struct avm_event_boykott: dsl_get|<dsl_get_arch> struct avm_event_boykott: dsl_get_arch|<dsl_set> struct avm_event_boykott: dsl_set|<dsl_set_arch> struct avm_event_boykott: dsl_set_arch|<dsl_status> struct avm_event_boykott: dsl_status|<powerline_status> struct avm_event_boykott: powerline_status|<reboot_req> struct avm_event_boykott: reboot_req|<telefon_wlan_command> struct avm_event_boykott: telefon_wlan_command|<usb_status> struct avm_event_boykott: usb_status|<user_source_notify> struct avm_event_boykott: user_source_notify|<push_button> struct avm_event_push_button: push_button|<cpmac> struct _cpmac_event_struct: cpmac|<led_status> struct avm_event_led_status: led_status|<led_info> struct avm_event_led_info: led_info|<telefonprofile> struct avm_event_telefonprofile: telefonprofile|<temperature> struct avm_event_temperature: temperature|<powermanagment_status> struct avm_event_powermanagment_status: powermanagment_status|<cpu_idle> struct avm_event_cpu_idle: cpu_idle|<powermanagment_remote> struct avm_event_powermanagment_remote: powermanagment_remote|<id_log> struct avm_event_log: id_log|<id_remotepcmlink> struct avm_event_remotepcmlink: id_remotepcmlink|<id_remotewatchdog> struct avm_event_remotewatchdog: id_remotewatchdog|<id_rpc> struct avm_event_rpc: id_rpc|<pm_info_stat> struct avm_event_pm_info_stat: pm_info_stat|<wlan> struct avm_event_wlan: wlan|<wlan_power> struct avm_event_wlan_power: wlan_power|<wlan_event> struct wlan_event_def: wlan_event|<telephony_missed_call> struct avm_event_telephony_missed_call: telephony_missed_call|<telephony_tam_call> struct avm_event_telephony_missed_call: telephony_tam_call|<telephony_fax_received> struct avm_event_telephony_missed_call: telephony_fax_received|<telephony_incoming_call> struct avm_event_telephony_missed_call: telephony_incoming_call|<telephony_call_finished> struct avm_event_telephony_missed_call: telephony_call_finished|<firmware_update_available> struct avm_event_firmware_update_available: firmware_update_available|<internet_new_ip> struct avm_event_internet_new_ip: internet_new_ip|<smarthome_switch_status> struct avm_event_smarthome_switch_status: smarthome_switch_status|<mass_storage_mount> struct avm_event_mass_storage_mount: mass_storage_mount|<mass_storage_unmount> struct avm_event_mass_storage_unmount: mass_storage_unmount|<checkpoint> struct avm_event_checkpoint: checkpoint|<cpu_run> struct avm_event_cpu_run: cpu_run|<ambient_brightness> struct avm_event_ambient_brightness: ambient_brightness|<fax_status> struct avm_event_fax_status: fax_status|<fax_file> struct avm_event_fax_file: fax_file|<piglet> struct avm_event_piglet: piglet|<telefon_up> struct avm_event_telefon_up: telefon_up|<smarthome> struct avm_event_smarthome: smarthome|<fiber_set_arch> struct avm_event_boykott: fiber_set_arch|<fiber_get_arch> struct avm_event_boykott: fiber_get_arch}"];
+	};
+	subgraph cluster_union_avm_event_internet_new_ip_param{
+		fontcolor = "red";
+		label = "union avm_event_internet_new_ip_param";
+		union_avm_event_internet_new_ip_param [shape=record,fontcolor="blue",label="{ <ipv4> unsigned char: ipv4|<ipv6> unsigned char: ipv6}"];
+	};
+	subgraph cluster_union_avm_event_message_union{
+		fontcolor = "red";
+		label = "union avm_event_message_union";
+		union_avm_event_message_union [shape=record,fontcolor="blue",label="{ <source_register> struct avm_event_source_register: source_register|<source_unregister> struct avm_event_source_unregister: source_unregister|<source_notifier> struct avm_event_source_notifier: source_notifier|<remote_source_trigger_request> struct avm_event_remote_source_trigger_request: remote_source_trigger_request|<ping> struct avm_event_ping: ping|<tffs> struct avm_event_tffs: tffs}"];
+	};
+	subgraph cluster_union_avm_event_powermanagment_remote_union{
+		fontcolor = "red";
+		label = "union avm_event_powermanagment_remote_union";
+		union_avm_event_powermanagment_remote_union [shape=record,fontcolor="blue",label="{ <ressourceinfo> struct avm_event_powermanagment_remote_ressourceinfo: ressourceinfo|<powermode> char: powermode}"];
+	};
+	subgraph cluster_union_avm_event_telephony_call_params{
+		fontcolor = "red";
+		label = "union avm_event_telephony_call_params";
+		union_avm_event_telephony_call_params [shape=record,fontcolor="blue",label="{ <string> struct avm_event_telephony_string: string|<number> unsigned char: number|<duration> unsigned int: duration|<port> unsigned char: port|<id> unsigned int: id}"];
+	};
+	subgraph cluster_union_avm_event_tffs_call_union{
+		fontcolor = "red";
+		label = "union avm_event_tffs_call_union";
+		union_avm_event_tffs_call_union [shape=record,fontcolor="blue",label="{ <open> struct avm_event_tffs_open: open|<close> struct avm_event_tffs_close: close|<read> struct avm_event_tffs_read: read|<write> struct avm_event_tffs_write: write|<cleanup> struct avm_event_tffs_cleanup: cleanup|<reindex> struct avm_event_tffs_reindex: reindex|<info> struct avm_event_tffs_info: info|<init> struct avm_event_tffs_init: init|<deinit> struct avm_event_tffs_deinit: deinit|<notify> struct avm_event_tffs_notify: notify|<paniclog> struct avm_event_tffs_paniclog: paniclog}"];
+	};
+	subgraph cluster_union_avm_event_wlan_client_status_u1{
+		fontcolor = "red";
+		label = "union avm_event_wlan_client_status_u1";
+		union_avm_event_wlan_client_status_u1 [shape=record,fontcolor="blue",label="{ <sub_event> unsigned int: sub_event|<active_rate> unsigned int: active_rate|<active_rate1> unsigned int: active_rate1|<active_rate2> unsigned int: active_rate2|<active_rate3> unsigned int: active_rate3|<active_rate4> unsigned int: active_rate4|<active_rate5> unsigned int: active_rate5|<active_rate6> unsigned int: active_rate6|<radar_chan> unsigned int: radar_chan|<radar_chan1> unsigned int: radar_chan1|<green_ap_ps_state> unsigned int: green_ap_ps_state|<coexist_ht40_state> unsigned int: coexist_ht40_state|<max_node_count> unsigned int: max_node_count|<channel> unsigned int: channel|<dummy0> unsigned int: dummy0}"];
+	};
+	subgraph cluster_union_avm_event_wlan_client_status_u2{
+		fontcolor = "red";
+		label = "union avm_event_wlan_client_status_u2";
+		union_avm_event_wlan_client_status_u2 [shape=record,fontcolor="blue",label="{ <radar_freq> unsigned int: radar_freq|<radar_freq1> unsigned int: radar_freq1|<wlan_mode> unsigned int: wlan_mode|<dummy0> unsigned int: dummy0}"];
+	};
+	subgraph cluster_union_avm_event_wlan_client_status_u3{
+		fontcolor = "red";
+		label = "union avm_event_wlan_client_status_u3";
+		union_avm_event_wlan_client_status_u3 [shape=record,fontcolor="blue",label="{ <radar_time> unsigned int: radar_time|<flags> unsigned int: flags|<dummy0> unsigned int: dummy0}"];
+	};
+	subgraph cluster_union_wlan_event_data{
+		fontcolor = "red";
+		label = "union wlan_event_data";
+		union_wlan_event_data [shape=record,fontcolor="blue",label="{ <client_state_change> struct wlan_event_data_client_state_change: client_state_change|<client_connect_info> struct wlan_event_data_client_connect_info: client_connect_info|<scan_event_info> struct wlan_event_data_scan_event_info: scan_event_info|<client_state_idle> struct wlan_event_data_client_state_idle: client_state_idle|<radio_recovery> struct wlan_event_data_radio_recovery: radio_recovery}"];
+	};
+	struct__avm_event_ambient_brightness:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_checkpoint:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_cmd:param -> union__avm_event_cmd_param [lhead=cluster_union__avm_event_cmd_param];
+	struct__avm_event_cmd_param_register:mask -> struct__avm_event_id_mask [lhead=cluster_struct__avm_event_id_mask];
+	struct__avm_event_cpu_idle:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_cpu_run:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_fax_file:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_fax_status:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_firmware_update_available:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_internet_new_ip:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_internet_new_ip:params -> union_avm_event_internet_new_ip_param [lhead=cluster_union_avm_event_internet_new_ip_param];
+	struct__avm_event_led_info:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_led_status:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_log:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_mass_storage_mount:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_mass_storage_unmount:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_piglet:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_pm_info_stat:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_powerline_status:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_powermanagment_remote:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_powermanagment_remote:param -> union_avm_event_powermanagment_remote_union [lhead=cluster_union_avm_event_powermanagment_remote_union];
+	struct__avm_event_powermanagment_remote_ressourceinfo:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_powermanagment_status:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_powermanagment_status:param -> union___powermanagment_status_union [lhead=cluster_union___powermanagment_status_union];
+	struct__avm_event_remotepcmlink:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_remotewatchdog:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_rpc:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_smarthome:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_smarthome_switch_status:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_telefonprofile:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_telephony_missed_call:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_telephony_missed_call:p -> struct__avm_event_telephony_missed_call_params [lhead=cluster_struct__avm_event_telephony_missed_call_params];
+	struct__avm_event_telephony_missed_call_params:params -> union_avm_event_telephony_call_params [lhead=cluster_union_avm_event_telephony_call_params];
+	struct__avm_event_temperature:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_user_mode_source_notify:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_wlan:header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct__avm_event_wlan:credentials -> struct_avm_event_wlan_credentials [lhead=cluster_struct_avm_event_wlan_credentials];
+	struct__cpmac_event_struct:port -> struct_cpmac_port [lhead=cluster_struct_cpmac_port];
+	struct_avm_event_data:data -> union_avm_event_data_union [lhead=cluster_union_avm_event_data_union];
+	struct_avm_event_internet_new_ip:params -> union_avm_event_internet_new_ip_param [lhead=cluster_union_avm_event_internet_new_ip_param];
+	struct_avm_event_message:message -> union_avm_event_message_union [lhead=cluster_union_avm_event_message_union];
+	struct_avm_event_powermanagment_remote:param -> union_avm_event_powermanagment_remote_union [lhead=cluster_union_avm_event_powermanagment_remote_union];
+	struct_avm_event_powermanagment_status:param -> union___powermanagment_status_union [lhead=cluster_union___powermanagment_status_union];
+	struct_avm_event_remote_source_trigger_request:data -> struct_avm_event_data [lhead=cluster_struct_avm_event_data];
+	struct_avm_event_source_register:id_mask -> struct__avm_event_id_mask [lhead=cluster_struct__avm_event_id_mask];
+	struct_avm_event_source_unregister:id_mask -> struct__avm_event_id_mask [lhead=cluster_struct__avm_event_id_mask];
+	struct_avm_event_telephony_missed_call:p -> struct__avm_event_telephony_missed_call_params [lhead=cluster_struct__avm_event_telephony_missed_call_params];
+	struct_avm_event_tffs:call -> union_avm_event_tffs_call_union [lhead=cluster_union_avm_event_tffs_call_union];
+	struct_avm_event_wlan:u1 -> union_avm_event_wlan_client_status_u1 [lhead=cluster_union_avm_event_wlan_client_status_u1];
+	struct_avm_event_wlan:u2 -> union_avm_event_wlan_client_status_u2 [lhead=cluster_union_avm_event_wlan_client_status_u2];
+	struct_avm_event_wlan:u3 -> union_avm_event_wlan_client_status_u3 [lhead=cluster_union_avm_event_wlan_client_status_u3];
+	struct_avm_event_wlan:credentials -> struct_avm_event_wlan_credentials [lhead=cluster_struct_avm_event_wlan_credentials];
+	struct_cpmac_event_struct:event_header -> struct__avm_event_header [lhead=cluster_struct__avm_event_header];
+	struct_cpmac_event_struct:port -> struct_cpmac_port [lhead=cluster_struct_cpmac_port];
+	struct_wlan_event_data_client_connect_info:common -> struct_wlan_event_data_client_common [lhead=cluster_struct_wlan_event_data_client_common];
+	struct_wlan_event_data_client_state_change:common -> struct_wlan_event_data_client_common [lhead=cluster_struct_wlan_event_data_client_common];
+	struct_wlan_event_data_client_state_idle:common -> struct_wlan_event_data_client_common [lhead=cluster_struct_wlan_event_data_client_common];
+	struct_wlan_event_data_scan_event_info:common -> struct_wlan_event_data_scan_common [lhead=cluster_struct_wlan_event_data_scan_common];
+	struct_wlan_event_def:event_data -> union_wlan_event_data [lhead=cluster_union_wlan_event_data];
+	union__avm_event_cmd_param:avm_event_cmd_param_register -> struct__avm_event_cmd_param_register [lhead=cluster_struct__avm_event_cmd_param_register,label="select=\n'avm_event_cmd_register'"];
+	union__avm_event_cmd_param:avm_event_cmd_param_release -> struct__avm_event_cmd_param_release [lhead=cluster_struct__avm_event_cmd_param_release,label="select=\n'avm_event_cmd_release'"];
+	union__avm_event_cmd_param:avm_event_cmd_param_trigger -> struct__avm_event_cmd_param_trigger [lhead=cluster_struct__avm_event_cmd_param_trigger,label="select=\n'avm_event_cmd_trigger'"];
+	union__avm_event_cmd_param:avm_event_cmd_param_source_register -> struct__avm_event_cmd_param_register [lhead=cluster_struct__avm_event_cmd_param_register,label="select=\n'avm_event_cmd_source_register'"];
+	union__avm_event_cmd_param:avm_event_cmd_param_source_trigger -> struct__avm_event_cmd_param_source_trigger [lhead=cluster_struct__avm_event_cmd_param_source_trigger,label="select=\n'avm_event_cmd_source_trigger'"];
+	union_avm_event_data_union:appl_status -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_appl_status'"];
+	union_avm_event_data_union:autoprov -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_autoprov'"];
+	union_avm_event_data_union:capiotcp_startstop -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_capiotcp_startstop'"];
+	union_avm_event_data_union:dsl_connect_status -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_dsl_connect_status'"];
+	union_avm_event_data_union:dsl_get -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_dsl_get'"];
+	union_avm_event_data_union:dsl_get_arch -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_dsl_get_arch'"];
+	union_avm_event_data_union:dsl_set -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_dsl_set'"];
+	union_avm_event_data_union:dsl_set_arch -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_dsl_set_arch'"];
+	union_avm_event_data_union:dsl_status -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_dsl_status'"];
+	union_avm_event_data_union:powerline_status -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_powerline_status'"];
+	union_avm_event_data_union:reboot_req -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_reboot_req'"];
+	union_avm_event_data_union:telefon_wlan_command -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_telefon_wlan_command'"];
+	union_avm_event_data_union:usb_status -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_usb_status'"];
+	union_avm_event_data_union:user_source_notify -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_user_source_notify'"];
+	union_avm_event_data_union:push_button -> struct_avm_event_push_button [lhead=cluster_struct_avm_event_push_button,label="select=\n'avm_event_id_push_button'"];
+	union_avm_event_data_union:cpmac -> struct__cpmac_event_struct [lhead=cluster_struct__cpmac_event_struct,label="select=\n'avm_event_id_ethernet_connect_status'"];
+	union_avm_event_data_union:led_status -> struct_avm_event_led_status [lhead=cluster_struct_avm_event_led_status,label="select=\n'avm_event_id_led_status'"];
+	union_avm_event_data_union:led_info -> struct_avm_event_led_info [lhead=cluster_struct_avm_event_led_info,label="select=\n'avm_event_id_led_info'"];
+	union_avm_event_data_union:telefonprofile -> struct_avm_event_telefonprofile [lhead=cluster_struct_avm_event_telefonprofile,label="select=\n'avm_event_id_telefonprofile'"];
+	union_avm_event_data_union:temperature -> struct_avm_event_temperature [lhead=cluster_struct_avm_event_temperature,label="select=\n'avm_event_id_temperature'"];
+	union_avm_event_data_union:powermanagment_status -> struct_avm_event_powermanagment_status [lhead=cluster_struct_avm_event_powermanagment_status,label="select=\n'avm_event_id_powermanagment_status'"];
+	union_avm_event_data_union:cpu_idle -> struct_avm_event_cpu_idle [lhead=cluster_struct_avm_event_cpu_idle,label="select=\n'avm_event_id_cpu_idle'"];
+	union_avm_event_data_union:powermanagment_remote -> struct_avm_event_powermanagment_remote [lhead=cluster_struct_avm_event_powermanagment_remote,label="select=\n'avm_event_id_powermanagment_remote'"];
+	union_avm_event_data_union:id_log -> struct_avm_event_log [lhead=cluster_struct_avm_event_log,label="select=\n'avm_event_id_log'"];
+	union_avm_event_data_union:id_remotepcmlink -> struct_avm_event_remotepcmlink [lhead=cluster_struct_avm_event_remotepcmlink,label="select=\n'avm_event_id_remotepcmlink'"];
+	union_avm_event_data_union:id_remotewatchdog -> struct_avm_event_remotewatchdog [lhead=cluster_struct_avm_event_remotewatchdog,label="select=\n'avm_event_id_remotewatchdog'"];
+	union_avm_event_data_union:id_rpc -> struct_avm_event_rpc [lhead=cluster_struct_avm_event_rpc,label="select=\n'avm_event_id_rpc'"];
+	union_avm_event_data_union:pm_info_stat -> struct_avm_event_pm_info_stat [lhead=cluster_struct_avm_event_pm_info_stat,label="select=\n'avm_event_id_pm_ressourceinfo_status'"];
+	union_avm_event_data_union:wlan -> struct_avm_event_wlan [lhead=cluster_struct_avm_event_wlan,label="select=\n'avm_event_id_wlan_client_status'"];
+	union_avm_event_data_union:wlan_power -> struct_avm_event_wlan_power [lhead=cluster_struct_avm_event_wlan_power,label="select=\n'avm_event_id_wlan_power'"];
+	union_avm_event_data_union:wlan_event -> struct_wlan_event_def [lhead=cluster_struct_wlan_event_def,label="select=\n'avm_event_id_wlan_event'"];
+	union_avm_event_data_union:telephony_missed_call -> struct_avm_event_telephony_missed_call [lhead=cluster_struct_avm_event_telephony_missed_call,label="select=\n'avm_event_id_telephony_missed_call'"];
+	union_avm_event_data_union:telephony_tam_call -> struct_avm_event_telephony_missed_call [lhead=cluster_struct_avm_event_telephony_missed_call,label="select=\n'avm_event_id_telephony_tam_call'"];
+	union_avm_event_data_union:telephony_fax_received -> struct_avm_event_telephony_missed_call [lhead=cluster_struct_avm_event_telephony_missed_call,label="select=\n'avm_event_id_telephony_fax_received'"];
+	union_avm_event_data_union:telephony_incoming_call -> struct_avm_event_telephony_missed_call [lhead=cluster_struct_avm_event_telephony_missed_call,label="select=\n'avm_event_id_telephony_incoming_call'"];
+	union_avm_event_data_union:telephony_call_finished -> struct_avm_event_telephony_missed_call [lhead=cluster_struct_avm_event_telephony_missed_call,label="select=\n'avm_event_id_telephony_call_finished'"];
+	union_avm_event_data_union:firmware_update_available -> struct_avm_event_firmware_update_available [lhead=cluster_struct_avm_event_firmware_update_available,label="select=\n'avm_event_id_firmware_update_available'"];
+	union_avm_event_data_union:internet_new_ip -> struct_avm_event_internet_new_ip [lhead=cluster_struct_avm_event_internet_new_ip,label="select=\n'avm_event_id_internet_new_ip'"];
+	union_avm_event_data_union:smarthome_switch_status -> struct_avm_event_smarthome_switch_status [lhead=cluster_struct_avm_event_smarthome_switch_status,label="select=\n'avm_event_id_smarthome_switch_status'"];
+	union_avm_event_data_union:mass_storage_mount -> struct_avm_event_mass_storage_mount [lhead=cluster_struct_avm_event_mass_storage_mount,label="select=\n'avm_event_id_mass_storage_mount'"];
+	union_avm_event_data_union:mass_storage_unmount -> struct_avm_event_mass_storage_unmount [lhead=cluster_struct_avm_event_mass_storage_unmount,label="select=\n'avm_event_id_mass_storage_unmount'"];
+	union_avm_event_data_union:checkpoint -> struct_avm_event_checkpoint [lhead=cluster_struct_avm_event_checkpoint,label="select=\n'avm_event_id_checkpoint'"];
+	union_avm_event_data_union:cpu_run -> struct_avm_event_cpu_run [lhead=cluster_struct_avm_event_cpu_run,label="select=\n'avm_event_id_cpu_run'"];
+	union_avm_event_data_union:ambient_brightness -> struct_avm_event_ambient_brightness [lhead=cluster_struct_avm_event_ambient_brightness,label="select=\n'avm_event_id_ambient_brightness'"];
+	union_avm_event_data_union:fax_status -> struct_avm_event_fax_status [lhead=cluster_struct_avm_event_fax_status,label="select=\n'avm_event_id_fax_status_change'"];
+	union_avm_event_data_union:fax_file -> struct_avm_event_fax_file [lhead=cluster_struct_avm_event_fax_file,label="select=\n'avm_event_id_fax_file'"];
+	union_avm_event_data_union:piglet -> struct_avm_event_piglet [lhead=cluster_struct_avm_event_piglet,label="select=\n'avm_event_id_piglet'"];
+	union_avm_event_data_union:telefon_up -> struct_avm_event_telefon_up [lhead=cluster_struct_avm_event_telefon_up,label="select=\n'avm_event_id_telefon_up'"];
+	union_avm_event_data_union:smarthome -> struct_avm_event_smarthome [lhead=cluster_struct_avm_event_smarthome,label="select=\n'avm_event_id_smarthome'"];
+	union_avm_event_data_union:fiber_set_arch -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_fiber_set_arch'"];
+	union_avm_event_data_union:fiber_get_arch -> struct_avm_event_boykott [lhead=cluster_struct_avm_event_boykott,label="select=\n'avm_event_id_fiber_get_arch'"];
+	union_avm_event_message_union:source_register -> struct_avm_event_source_register [lhead=cluster_struct_avm_event_source_register,label="select=\n'avm_event_source_register_type'"];
+	union_avm_event_message_union:source_unregister -> struct_avm_event_source_unregister [lhead=cluster_struct_avm_event_source_unregister,label="select=\n'avm_event_source_unregister_type'"];
+	union_avm_event_message_union:source_notifier -> struct_avm_event_source_notifier [lhead=cluster_struct_avm_event_source_notifier,label="select=\n'avm_event_source_notifier_type'"];
+	union_avm_event_message_union:remote_source_trigger_request -> struct_avm_event_remote_source_trigger_request [lhead=cluster_struct_avm_event_remote_source_trigger_request,label="select=\n'avm_event_remote_source_trigger_request_type'"];
+	union_avm_event_message_union:ping -> struct_avm_event_ping [lhead=cluster_struct_avm_event_ping,label="select=\n'avm_event_ping_type'"];
+	union_avm_event_message_union:tffs -> struct_avm_event_tffs [lhead=cluster_struct_avm_event_tffs,label="select=\n'avm_event_tffs_type'"];
+	union_avm_event_powermanagment_remote_union:ressourceinfo -> struct_avm_event_powermanagment_remote_ressourceinfo [lhead=cluster_struct_avm_event_powermanagment_remote_ressourceinfo,label="select=\n'avm_event_powermanagment_ressourceinfo'"];
+	union_avm_event_telephony_call_params:string -> struct_avm_event_telephony_string [lhead=cluster_struct_avm_event_telephony_string,label="select=\n'avm_event_telephony_params_name\navm_event_telephony_params_msn_name\navm_event_telephony_params_portname\navm_event_telephony_params_tam_path'"];
+	union_avm_event_tffs_call_union:open -> struct_avm_event_tffs_open [lhead=cluster_struct_avm_event_tffs_open,label="select=\n'avm_event_tffs_call_open'"];
+	union_avm_event_tffs_call_union:close -> struct_avm_event_tffs_close [lhead=cluster_struct_avm_event_tffs_close,label="select=\n'avm_event_tffs_call_close'"];
+	union_avm_event_tffs_call_union:read -> struct_avm_event_tffs_read [lhead=cluster_struct_avm_event_tffs_read,label="select=\n'avm_event_tffs_call_read'"];
+	union_avm_event_tffs_call_union:write -> struct_avm_event_tffs_write [lhead=cluster_struct_avm_event_tffs_write,label="select=\n'avm_event_tffs_call_write'"];
+	union_avm_event_tffs_call_union:cleanup -> struct_avm_event_tffs_cleanup [lhead=cluster_struct_avm_event_tffs_cleanup,label="select=\n'avm_event_tffs_call_cleanup'"];
+	union_avm_event_tffs_call_union:reindex -> struct_avm_event_tffs_reindex [lhead=cluster_struct_avm_event_tffs_reindex,label="select=\n'avm_event_tffs_call_reindex'"];
+	union_avm_event_tffs_call_union:info -> struct_avm_event_tffs_info [lhead=cluster_struct_avm_event_tffs_info,label="select=\n'avm_event_tffs_call_info'"];
+	union_avm_event_tffs_call_union:init -> struct_avm_event_tffs_init [lhead=cluster_struct_avm_event_tffs_init,label="select=\n'avm_event_tffs_call_init'"];
+	union_avm_event_tffs_call_union:deinit -> struct_avm_event_tffs_deinit [lhead=cluster_struct_avm_event_tffs_deinit,label="select=\n'avm_event_tffs_call_deinit'"];
+	union_avm_event_tffs_call_union:notify -> struct_avm_event_tffs_notify [lhead=cluster_struct_avm_event_tffs_notify,label="select=\n'avm_event_tffs_call_notify'"];
+	union_avm_event_tffs_call_union:paniclog -> struct_avm_event_tffs_paniclog [lhead=cluster_struct_avm_event_tffs_paniclog,label="select=\n'avm_event_tffs_call_paniclog'"];
+	union_wlan_event_data:client_state_change -> struct_wlan_event_data_client_state_change [lhead=cluster_struct_wlan_event_data_client_state_change,label="select=\n'CLIENT_STATE_CHANGE'"];
+	union_wlan_event_data:client_connect_info -> struct_wlan_event_data_client_connect_info [lhead=cluster_struct_wlan_event_data_client_connect_info,label="select=\n'CLIENT_CONNECT_INFO'"];
+	union_wlan_event_data:scan_event_info -> struct_wlan_event_data_scan_event_info [lhead=cluster_struct_wlan_event_data_scan_event_info,label="select=\n'WLAN_EVENT_SCAN'"];
+	union_wlan_event_data:client_state_idle -> struct_wlan_event_data_client_state_idle [lhead=cluster_struct_wlan_event_data_client_state_idle,label="select=\n'CLIENT_STATE_IDLE'"];
+	union_wlan_event_data:radio_recovery -> struct_wlan_event_data_radio_recovery [lhead=cluster_struct_wlan_event_data_radio_recovery,label="select=\n'WLAN_RADIO_RECOVERY'"];
+};

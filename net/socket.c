@@ -534,8 +534,22 @@ static ssize_t sockfs_listxattr(struct dentry *dentry, char *buffer,
 	return used;
 }
 
+int sockfs_setattr(struct dentry *dentry, struct iattr *iattr)
+{
+	int err = simple_setattr(dentry, iattr);
+
+	if (!err) {
+		struct socket *sock = SOCKET_I(d_inode(dentry));
+
+		sock->sk->sk_uid = iattr->ia_uid;
+	}
+
+	return err;
+}
+
 static const struct inode_operations sockfs_inode_ops = {
 	.listxattr = sockfs_listxattr,
+	.setattr = sockfs_setattr,
 };
 
 /**
@@ -900,6 +914,9 @@ static long sock_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	void __user *argp = (void __user *)arg;
 	int pid, err;
 	struct net *net;
+#ifdef CONFIG_AVM_SK_TC_INDEX
+	unsigned long tc_index;
+#endif
 
 	sock = file->private_data;
 	sk = sock->sk;
@@ -961,6 +978,21 @@ static long sock_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 				err = dlci_ioctl_hook(cmd, argp);
 			mutex_unlock(&dlci_ioctl_mutex);
 			break;
+
+#ifdef CONFIG_AVM_SK_TC_INDEX
+		case SIOCSET_TC_INDEX:
+			err = -EFAULT;
+			if (get_user(tc_index, (unsigned long __user *)argp))
+				break;
+			sock->sk->sk_tc_index = tc_index;
+			err = 0;
+			break;
+
+		case SIOCGET_TC_INDEX:
+			err = put_user(sock->sk->sk_tc_index, (unsigned long __user *)argp);
+			break;
+#endif
+
 		default:
 			err = sock_do_ioctl(net, sock, cmd, arg);
 			break;

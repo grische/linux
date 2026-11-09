@@ -47,6 +47,9 @@
 #include <asm/time.h>
 #include <asm/setup.h>
 #include <asm/maar.h>
+#ifdef CONFIG_AVM_YIELD
+#include <asm/yield_context.h>
+#endif
 
 cpumask_t cpu_callin_map;		/* Bitmask of started secondaries */
 
@@ -420,6 +423,9 @@ void smp_send_stop(void)
 
 void __init smp_cpus_done(unsigned int max_cpus)
 {
+#ifdef CONFIG_AVM_YIELD
+	avm_yield_setup();
+#endif
 }
 
 /* called from main before smp_init() */

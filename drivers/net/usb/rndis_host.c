@@ -381,6 +381,21 @@ generic_rndis_bind(struct usbnet *dev, struct usb_interface *intf, int flags)
 		net->mtu = dev->hard_mtu - net->hard_header_len;
 	}
 
+/* == 20160222 AVM/VGJ - CHANGESET: FIX for buggy ZTE Modems: Adjust Rx Buffer Size == */
+#if 1
+	if (tmp > dev->rx_urb_size) {
+		dev->rx_urb_size = 4096;
+		while (tmp > dev->rx_urb_size) {
+			dev->rx_urb_size += 4096;
+			if (dev->rx_urb_size >= (4*4096)) {
+				break;
+			}
+		}
+		dev_warn(&intf->dev,
+			"dev needs rx_urb_size %d, adjusting to %d\n", tmp, dev->rx_urb_size);
+	}
+#endif
+
 	/* REVISIT:  peripheral "alignment" request is ignored ... */
 	dev_dbg(&intf->dev,
 		"hard mtu %u (%u from dev), rx buflen %Zu, align %d\n",

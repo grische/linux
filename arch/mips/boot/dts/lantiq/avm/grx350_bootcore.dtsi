@@ -1,0 +1,9 @@
+/include/ "grx_bootcore.dtsi"
+
+/ {
+	model = "GRX350 ANYWAN BOOTCORE (MIPS 4Kec)";
+
+	avm,ngi-protection {
+		ram-size = <256>;
+	};
+};

@@ -17,6 +17,7 @@
 #include <asm/regdef.h>
 #include <asm/fpregdef.h>
 #include <asm/mipsregs.h>
+#include <asm/mipsmtregs.h>
 #include <asm/stackframe.h>
 #include <asm/war.h>
 #include <asm/thread_info.h>
@@ -40,6 +41,21 @@ NESTED(except_vec3_generic, 0, sp)
 #ifdef CONFIG_64BIT
 	dsll	k1, k1, 1
 #endif
+#ifdef CONFIG_AVM_YIELD
+#define FIRST_YIELD_TC	2
+	/*--------------------------------------------------------------------------------*\
+	 * AVM(mbahr): special exception handling for yield-context
+	\*--------------------------------------------------------------------------------*/
+	mfc0	k0, CP0_TCBIND
+	sra		k0, k0, TCBIND_CURTC_SHIFT
+	andi	k0, k0, 0xff
+	slti	k0, k0, FIRST_YIELD_TC
+	bnez	k0, 1f
+	nop
+	j		yield_exception_handler
+	nop
+1:
+#endif
 	PTR_L	k0, exception_handlers(k1)
 	jr	k0
 	.set	pop
@@ -53,7 +69,7 @@ NESTED(except_vec3_generic, 0, sp)
  */
 NESTED(except_vec3_r4000, 0, sp)
 	.set	push
-	.set	arch=r4000
+	.set	arch=mips32r2
 	.set	noat
 	mfc0	k1, CP0_CAUSE
 	li	k0, 31<<2
@@ -364,7 +380,7 @@ NESTED(ejtag_debug_handler, PT_SIZE, sp)
 
 ejtag_return:
 	MFC0	k0, CP0_DESAVE
-	.set	mips32
+	.set	mips32r2
 	deret
 	.set	pop
 	END(ejtag_debug_handler)
@@ -395,6 +411,82 @@ NESTED(except_vec_nmi, 0, sp)
 
 	__FINIT
 
+#ifdef CONFIG_AVM_WATCHDOG
+/*--------------------------------------------------------------------------------*\
+* AVM(mbahr): exception handling for nmi
+ * grx: install with 0xbf2001e0/4
+\*--------------------------------------------------------------------------------*/
+EXPORT(except_avm_vec_nmi)
+	.set	push
+	.set	noat
+	.set	mips32r2
+
+	mtc0	k0, CP0_DESAVE
+	mtc0    k1, CP0_DEPC
+    j       nmi_handler
+#endif
+
+#ifdef CONFIG_AVM_YIELD
+/*--------------------------------------------------------------------------------*\
+ * AVM(mbahr): special exception handling for yield-context
+\*--------------------------------------------------------------------------------*/
+NESTED(yield_exception_handler, PT_SIZE, sp)
+	.set	push
+	.set	noat
+	.set	mips32r2
+	subu    k0, sp, gp
+	sltiu	k0, k0, _THREAD_SIZE /* check (sp-gp)-offset */
+	beqz	k0, 2f
+	move	k0, sp
+	move	k1, sp
+	.set	noreorder
+	PTR_SUBU k1, PT_SIZE
+	move	sp, k1
+	LONG_S	k0,  PT_R29(sp)
+	LONG_S	$3,  PT_R3(sp)
+	LONG_S	$0,  PT_R0(sp)
+	mfc0	v1,  CP0_STATUS
+	LONG_S	$2,  PT_R2(sp)
+	LONG_S	v1,  PT_STATUS(sp)
+	mfc0	v1,  CP0_TCSTATUS
+	LONG_S	$4,  PT_R4(sp)
+	mfc0	v1,  CP0_CAUSE
+	LONG_S	$5,  PT_R5(sp)
+	LONG_S	v1,  PT_CAUSE(sp)
+	LONG_S	$6,  PT_R6(sp)
+	MFC0	v1,  CP0_EPC
+	LONG_S	$7,  PT_R7(sp)
+	LONG_S	v1,  PT_EPC(sp)
+	LONG_S	$25, PT_R25(sp)
+	LONG_S	$28, PT_R28(sp)
+	MFC0	v1, CP0_BADVADDR
+	LONG_S	$31, PT_R31(sp)
+	PTR_S	v1, PT_BVADDR(sp)
+	SAVE_AT
+	SAVE_TEMP
+	SAVE_STATIC
+
+	jal	 do_yield
+	move a0, k1					/*  pt_reg */
+	move k0, v0					/*  new stackpointer */
+	LONG_L	v1,  PT_R4(sp)
+	LONG_L	v0,  PT_R3(sp)
+	PTR_ADDU sp, PT_SIZE
+	beqz  k0, 1f
+	nop
+	move  sp, k0
+1:
+	eret
+	nop
+2:
+	jal	 do_yield
+	move a0, zero
+	eret
+	nop
+	.set	pop
+	END(yield_exception_handler)
+#endif
+
 NESTED(nmi_handler, PT_SIZE, sp)
 	.set	push
 	.set	noat
@@ -410,6 +502,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	_ehb
 	SAVE_ALL
 	move	a0, sp
+	LONG_S	sp, TI_REGS($28)   /* important! set current_thread_info()->regs, so get_irq_regs() works also in nmi */
 	jal	nmi_exception_handler
 	/* nmi_exception_handler never returns */
 	.set	pop
@@ -431,7 +524,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	.macro	__build_clear_fpe
 	.set	push
 	/* gas fails to assemble cfc1 for some archs (octeon).*/ \
-	.set	mips1
+	.set	mips32r2
 	SET_HARDFLOAT
 	cfc1	a1, fcr31
 	.set	pop
@@ -485,6 +578,7 @@ NESTED(nmi_handler, PT_SIZE, sp)
 	.set	at
 	__BUILD_\verbose \exception
 	move	a0, sp
+	LONG_S	sp, TI_REGS($28)   /* important! set current_thread_info()->regs, so get_irq_regs() works also in exception */
 	PTR_LA	ra, ret_from_exception
 	j	do_\handler
 	END(handle_\exception)
@@ -601,7 +695,7 @@ isrdhwr:
 	ori	k1, _THREAD_MASK
 	xori	k1, _THREAD_MASK
 	LONG_L	v1, TI_TP_VALUE(k1)
-	.set	arch=r4000
+	.set	arch=mips32r2
 	eret
 	.set	mips0
 #endif

@@ -116,6 +116,10 @@
 #include <net/sock_reuseport.h>
 #include <net/addrconf.h>
 
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#endif
+
 struct udp_table udp_table __read_mostly;
 EXPORT_SYMBOL(udp_table);
 
@@ -1022,7 +1026,8 @@ int udp_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 		flowi4_init_output(fl4, ipc.oif, sk->sk_mark, tos,
 				   RT_SCOPE_UNIVERSE, sk->sk_protocol,
 				   flow_flags,
-				   faddr, saddr, dport, inet->inet_sport);
+				   faddr, saddr, dport, inet->inet_sport,
+				   sk->sk_uid);
 
 		security_sk_classify_flow(sk, flowi4_to_flowi(fl4));
 		rt = ip_route_output_flow(net, fl4, sk);
@@ -1514,6 +1519,11 @@ int udp_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	 */
 	if (!xfrm4_policy_check(sk, XFRM_POLICY_IN, skb))
 		goto drop;
+
+#ifdef CONFIG_AVM_PA
+	avm_pa_add_local_session(skb, sk);
+#endif
+
 	nf_reset(skb);
 
 	if (static_key_false(&udp_encap_needed) && up->encap_type) {

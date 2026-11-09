@@ -33,6 +33,9 @@
 #include <net/netfilter/ipv4/nf_conntrack_ipv4.h>
 #include <net/netfilter/ipv6/nf_conntrack_ipv6.h>
 
+/* Do not check the TCP window for incoming packets  */
+static int nf_ct_tcp_no_window_check __read_mostly = 1;
+
 /* "Be conservative in what you do,
     be liberal in what you accept from others."
     If it's non-zero, we mark only out of window RST segments as INVALID. */
@@ -512,6 +515,9 @@ static bool tcp_in_window(const struct nf_conn *ct,
 	__u32 seq, ack, sack, end, win, swin;
 	s32 receiver_offset;
 	bool res, in_recv_win;
+
+	if (nf_ct_tcp_no_window_check)
+		return true;
 
 	/*
 	 * Get the required data from the packet.
@@ -1402,84 +1408,91 @@ static const struct nla_policy tcp_timeout_nla_policy[CTA_TIMEOUT_TCP_MAX+1] = {
 #ifdef CONFIG_SYSCTL
 static struct ctl_table tcp_sysctl_table[] = {
 	{
-		.procname	= "nf_conntrack_tcp_timeout_syn_sent",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_syn_sent",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_syn_recv",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_syn_recv",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_established",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_established",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_fin_wait",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_fin_wait",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_close_wait",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_close_wait",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_last_ack",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_last_ack",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_time_wait",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_time_wait",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_close",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_close",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_max_retrans",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_max_retrans",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_timeout_unacknowledged",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec_jiffies,
+		.procname = "nf_conntrack_tcp_timeout_unacknowledged",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec_jiffies,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_loose",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
+		.procname = "nf_conntrack_tcp_loose",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec,
 	},
 	{
-		.procname       = "nf_conntrack_tcp_be_liberal",
-		.maxlen         = sizeof(unsigned int),
-		.mode           = 0644,
-		.proc_handler   = proc_dointvec,
+		.procname = "nf_conntrack_tcp_be_liberal",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec,
 	},
 	{
-		.procname	= "nf_conntrack_tcp_max_retrans",
-		.maxlen		= sizeof(unsigned int),
-		.mode		= 0644,
-		.proc_handler	= proc_dointvec,
+		.procname = "nf_conntrack_tcp_max_retrans",
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec,
 	},
-	{ }
+	{
+		.procname = "nf_conntrack_tcp_no_window_check",
+		.data = &nf_ct_tcp_no_window_check,
+		.maxlen = sizeof(unsigned int),
+		.mode = 0644,
+		.proc_handler = proc_dointvec,
+	},
+	{}
 };
 #endif /* CONFIG_SYSCTL */
 

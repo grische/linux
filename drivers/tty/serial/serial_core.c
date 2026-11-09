@@ -560,6 +560,38 @@ static void uart_flush_chars(struct tty_struct *tty)
 	uart_start(tty);
 }
 
+/*
+ * keine Ausgaben auf der Console
+ * avm_console_enabled=1 schaltet die Ausgaben auf der Console ueber
+ * n_tty_write wieder frei beim Kunden beachtet niemand die Ausgaben auf der
+ * Console
+ */
+unsigned int avm_console_enabled;
+EXPORT_SYMBOL(avm_console_enabled);
+
+static int uart_avm_console_enabled(struct tty_struct *tty)
+{
+	struct uart_state *state = tty->driver_data;
+	struct uart_port *port = state->uart_port;
+
+	if (port->cons) {
+		if (port->cons->flags & (CON_ENABLED | CON_CONSDEV)) {
+			return avm_console_enabled;
+		}
+	}
+
+	return 1;
+}
+
+static int setup_debug_console(char *p)
+{
+	avm_console_enabled = 1;
+
+	return 0;
+}
+
+__setup("debug_console", setup_debug_console);
+
 static int uart_write(struct tty_struct *tty,
 					const unsigned char *buf, int count)
 {
@@ -2430,37 +2462,38 @@ static int uart_install(struct tty_driver *driver, struct tty_struct *tty)
 }
 
 static const struct tty_operations uart_ops = {
-	.install	= uart_install,
-	.open		= uart_open,
-	.close		= uart_close,
-	.write		= uart_write,
-	.put_char	= uart_put_char,
-	.flush_chars	= uart_flush_chars,
-	.write_room	= uart_write_room,
-	.chars_in_buffer= uart_chars_in_buffer,
-	.flush_buffer	= uart_flush_buffer,
-	.ioctl		= uart_ioctl,
-	.throttle	= uart_throttle,
-	.unthrottle	= uart_unthrottle,
-	.send_xchar	= uart_send_xchar,
-	.set_termios	= uart_set_termios,
-	.set_ldisc	= uart_set_ldisc,
-	.stop		= uart_stop,
-	.start		= uart_start,
-	.hangup		= uart_hangup,
-	.break_ctl	= uart_break_ctl,
-	.wait_until_sent= uart_wait_until_sent,
+	.install = uart_install,
+	.open = uart_open,
+	.close = uart_close,
+	.write = uart_write,
+	.put_char = uart_put_char,
+	.flush_chars = uart_flush_chars,
+	.write_room = uart_write_room,
+	.chars_in_buffer = uart_chars_in_buffer,
+	.flush_buffer = uart_flush_buffer,
+	.ioctl = uart_ioctl,
+	.throttle = uart_throttle,
+	.unthrottle = uart_unthrottle,
+	.send_xchar = uart_send_xchar,
+	.set_termios = uart_set_termios,
+	.set_ldisc = uart_set_ldisc,
+	.stop = uart_stop,
+	.start = uart_start,
+	.hangup = uart_hangup,
+	.break_ctl = uart_break_ctl,
+	.wait_until_sent = uart_wait_until_sent,
 #ifdef CONFIG_PROC_FS
-	.proc_fops	= &uart_proc_fops,
+	.proc_fops = &uart_proc_fops,
 #endif
-	.tiocmget	= uart_tiocmget,
-	.tiocmset	= uart_tiocmset,
-	.get_icount	= uart_get_icount,
+	.tiocmget = uart_tiocmget,
+	.tiocmset = uart_tiocmset,
+	.get_icount = uart_get_icount,
 #ifdef CONFIG_CONSOLE_POLL
-	.poll_init	= uart_poll_init,
-	.poll_get_char	= uart_poll_get_char,
-	.poll_put_char	= uart_poll_put_char,
+	.poll_init = uart_poll_init,
+	.poll_get_char = uart_poll_get_char,
+	.poll_put_char = uart_poll_put_char,
 #endif
+	.avm_console_enabled = uart_avm_console_enabled,
 };
 
 static const struct tty_port_operations uart_port_ops = {

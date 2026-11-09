@@ -2518,7 +2518,7 @@ void free_hot_cold_page_list(struct list_head *list, bool cold)
  * Note: this is probably too low level an operation for use in drivers.
  * Please consult with lkml before using this in your driver.
  */
-void split_page(struct page *page, unsigned int order)
+void __split_page(struct page *page, unsigned int order, unsigned long pc)
 {
 	int i;
 
@@ -2531,14 +2531,20 @@ void split_page(struct page *page, unsigned int order)
 	 * otherwise free the whole shadow.
 	 */
 	if (kmemcheck_page_is_tracked(page))
-		split_page(virt_to_page(page[0].shadow), order);
+		__split_page(virt_to_page(page[0].shadow), order , pc);
 #endif
-
-	for (i = 1; i < (1 << order); i++)
+#if defined(CONFIG_AVM_PAGE_TRACE)
+	avm_set_page_current_pc(page, pc);
+#endif
+	for (i = 1; i < (1 << order); i++) {
 		set_page_refcounted(page + i);
+#if defined(CONFIG_AVM_PAGE_TRACE)
+		avm_set_page_current_pc(page + i, pc);
+#endif
+	}
 	split_page_owner(page, order);
 }
-EXPORT_SYMBOL_GPL(split_page);
+EXPORT_SYMBOL_GPL(__split_page);
 
 int __isolate_free_page(struct page *page, unsigned int order)
 {
@@ -3758,7 +3764,11 @@ got_pg:
  */
 struct page *
 __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order,
-			struct zonelist *zonelist, nodemask_t *nodemask)
+			struct zonelist *zonelist, nodemask_t *nodemask
+#if defined(CONFIG_AVM_PAGE_TRACE)
+			, unsigned long pc
+#endif
+	)
 {
 	struct page *page;
 	unsigned int alloc_flags = ALLOC_WMARK_LOW;
@@ -3850,7 +3860,10 @@ out:
 		kmemcheck_pagealloc_alloc(page, order, gfp_mask);
 
 	trace_mm_page_alloc(page, order, alloc_mask, ac.migratetype);
-
+#if defined(CONFIG_AVM_PAGE_TRACE)
+	if (likely(page))
+		avm_set_page_current_pc(page, pc);
+#endif
 	return page;
 }
 EXPORT_SYMBOL(__alloc_pages_nodemask);
@@ -4002,13 +4015,13 @@ void __free_page_frag(void *addr)
 EXPORT_SYMBOL(__free_page_frag);
 
 static void *make_alloc_exact(unsigned long addr, unsigned int order,
-		size_t size)
+			      size_t size, unsigned long pc)
 {
 	if (addr) {
 		unsigned long alloc_end = addr + (PAGE_SIZE << order);
 		unsigned long used = addr + PAGE_ALIGN(size);
 
-		split_page(virt_to_page((void *)addr), order);
+		__split_page(virt_to_page((void *)addr), order, pc);
 		while (used < alloc_end) {
 			free_page(used);
 			used += PAGE_SIZE;
@@ -4036,7 +4049,7 @@ void *alloc_pages_exact(size_t size, gfp_t gfp_mask)
 	unsigned long addr;
 
 	addr = __get_free_pages(gfp_mask, order);
-	return make_alloc_exact(addr, order, size);
+	return make_alloc_exact(addr, order, size, _RET_IP_);
 }
 EXPORT_SYMBOL(alloc_pages_exact);
 
@@ -4056,7 +4069,7 @@ void * __meminit alloc_pages_exact_nid(int nid, size_t size, gfp_t gfp_mask)
 	struct page *p = alloc_pages_node(nid, gfp_mask, order);
 	if (!p)
 		return NULL;
-	return make_alloc_exact((unsigned long)page_address(p), order, size);
+	return make_alloc_exact((unsigned long)page_address(p), order, size, 0L);
 }
 
 /**

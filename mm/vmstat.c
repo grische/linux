@@ -61,6 +61,15 @@ void all_vm_events(unsigned long *ret)
 	put_online_cpus();
 }
 EXPORT_SYMBOL_GPL(all_vm_events);
+#if defined(CONFIG_AVM_POWER)
+/**
+ * unprotected - for bh/irq-context
+ */
+void __all_vm_events(unsigned long *ret)
+{
+	sum_vm_events(ret);
+}
+#endif /*--- #if defined(CONFIG_AVM_POWER) ---*/
 
 /*
  * Fold the foreign cpu events into our own.

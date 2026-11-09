@@ -43,6 +43,21 @@
 #include <linux/usb/serial.h>
 #include "usb-wwan.h"
 
+
+/*== 20170316 AVM/VGJ CHANGESET: Specific GSM Device ID ==
+**== Use params instead of default tables ==*/
+#define OPTION_USE_ID_PARAMS
+#ifdef OPTION_USE_ID_PARAMS
+static __u16 vendor  = 0;
+static __u16 product = 0;
+
+module_param(vendor, ushort, 0);
+MODULE_PARM_DESC(vendor, "User specified USB idVendor");
+
+module_param(product, ushort, 0);
+MODULE_PARM_DESC(product, "User specified USB idProduct");
+#endif
+
 /* Function prototypes */
 static int  option_probe(struct usb_serial *serial,
 			const struct usb_device_id *id);
@@ -566,6 +581,15 @@ static void option_instat_callback(struct urb *urb);
 #define RSVD(ifnum)	((BIT(ifnum) & 0xff) << 0)
 
 
+/*== 20170316 AVM/VGJ CHANGESET: Specific GSM Device ID ==
+**== Use params instead of default tables ==*/
+#ifdef OPTION_USE_ID_PARAMS
+static struct usb_device_id option_ids[] = {
+	{ },				/* Optional parameter entry */
+	{ }				/* Terminating entry */
+};
+
+#else
 static const struct usb_device_id option_ids[] = {
 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_COLT) },
 	{ USB_DEVICE(OPTION_VENDOR_ID, OPTION_PRODUCT_RICOLA) },
@@ -1995,6 +2019,8 @@ static const struct usb_device_id option_ids[] = {
 	  .driver_info = RSVD(6) },
 	{ } /* Terminating entry */
 };
+#endif
+
 MODULE_DEVICE_TABLE(usb, option_ids);
 
 /* The card has three separate interfaces, which the serial driver
@@ -2034,8 +2060,32 @@ static struct usb_serial_driver * const serial_drivers[] = {
 	&option_1port_device, NULL
 };
 
+/*== 20170316 AVM/VGJ CHANGESET: Specific GSM Device ID ==
+**== Use params instead of default tables ==*/
+#ifdef OPTION_USE_ID_PARAMS
+static int __init option_init(void)
+{
+	if (vendor > 0 && product > 0) {
+		/* Add user specified VID/PID to reserved element of table. */
+		option_ids[0].match_flags = USB_DEVICE_ID_MATCH_DEVICE;
+		option_ids[0].idVendor = vendor;
+		option_ids[0].idProduct = product;
+	}
+	return usb_serial_register_drivers(serial_drivers, KBUILD_MODNAME, option_ids);
+}
+
+static void __exit option_exit(void)
+{
+	usb_serial_deregister_drivers(serial_drivers);
+}
+
+module_init(option_init);
+module_exit(option_exit);
+
+#else
 module_usb_serial_driver(serial_drivers, option_ids);
 
+#endif
 static int option_probe(struct usb_serial *serial,
 			const struct usb_device_id *id)
 {
@@ -2055,6 +2105,36 @@ static int option_probe(struct usb_serial *serial,
 	 */
 	if (device_flags & RSVD(iface_desc->bInterfaceNumber))
 		return -ENODEV;
+
+/*== 20170316 AVM/VGJ CHANGESET: Specific GSM Device ID ==
+**== Use params instead of default tables ==*/
+#ifdef OPTION_USE_ID_PARAMS
+	{
+
+		struct usb_host_interface *host_iface = serial->interface->cur_altsetting;
+		struct usb_endpoint_descriptor *endpoint;
+		int num_bulk_out=0;
+		int num_bulk_in=0;
+		int i;
+
+		for (i = 0; i < iface_desc->bNumEndpoints; i++) {
+			endpoint = &host_iface->endpoint[i].desc;
+			if ((endpoint->bmAttributes & 0x03) == 0x02) {
+				if (endpoint->bEndpointAddress & 0x80) {
+					++num_bulk_in;
+				} else {
+					++num_bulk_out;
+				}
+			}
+		}
+
+		/* we need both directions */
+		if (num_bulk_out == 0 || num_bulk_in == 0) {
+			return -ENODEV;
+		}
+	}
+#endif
+
 	/*
 	 * Don't bind network interface on Samsung GT-B3730, it is handled by
 	 * a separate module.

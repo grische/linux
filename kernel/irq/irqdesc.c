@@ -19,6 +19,10 @@
 
 #include "internals.h"
 
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+#include <linux/avm_profile.h>
+#endif
+
 /*
  * lockdep: we want to handle all irq_desc locks as a single lock-class:
  */
@@ -601,7 +605,14 @@ int generic_handle_irq(unsigned int irq)
 
 	if (!desc)
 		return -EINVAL;
+
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_enter_irq(irq);
+#endif /*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING) ---*/
 	generic_handle_irq_desc(desc);
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_leave_irq(irq);
+#endif /*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING) ---*/
 	return 0;
 }
 EXPORT_SYMBOL_GPL(generic_handle_irq);

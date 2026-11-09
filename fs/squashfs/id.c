@@ -48,7 +48,7 @@ int squashfs_get_id(struct super_block *sb, unsigned int index,
 	struct squashfs_sb_info *msblk = sb->s_fs_info;
 	int block = SQUASHFS_ID_BLOCK(index);
 	int offset = SQUASHFS_ID_BLOCK_OFFSET(index);
-	u64 start_block = le64_to_cpu(msblk->id_table[block]);
+	u64 start_block = squash_le64_to_cpu(msblk->id_table[block]);
 	__le32 disk_id;
 	int err;
 
@@ -57,7 +57,7 @@ int squashfs_get_id(struct super_block *sb, unsigned int index,
 	if (err < 0)
 		return err;
 
-	*id = le32_to_cpu(disk_id);
+	*id = squash_le32_to_cpu(disk_id);
 	return 0;
 }
 
@@ -93,7 +93,7 @@ __le64 *squashfs_read_id_index_table(struct super_block *sb,
 	 * table[0] points to the first id lookup table metadata block, this
 	 * should be less than id_table_start
 	 */
-	if (!IS_ERR(table) && le64_to_cpu(table[0]) >= id_table_start) {
+	if (!IS_ERR(table) && squash_le64_to_cpu(table[0]) >= id_table_start) {
 		kfree(table);
 		return ERR_PTR(-EINVAL);
 	}

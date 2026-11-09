@@ -21,6 +21,22 @@
 #include <linux/netfilter_bridge.h>
 #include "br_private.h"
 
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#endif
+
+#if IS_ENABLED(CONFIG_MCAST_HELPER)
+void (*five_tuple_br_info_ptr)(struct sk_buff *skb) = NULL;
+void (*five_tuple_br_info_hook)(struct sk_buff *skb) = NULL;
+EXPORT_SYMBOL(five_tuple_br_info_ptr);
+EXPORT_SYMBOL(five_tuple_br_info_hook);
+int mch_br_capture_pkt = 0;
+EXPORT_SYMBOL(mch_br_capture_pkt);
+#endif
+#ifdef CONFIG_MCAST_SNOOPING
+#define IS_MCAST_ADDR 0x1
+#endif
+
 /* Don't forward packets to originating port or forwarding disabled */
 static inline int should_deliver(const struct net_bridge_port *p,
 				 const struct sk_buff *skb)
@@ -30,7 +46,8 @@ static inline int should_deliver(const struct net_bridge_port *p,
 	vg = nbp_vlan_group_rcu(p);
 	return ((p->flags & BR_HAIRPIN_MODE) || skb->dev != p->dev) &&
 		br_allowed_egress(vg, skb) && p->state == BR_STATE_FORWARDING &&
-		nbp_switchdev_allowed_egress(p, skb);
+		nbp_switchdev_allowed_egress(p, skb) &&
+		!br_skb_isolated(p, skb);
 }
 
 int br_dev_queue_push_xmit(struct net *net, struct sock *sk, struct sk_buff *skb)
@@ -117,12 +134,35 @@ static int deliver_clone(const struct net_bridge_port *prev,
 			 struct sk_buff *skb, bool local_orig)
 {
 	struct net_device *dev = BR_INPUT_SKB_CB(skb)->brdev;
+#ifdef CONFIG_MCAST_HELPER
+	const unsigned char *dest = eth_hdr(skb)->h_dest;
+#endif
 
 	skb = skb_clone(skb, GFP_ATOMIC);
 	if (!skb) {
 		dev->stats.tx_dropped++;
 		return -ENOMEM;
 	}
+
+#ifdef CONFIG_MCAST_HELPER
+	/* Send five tuple info to mcast helper */
+	if (mch_br_capture_pkt == 1) {
+		if ((ip_hdr(skb)->protocol == IPPROTO_UDP) || (ipv6_hdr(skb)->nexthdr == IPPROTO_UDP)) {
+			if (five_tuple_br_info_ptr != NULL) {
+				five_tuple_br_info_ptr(skb);
+			}
+		}
+	}
+
+	/* hook the UDP multicast to mcast helper */
+	if (bridge_lanserver_hook == 1) {
+		if (!is_broadcast_ether_addr(dest) && is_multicast_ether_addr(dest) && ((ip_hdr(skb)->protocol == IPPROTO_UDP) || (ipv6_hdr(skb)->nexthdr == IPPROTO_UDP))) {
+			if (five_tuple_br_info_hook != NULL) {
+				five_tuple_br_info_hook(skb);
+			}
+		}
+	}
+#endif
 
 	__br_forward(prev, skb, local_orig);
 	return 0;
@@ -165,6 +205,15 @@ static struct net_bridge_port *maybe_deliver(
 	if (!prev)
 		goto out;
 
+#ifdef CONFIG_MCAST_SNOOPING
+	if ((bridge_igmp_snooping || bridge_mld_snooping) &&
+	    (eth_hdr(skb)->h_dest[0] & IS_MCAST_ADDR) &&
+	    (br_selective_flood(prev, skb) == 0)) {
+		prev = p;
+		return p;
+	}
+#endif
+
 	err = deliver_clone(prev, skb, local_orig);
 	if (err)
 		return ERR_PTR(err);
@@ -180,6 +229,13 @@ void br_flood(struct net_bridge *br, struct sk_buff *skb,
 	u8 igmp_type = br_multicast_igmp_type(skb);
 	struct net_bridge_port *prev = NULL;
 	struct net_bridge_port *p;
+
+	if (!br_flood_rl(br, skb, skb->dev))
+		goto out;
+
+#ifdef CONFIG_AVM_PA
+	avm_pa_do_not_accelerate(skb);
+#endif
 
 	list_for_each_entry_rcu(p, &br->port_list, list) {
 		/* Do not flood unicast traffic to ports that turn it off */
@@ -208,10 +264,26 @@ void br_flood(struct net_bridge *br, struct sk_buff *skb,
 	if (!prev)
 		goto out;
 
-	if (local_rcv)
-		deliver_clone(prev, skb, local_orig);
-	else
-		__br_forward(prev, skb, local_orig);
+	if (local_rcv) {
+#ifdef CONFIG_MCAST_SNOOPING
+		if ((bridge_igmp_snooping || bridge_mld_snooping) &&
+		    (eth_hdr(skb)->h_dest[0] & IS_MCAST_ADDR) &&
+		    (br_selective_flood(prev, skb) == 0)) {
+		}
+		//kfree_skb(skb);
+		else
+#endif
+			deliver_clone(prev, skb, local_orig);
+	} else {
+#ifdef CONFIG_MCAST_SNOOPING
+		if ((bridge_igmp_snooping || bridge_mld_snooping) &&
+		    (eth_hdr(skb)->h_dest[0] & IS_MCAST_ADDR) &&
+		    (br_selective_flood(prev, skb) == 0))
+			kfree_skb(skb);
+		else
+#endif
+			__br_forward(prev, skb, local_orig);
+	}
 	return;
 
 out:
@@ -220,6 +292,31 @@ out:
 }
 
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
+static void maybe_deliver_addr(struct net_bridge_port *p, struct sk_buff *skb,
+			       const unsigned char *addr, bool local_orig)
+{
+	struct net_device *dev = BR_INPUT_SKB_CB(skb)->brdev;
+	const unsigned char *src = eth_hdr(skb)->h_source;
+
+	if (!should_deliver(p, skb))
+		return;
+
+	/* Even with hairpin, no soliloquies - prevent breaking IPv6 DAD */
+	if (skb->dev == p->dev && ether_addr_equal(src, addr))
+		return;
+
+	skb = skb_copy(skb, GFP_ATOMIC);
+	if (!skb) {
+		dev->stats.tx_dropped++;
+		return;
+	}
+
+	if (!is_broadcast_ether_addr(addr))
+		memcpy(eth_hdr(skb)->h_dest, addr, ETH_ALEN);
+
+	__br_forward(p, skb, local_orig);
+}
+
 /* called with rcu_read_lock */
 void br_multicast_flood(struct net_bridge_mdb_entry *mdst,
 			struct sk_buff *skb,
@@ -241,10 +338,20 @@ void br_multicast_flood(struct net_bridge_mdb_entry *mdst,
 		rport = rp ? hlist_entry(rp, struct net_bridge_port, rlist) :
 			     NULL;
 
-		port = (unsigned long)lport > (unsigned long)rport ?
-		       lport : rport;
+		if ((unsigned long)lport > (unsigned long)rport) {
+			port = lport;
+
+			if (port->flags & BR_MULTICAST_TO_UNICAST) {
+				maybe_deliver_addr(lport, skb, p->eth_addr,
+						   local_orig);
+				goto delivered;
+			}
+		} else {
+			port = rport;
+		}
 
 		prev = maybe_deliver(prev, port, skb, local_orig);
+delivered:
 		if (IS_ERR(prev))
 			goto out;
 		if (prev == port)

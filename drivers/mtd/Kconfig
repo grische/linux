@@ -336,6 +336,10 @@ source "drivers/mtd/lpddr/Kconfig"
 
 source "drivers/mtd/spi-nor/Kconfig"
 
+source "drivers/mtd/ltq-spinand/Kconfig"
+
 source "drivers/mtd/ubi/Kconfig"
+
+source "drivers/mtd/avm/Kconfig"
 
 endif # MTD

@@ -1370,6 +1370,17 @@ config SYSCTL_ARCH_UNALIGN_ALLOW
 	  the unaligned access emulation.
 	  see arch/parisc/kernel/unaligned.c for reference
 
+config KALLSYMS_UNCOMPRESSED
+	bool "Keep kallsyms uncompressed"
+	depends on KALLSYMS
+	help
+		Normally kallsyms contains compressed symbols (using a token table),
+		reducing the uncompressed kernel image size. Keeping the symbol table
+		uncompressed significantly improves the size of this part in compressed
+		kernel images.
+
+		Say N unless you need compressed kernel images to be small.
+
 config HAVE_PCSPKR_PLATFORM
 	bool
 
@@ -1476,7 +1487,7 @@ config KALLSYMS_ABSOLUTE_PERCPU
 	default X86_64 && SMP
 
 config KALLSYMS_BASE_RELATIVE
-	bool
+	bool "Use relative offsets in kallsyms address table"
 	depends on KALLSYMS
 	default !IA64 && !(TILE && 64BIT)
 	help
@@ -1505,7 +1516,8 @@ config PRINTK
 	  strongly discouraged.
 
 config PRINTK_NMI
-	def_bool y
+	default y
+	bool "Enable printk NMI extensions" if EXPERT
 	depends on PRINTK
 	depends on HAVE_NMI
 
@@ -1759,6 +1771,17 @@ config SLUB_DEBUG
 	  SLUB sysfs support. /sys/slab will not exist and there will be
 	  no support for cache validation etc.
 
+config SLUB_AVM_ALLOC_LIST
+	default y
+	bool "SLUB: trace alloc/free'd caller (AVM)"
+	depends on PROC_FS
+	depends on SLUB_DEBUG
+	depends on AVM_ENHANCED
+	help
+	  Very useful lightweight feature.
+	  See allocator and free-caller on memory-classifier
+	  Identify Memleak-caller on OOM or over /proc/slab_allocators
+
 config COMPAT_BRK
 	bool "Disable heap randomization"
 	default y
@@ -1892,6 +1915,7 @@ config SLABINFO
 	depends on PROC_FS
 	depends on SLAB || SLUB_DEBUG
 	default y
+
 
 config RT_MUTEXES
 	bool
@@ -2102,6 +2126,13 @@ config TRIM_UNUSED_KSYMS
 
 	  If unsure, or if you need to build out-of-tree modules, say N.
 
+config MODULE_STRIPPED
+	bool "Reduce module size"
+	depends on MODULES
+	help
+	  Remove module parameter descriptions, author info, version, aliases,
+	  device tables, etc.
+
 endif # MODULES
 
 config MODULES_TREE_LOOKUP
@@ -2135,3 +2166,5 @@ config ASN1
 	  functions to call on what tags.
 
 source "kernel/Kconfig.locks"
+
+source "kernel/Kconfig.avm"

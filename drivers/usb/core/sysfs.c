@@ -294,6 +294,89 @@ static ssize_t ltm_capable_show(struct device *dev,
 	return sprintf(buf, "%s\n", "no");
 }
 static DEVICE_ATTR_RO(ltm_capable);
+/* == 20170209 AVM/VGJ - AVM USB Suspend Feature == */
+#if defined (CONFIG_AVM_USB_SUSPEND)
+
+static ssize_t
+show_avm_usb_suspend_status(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int ret;
+	struct usb_device *udev = to_usb_device(dev);
+	ret = sprintf(buf, "%s\n", udev->port_is_suspended ? "suspended" : "active");
+	return ret;
+}
+
+static DEVICE_ATTR(avm_usb_suspend_status, S_IRUGO, show_avm_usb_suspend_status, NULL);
+
+static ssize_t
+show_avm_usb_suspend_enable(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct usb_device *udev = to_usb_device(dev);
+	return sprintf(buf, "%u\n", udev->avm_usb_suspend_enable);
+}
+
+static ssize_t
+set_avm_usb_suspend_enable(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct usb_device *udev = to_usb_device(dev);
+	unsigned value;
+
+	if (sscanf(buf, "%u", &value) != 1)
+		return -EINVAL;
+
+	usb_lock_device(udev);
+	if (value) {
+		if (avm_usb_suspend_is_blacklisted(udev)) {
+			printk(KERN_INFO "USB device %04x:%04x:%04x is blacklisted for suspension\n",
+								le16_to_cpu(udev->descriptor.idVendor),
+								le16_to_cpu(udev->descriptor.idProduct),
+								le16_to_cpu(udev->descriptor.bcdDevice));
+		} else {
+			udev->avm_usb_suspend_enable = 1;
+			__avm_usb_suspend_start_timer(udev);
+		}
+	} else {
+		avm_usb_suspend_stop(udev);
+		__avm_usb_suspend_do_resume(udev);
+	}
+	usb_unlock_device(udev);
+	
+	return count;
+}
+
+static DEVICE_ATTR(avm_usb_suspend_enable, S_IRUGO | S_IWUSR, show_avm_usb_suspend_enable, set_avm_usb_suspend_enable);
+
+static ssize_t
+show_avm_usb_suspend_delay(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct usb_device *udev = to_usb_device(dev);
+	return sprintf(buf, "%u\n", jiffies_to_msecs(udev->avm_usb_suspend_delay)/1000);
+}
+
+static ssize_t
+set_avm_usb_suspend_delay(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct usb_device *udev = to_usb_device(dev);
+	unsigned seconds;
+
+	if (sscanf(buf, "%u", &seconds) != 1) {
+		return -EINVAL;
+	}
+	
+	usb_lock_device(udev);
+	// Zero is accepted but it will prevent the device to suspend
+	udev->avm_usb_suspend_delay = (seconds == 0) ? 0 : msecs_to_jiffies(seconds*1000);
+	__avm_usb_suspend_start_timer(udev);
+	usb_unlock_device(udev);
+	
+	return count;
+}
+
+static DEVICE_ATTR(avm_usb_suspend_delay, S_IRUGO | S_IWUSR, show_avm_usb_suspend_delay, set_avm_usb_suspend_delay);
+
+#endif //CONFIG_AVM_USB_SUSPEND
 
 #ifdef	CONFIG_PM
 
@@ -759,6 +842,68 @@ static ssize_t remove_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_IGNORE_LOCKDEP(remove, S_IWUSR, NULL, remove_store);
 
+#if 1 /* == 20160222 AVM/VGJ - CHANGESET: noprobe Extension for AURA == */
+
+/* show if probing is allowed (0) or not allowed (1) for the device */
+static ssize_t usb_dev_noprobe_show(struct device *dev,
+				       struct device_attribute *attr,
+				       char *buf)
+{
+	struct usb_device *usb_dev = to_usb_device(dev);
+	return snprintf(buf, PAGE_SIZE, "%u\n", usb_dev->noprobe);
+}
+
+/*
+ * Prevent probing for a device
+ * (configures or deconfigures the device as a side effect)
+ *
+ * Writing a 0 allows probing and reconfigures the device
+ * writing a 1 prevents probing and unconfigures the device it
+ * writing a 2 prevents probing and resets the device
+ * 
+ */
+static ssize_t usb_dev_noprobe_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t size)
+{
+	ssize_t result;
+	struct usb_device *usb_dev = to_usb_device(dev);
+	unsigned val;
+	result = sscanf(buf, "%u\n", &val);
+	if (result != 1)
+		result = -EINVAL;
+	else {
+		usb_lock_device(usb_dev);
+		if (val == 0) {
+			int c,err;
+			usb_dev->noprobe = 0;
+			c = usb_choose_configuration(usb_dev);
+			if (c >= 0) {
+				err = usb_set_configuration(usb_dev, c);
+				if (err) {
+					dev_err(&usb_dev->dev,
+						"can't set config #%d, error %d\n", c, err);
+					/* This need not be fatal.  The user can try to
+					 * set other configurations. */
+				}
+			}
+		} else {
+			usb_dev->noprobe = 1;
+			usb_set_configuration(usb_dev, -1);
+			/* == 20160219 AVM/VGJ - CHANGESET: noprobe: extra value 2 resets device */
+			if (val == 2) {
+				usb_reset_device (usb_dev);
+			}
+		}
+		usb_unlock_device(usb_dev);
+	}
+	return result < 0? result : size;
+}
+
+static DEVICE_ATTR(noprobe, 0644,
+	    usb_dev_noprobe_show, usb_dev_noprobe_store);
+
+#endif
 
 static struct attribute *dev_attrs[] = {
 	/* current configuration's attributes */
@@ -789,6 +934,14 @@ static struct attribute *dev_attrs[] = {
 	&dev_attr_remove.attr,
 	&dev_attr_removable.attr,
 	&dev_attr_ltm_capable.attr,
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	&dev_attr_avm_usb_suspend_status.attr,
+	&dev_attr_avm_usb_suspend_enable.attr,
+	&dev_attr_avm_usb_suspend_delay.attr,
+#endif
+#if 1 /* == 20160222 AVM/VGJ - CHANGESET: noprobe Extension == */
+	&dev_attr_noprobe.attr,
+#endif
 	NULL,
 };
 static struct attribute_group dev_attr_grp = {

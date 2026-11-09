@@ -773,6 +773,58 @@ static ssize_t vlan_stats_enabled_store(struct device *d,
 static DEVICE_ATTR_RW(vlan_stats_enabled);
 #endif
 
+#ifdef CONFIG_AVM_BRIDGE_FLOOD_RATELIMITER
+
+static ssize_t avm_flood_ratelimit_show(struct device *d,
+					struct device_attribute *attr,
+					char *buf)
+{
+	struct net_bridge *br = to_bridge(d);
+
+	return sprintf(buf, "%d\n%d\n", br->avm_flood_credits_max,
+			atomic_read(&br->avm_flood_credits));
+}
+
+static ssize_t avm_flood_ratelimit_store(struct device *d,
+					 struct device_attribute *attr,
+					 const char *buf, size_t len)
+{
+	/* Specify an initial amount of packets that are not rate limited */
+	return store_bridge_parm(d, buf, len, br_flood_rl_set_credits);
+}
+
+static DEVICE_ATTR_RW(avm_flood_ratelimit);
+
+static ssize_t avm_flood_ratelimit_recover_rate_show(struct device *d,
+						     struct device_attribute *attr,
+						     char *buf)
+{
+	struct net_bridge *br = to_bridge(d);
+
+	return sprintf(buf, "%d\n", br->avm_flood_credits_recov_rate);
+}
+
+static int set_rate(struct net_bridge *br, unsigned long v)
+{
+	if (v > INT_MAX)
+		return -EINVAL;
+
+	br->avm_flood_credits_recov_rate = v;
+	return 0;
+}
+
+static ssize_t avm_flood_ratelimit_recover_rate_store(struct device *d,
+						      struct device_attribute *attr,
+						      const char *buf,
+						      size_t len)
+{
+	/* Specify packets per seconds */
+	return store_bridge_parm(d, buf, len, set_rate);
+}
+
+static DEVICE_ATTR_RW(avm_flood_ratelimit_recover_rate);
+#endif
+
 static struct attribute *bridge_attrs[] = {
 	&dev_attr_forward_delay.attr,
 	&dev_attr_hello_time.attr,
@@ -820,6 +872,10 @@ static struct attribute *bridge_attrs[] = {
 	&dev_attr_vlan_protocol.attr,
 	&dev_attr_default_pvid.attr,
 	&dev_attr_vlan_stats_enabled.attr,
+#endif
+#ifdef CONFIG_AVM_BRIDGE_FLOOD_RATELIMITER
+	&dev_attr_avm_flood_ratelimit.attr,
+	&dev_attr_avm_flood_ratelimit_recover_rate.attr,
 #endif
 	NULL
 };

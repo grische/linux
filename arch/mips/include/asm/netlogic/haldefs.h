@@ -80,7 +80,7 @@ nlm_read_reg64(uint64_t base, uint32_t reg)
 		local_irq_save(flags);
 		__asm__ __volatile__(
 			".set	push"			"\n\t"
-			".set	mips64"			"\n\t"
+			".set	mips64r2"			"\n\t"
 			"ld	%L0, %1"		"\n\t"
 			"dsra32	%M0, %L0, 0"		"\n\t"
 			"sll	%L0, %L0, 0"		"\n\t"
@@ -107,7 +107,7 @@ nlm_write_reg64(uint64_t base, uint32_t reg, uint64_t val)
 		local_irq_save(flags);
 		__asm__ __volatile__(
 			".set	push"			"\n\t"
-			".set	mips64"			"\n\t"
+			".set	mips64r2"			"\n\t"
 			"dsll32	%L0, %L0, 0"		"\n\t"
 			"dsrl32	%L0, %L0, 0"		"\n\t"
 			"dsll32	%M0, %M0, 0"		"\n\t"

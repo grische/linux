@@ -121,6 +121,9 @@
 #endif
 #include <net/l3mdev.h>
 
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#endif
 
 /* The inetsw table contains everything that inet_create needs to
  * build a new socket.
@@ -1871,6 +1874,22 @@ static int __init inet_init(void)
 	ipv4_proc_init();
 
 	ipfrag_init();
+
+#ifdef CONFIG_AVM_PA
+	{
+		struct avm_pa_dev_info *ip_dev = AVM_PA_PTYPE_DEVINFO(&ip_packet_type);
+		struct avm_pa_pid_cfg cfg = {0};
+
+		snprintf(cfg.name, sizeof(cfg.name), "ipv4");
+		cfg.framing = avm_pa_framing_ptype;
+		cfg.default_mtu = 0xffff;
+		cfg.ptype = &ip_packet_type;
+		if (avm_pa_dev_pid_register(ip_dev, &cfg) < 0) {
+			pr_err("%s: Cannot register avm_pa pid %s\n",
+			       __func__, cfg.name);
+		}
+	}
+#endif
 
 	dev_add_pack(&ip_packet_type);
 

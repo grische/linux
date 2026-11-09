@@ -9,6 +9,14 @@
 #include <linux/net.h>
 #include <linux/poll.h> /* for poll_table */
 
+#if defined(ATM_MPOA_INTEL_DSL_PHY_SUPPORT)
+#undef ATM_MPOA_INTEL_DSL_PHY_SUPPORT
+#endif
+#if IS_ENABLED(CONFIG_VRX518_TC) || IS_ENABLED(CONFIG_ATM_MPOA_INTEL_DSL_PHY_SUPPORT)
+#define ATM_MPOA_INTEL_DSL_PHY_SUPPORT 1
+#else
+#define ATM_MPOA_INTEL_DSL_PHY_SUPPORT 0
+#endif
 
 int vcc_create(struct net *net, struct socket *sock, int protocol, int family, int kern);
 int vcc_release(struct socket *sock);
@@ -51,5 +59,10 @@ static inline void atm_proc_exit(void)
 int svc_change_qos(struct atm_vcc *vcc,struct atm_qos *qos);
 
 void atm_dev_release_vccs(struct atm_dev *dev);
+#ifdef CONFIG_ATM_OAM
+int push_oam(struct atm_vcc *atmvcc, void *cell);
+#endif
+
+extern void (*atm_hook_mpoa_setup)(struct atm_vcc *, int, int, struct net_device *);
 
 #endif

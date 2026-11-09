@@ -454,4 +454,6 @@ config FUJITSU_ES
 
 source "drivers/net/hyperv/Kconfig"
 
+source "drivers/net/nlaudio/Kconfig"
+
 endif # NETDEVICES

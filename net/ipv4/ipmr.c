@@ -67,6 +67,7 @@
 #include <net/fib_rules.h>
 #include <linux/netconf.h>
 #include <net/nexthop.h>
+#include <linux/mroute6.h>
 
 #include <linux/nospec.h>
 
@@ -114,6 +115,11 @@ static void mroute_netlink_event(struct mr_table *mrt, struct mfc_cache *mfc,
 static void mroute_clean_tables(struct mr_table *mrt, bool all);
 static void ipmr_expire_process(unsigned long arg);
 
+#if IS_ENABLED(CONFIG_MCAST_HELPER)
+void (*five_tuple_info_ptr)(struct sk_buff *skb, char iface_name[20]) = NULL;
+EXPORT_SYMBOL(five_tuple_info_ptr);
+#endif
+
 #ifdef CONFIG_IP_MROUTE_MULTIPLE_TABLES
 #define ipmr_for_each_table(mrt, net) \
 	list_for_each_entry_rcu(mrt, &net->ipv4.mr_tables, list)
@@ -159,6 +165,7 @@ static int ipmr_rule_action(struct fib_rule *rule, struct flowi *flp,
 	case FR_ACT_UNREACHABLE:
 		return -ENETUNREACH;
 	case FR_ACT_PROHIBIT:
+	case FR_ACT_POLICY_FAILED:
 		return -EACCES;
 	case FR_ACT_BLACKHOLE:
 	default:
@@ -656,7 +663,7 @@ static void ipmr_destroy_unres(struct mr_table *mrt, struct mfc_cache *c)
 			e->error = -ETIMEDOUT;
 			memset(&e->msg, 0, sizeof(e->msg));
 
-			rtnl_unicast(skb, net, NETLINK_CB(skb).portid);
+			rtnl_unicast(skb, net, nlh->nlmsg_pid);
 		} else {
 			kfree_skb(skb);
 		}
@@ -936,7 +943,7 @@ static void ipmr_cache_resolve(struct net *net, struct mr_table *mrt,
 				memset(&e->msg, 0, sizeof(e->msg));
 			}
 
-			rtnl_unicast(skb, net, NETLINK_CB(skb).portid);
+			rtnl_unicast(skb, net, nlh->nlmsg_pid);
 		} else {
 			ip_mr_forward(net, mrt, skb, c, 0);
 		}
@@ -984,6 +991,13 @@ static int ipmr_cache_report(struct mr_table *mrt,
 		ip_hdr(skb)->tot_len = htons(ntohs(ip_hdr(pkt)->tot_len) +
 					     sizeof(struct iphdr));
 	} else {
+#if IS_ENABLED(CONFIG_MCAST_HELPER)
+		/* Send five tuple info to mcast helper */
+		if (ip_hdr(pkt)->protocol == 17)
+			if (five_tuple_info_ptr != NULL)
+				five_tuple_info_ptr(pkt, mrt->vif_table[vifi].dev->name);
+#endif
+
 		/* Copy the IP header */
 		skb_set_network_header(skb, skb->len);
 		skb_put(skb, ihl);

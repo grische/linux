@@ -11,6 +11,8 @@ usbcore-$(CONFIG_OF)		+= of.o
 usbcore-$(CONFIG_PCI)		+= hcd-pci.o
 usbcore-$(CONFIG_ACPI)		+= usb-acpi.o
 
+usbcore-$(CONFIG_AVM_NET_TRACE)	+= avmusbtrace.o
+
 obj-$(CONFIG_USB)		+= usbcore.o
 
 obj-$(CONFIG_USB_LEDS_TRIGGER_USBPORT)	+= ledtrig-usbport.o

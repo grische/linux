@@ -1,0 +1,20 @@
+#!/bin/sh
+
+modprobe xrx500_phy_fw
+modprobe ltq_eth_drv_xrx500
+
+# temporary solution for JZ-74156
+# Now also for JZ-75372, so use this for all GRX products for now.
+tc qdisc add dev eth0 root tbf rate 1100mbit latency 100ms burst 5000
+tc qdisc add dev eth1 root tbf rate 1100mbit latency 100ms burst 5000
+tc qdisc add dev eth2 root tbf rate 1100mbit latency 100ms burst 5000
+tc qdisc add dev eth3 root tbf rate 1100mbit latency 100ms burst 5000
+
+mkdir /dev/switch_api
+mknod -m 666 /dev/switch_api/0 c 81 0
+mknod -m 666 /dev/switch_api/1 c 81 1
+
+# Effectively disabling tso autosizing which prevents reaching line speed
+# The feature was introduced in this mainline commit:
+# https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=95bd09eb27507691520d39ee1044d6ad831c1168
+sysctl -w net.ipv4.tcp_min_tso_segs=100

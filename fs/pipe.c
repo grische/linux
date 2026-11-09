@@ -254,6 +254,44 @@ static const struct pipe_buf_operations packet_pipe_buf_ops = {
 	.get = generic_pipe_buf_get,
 };
 
+
+int generic_pipe_buf_illegal(struct pipe_inode_info *info,
+			     struct pipe_buffer *buf)
+{
+	pr_emerg("%s: invalid call of %pS - pipe:buffers=%u nrbufs=%u curbuf=%u r/w=%u/%u(%u) files=%u buf:len=%u flags=0x%x\n", __func__,
+		 buf,
+		 info->buffers,
+		 info->nrbufs,
+		 info->curbuf,
+		 info->readers,
+		 info->writers,
+		 info->waiting_writers,
+		 info->files,
+		 buf->len, buf->flags);
+	BUG_ON(generic_pipe_buf_illegal);
+	return 0;
+}
+
+void generic_pipe_buf_illegal_void(struct pipe_inode_info *info,
+			     struct pipe_buffer *buf)
+{
+	generic_pipe_buf_illegal(info, buf);
+}
+
+bool generic_pipe_buf_illegal_bool(struct pipe_inode_info *info,
+			     struct pipe_buffer *buf)
+{
+	return generic_pipe_buf_illegal(info, buf);
+}
+
+const struct pipe_buf_operations packet_pipe_buf_illegal = {
+	.can_merge = 0,
+	.confirm = generic_pipe_buf_illegal,
+	.release = generic_pipe_buf_illegal_void,
+	.steal   = generic_pipe_buf_illegal,
+	.get     = generic_pipe_buf_illegal_bool,
+};
+
 void pipe_buf_mark_unmergeable(struct pipe_buffer *buf)
 {
 	if (buf->ops == &anon_pipe_buf_ops)

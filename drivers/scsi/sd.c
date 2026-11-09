@@ -1449,9 +1449,13 @@ static unsigned int sd_check_events(struct gendisk *disk, unsigned int clearing)
 	retval = -ENODEV;
 
 	if (scsi_block_when_processing_errors(sdp)) {
-		sshdr  = kzalloc(sizeof(*sshdr), GFP_KERNEL);
-		retval = scsi_test_unit_ready(sdp, SD_TIMEOUT, SD_MAX_RETRIES,
-					      sshdr);
+		/* == 20160222 AVM/VGJ - CHANGESET: STORAGE fix: TUR prevented STOP_UNIT on some hard_disks ==*/
+		/* == 20180329 AVM/VGJ - TUR wakes up suspended devices. Do it only if there is no media ==*/
+		retval = 0;
+		if (!sdkp->media_present) {
+			sshdr  = kzalloc(sizeof(*sshdr), GFP_KERNEL);
+			retval = scsi_test_unit_ready(sdp, SD_TIMEOUT, SD_MAX_RETRIES, sshdr);
+		}
 	}
 
 	/* failed to execute TUR, assume media not present */

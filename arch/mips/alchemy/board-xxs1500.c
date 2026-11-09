@@ -70,7 +70,7 @@ static void xxs1500_power_off(void)
 {
 	while (1)
 		asm volatile (
-		"	.set	mips32					\n"
+		"	.set	mips32r2				\n"
 		"	wait						\n"
 		"	.set	mips0					\n");
 }

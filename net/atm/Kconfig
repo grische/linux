@@ -71,3 +71,23 @@ config ATM_BR2684_IPFILTER
 	  This is an experimental mechanism for users who need to terminate a
 	  large number of IP-only vcc's.  Do not enable this unless you are sure
 	  you know what you are doing.
+
+config ATM_OAM
+	tristate "ATM OAM support"
+	depends on ATM && NET
+	default y
+	help
+	ATM OAM support
+
+config ATM_BR2684_MINI_JUMBO_FRAME_SUPPORT
+	tristate "Mini Jumbo Frame support"
+	depends on ATM_BR2684
+	default n
+	help
+	  Mini Jumbo Frame support
+config ATM_MPOA_INTEL_DSL_PHY_SUPPORT
+	tristate "Intel DSL Phy MPOA support"
+	depends on ATM && NET
+	default y
+	help
+	  Add support for Intel DSL Phy ATM MPOA

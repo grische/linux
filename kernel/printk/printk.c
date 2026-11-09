@@ -45,6 +45,26 @@
 #include <linux/utsname.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
+#ifdef CONFIG_AVM_DEBUG
+#include <avm/sammel/debug.h>
+#endif
+#include <asm/yield_context.h>
+#if defined(CONFIG_AVM_YIELD)
+#define yield_start_critical_timings()                                         \
+	if (yield_is_linux_context())                                          \
+		start_critical_timings()
+#define yield_stop_critical_timings()                                          \
+	if (yield_is_linux_context())                                          \
+		stop_critical_timings()
+#define yield_local_clock()                                                    \
+	(yield_is_linux_context() ?                                            \
+		 local_clock() :                                               \
+		 (u64)(jiffies - INITIAL_JIFFIES) * (NSEC_PER_SEC / HZ))
+#else /*--- #if defined(CONFIG_AVM_YIELD) ---*/
+#define yield_local_clock() local_clock()
+#define yield_start_critical_timings() start_critical_timings()
+#define yield_stop_critical_timings() stop_critical_timings()
+#endif /*--- #else  ---*/ /*--- #if defined(CONFIG_AVM_YIELD) ---*/
 
 #include <asm/uaccess.h>
 #include <asm/sections.h>
@@ -128,13 +148,10 @@ static int __init control_devkmsg(char *str)
 	/*
 	 * Set sysctl string accordingly:
 	 */
-	if (devkmsg_log == DEVKMSG_LOG_MASK_ON) {
-		memset(devkmsg_log_str, 0, DEVKMSG_STR_MAX_SIZE);
-		strncpy(devkmsg_log_str, "on", 2);
-	} else if (devkmsg_log == DEVKMSG_LOG_MASK_OFF) {
-		memset(devkmsg_log_str, 0, DEVKMSG_STR_MAX_SIZE);
-		strncpy(devkmsg_log_str, "off", 3);
-	}
+	if (devkmsg_log == DEVKMSG_LOG_MASK_ON)
+		strcpy(devkmsg_log_str, "on");
+	else if (devkmsg_log == DEVKMSG_LOG_MASK_OFF)
+		strcpy(devkmsg_log_str, "off");
 	/* else "ratelimit" which is set by default. */
 
 	/*
@@ -213,16 +230,18 @@ static int nr_ext_console_drivers;
 
 static int __down_trylock_console_sem(unsigned long ip)
 {
-	if (down_trylock(&console_sem))
+	if (yield_down_trylock(&console_sem))
 		return 1;
-	mutex_acquire(&console_lock_dep_map, 0, 1, ip);
+	if (yield_is_linux_context())
+		mutex_acquire(&console_lock_dep_map, 0, 1, ip);
 	return 0;
 }
 #define down_trylock_console_sem() __down_trylock_console_sem(_RET_IP_)
 
 #define up_console_sem() do { \
-	mutex_release(&console_lock_dep_map, 1, _RET_IP_);\
-	up(&console_sem);\
+	if (yield_is_linux_context())\
+		mutex_release(&console_lock_dep_map, 1, _RET_IP_);\
+	yield_up(&console_sem);\
 } while (0)
 
 /*
@@ -323,11 +342,19 @@ static int console_may_schedule;
  * non-prinatable characters are escaped in the "\xff" notation.
  */
 
+#define TC_SET_YIELDCONTEXT(cpu, tc)	((cpu & 0xFF) | (tc << 8))
+#define TC_CPUCONTEXT(cpu_tcid)		((cpu_tcid) & 0xFF)
+#define TC_YIELDCONTEXT(cpu_tcid)	((cpu_tcid) >> 8)
+
+
 enum log_flags {
 	LOG_NOCONS	= 1,	/* already flushed, do not print to console */
 	LOG_NEWLINE	= 2,	/* text ended with a newline */
 	LOG_PREFIX	= 4,	/* text started with a prefix */
 	LOG_CONT	= 8,	/* text is a fragment of a continuation line */
+#if defined(CONFIG_AVM_DEBUG)
+	LOG_PRINTK_AVM	= 0x10,
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) ---*/
 };
 
 struct printk_log {
@@ -338,11 +365,18 @@ struct printk_log {
 	u8 facility;		/* syslog facility */
 	u8 flags:5;		/* internal record flags */
 	u8 level:3;		/* syslog level */
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+	u8 cpu;
+	u8 yield_context;
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP) ---*/
 }
 #ifdef CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS
 __packed __aligned(4)
 #endif
 ;
+#if defined(CONFIG_AVM_DEBUG)
+static int force_printk_avm = 0;
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) ---*/
 
 /*
  * The logbuf_lock protects kmsg buffer, indices, counters.  This can be taken
@@ -529,6 +563,9 @@ static u32 truncate_msg(u16 *text_len, u16 *trunc_msg_len,
 
 /* insert record into the buffer, discard old ones, update heads */
 static int log_store(int facility, int level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+		     int cpu_tcid,
+#endif
 		     enum log_flags flags, u64 ts_nsec,
 		     const char *dict, u16 dict_len,
 		     const char *text, u16 text_len)
@@ -575,7 +612,11 @@ static int log_store(int facility, int level,
 	if (ts_nsec > 0)
 		msg->ts_nsec = ts_nsec;
 	else
-		msg->ts_nsec = local_clock();
+		msg->ts_nsec = yield_local_clock();
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+	msg->cpu = TC_CPUCONTEXT(cpu_tcid);
+	msg->yield_context = TC_YIELDCONTEXT(cpu_tcid);
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP) ---*/
 	memset(log_dict(msg) + dict_len, 0, pad_len);
 	msg->len = size;
 
@@ -1196,6 +1237,18 @@ static size_t print_prefix(const struct printk_log *msg, bool syslog, char *buf)
 	}
 
 	len += print_time(msg->ts_nsec, buf ? buf + len : NULL);
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+	if ((msg->flags & LOG_PRINTK_AVM) && buf) {
+		if (len && buf[len - 1] == ' ')
+			len--;
+		if (msg->yield_context) {
+			len += sprintf(&buf[len], "[Y%x:%x]", msg->cpu,
+				       msg->yield_context - 1 /* tc */);
+		} else {
+			len += sprintf(&buf[len], "[%x]", msg->cpu);
+		}
+	}
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP) ---*/
 	return len;
 }
 
@@ -1514,15 +1567,33 @@ SYSCALL_DEFINE3(syslog, int, type, char __user *, buf, int, len)
  * Call the console drivers, asking them to write out
  * log_buf[start] to log_buf[end - 1].
  * The console_lock must be held.
+ * YIELD-Kontext-fest
  */
 static void call_console_drivers(int level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK)
+				 int flags,
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK) ---*/
 				 const char *ext_text, size_t ext_len,
 				 const char *text, size_t len)
 {
 	struct console *con;
 
-	trace_console_rcuidle(text, len);
-
+	if (yield_is_linux_context()) {
+		trace_console_rcuidle(text, len);
+	}
+#if defined(CONFIG_AVM_YIELD)
+	else {
+		/*--- niemals Std-Konsole fuer yield-context! ---*/
+		avm_debug_console_write(text, len);
+		return;
+	}
+#endif /*--- #if defined(CONFIG_AVM_YIELD) ---*/
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK)
+	if ((flags & LOG_PRINTK_AVM) &&
+	    (avm_debug_console_write(text, len) == 0)) {
+		return;
+	}
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK) ---*/
 	if (!console_drivers)
 		return;
 
@@ -1595,6 +1666,9 @@ static struct cont {
 	u8 facility;			/* log facility of first message */
 	enum log_flags flags;		/* prefix, newline flags */
 	bool flushed:1;			/* buffer sealed and committed */
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+	int cpu_tcid;
+#endif
 } cont;
 
 static void cont_flush(void)
@@ -1609,7 +1683,11 @@ static void cont_flush(void)
 		 * console; wait for the console to pick up the rest of the
 		 * line. LOG_NOCONS suppresses a duplicated output.
 		 */
-		log_store(cont.facility, cont.level, cont.flags | LOG_NOCONS,
+		log_store(cont.facility, cont.level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+				cont.cpu_tcid,
+#endif
+				cont.flags | LOG_NOCONS,
 			  cont.ts_nsec, NULL, 0, cont.buf, cont.len);
 		cont.flushed = true;
 	} else {
@@ -1617,13 +1695,21 @@ static void cont_flush(void)
 		 * If no fragment of this line ever reached the console,
 		 * just submit it to the store and free the buffer.
 		 */
-		log_store(cont.facility, cont.level, cont.flags, 0,
+		log_store(cont.facility, cont.level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+				cont.cpu_tcid,
+#endif
+				cont.flags, 0,
 			  NULL, 0, cont.buf, cont.len);
 		cont.len = 0;
 	}
 }
 
-static bool cont_add(int facility, int level, enum log_flags flags, const char *text, size_t len)
+static bool cont_add(int facility, int level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+		int cpu_tcid,
+#endif
+		enum log_flags flags, const char *text, size_t len)
 {
 	if (cont.len && cont.flushed)
 		return false;
@@ -1642,10 +1728,13 @@ static bool cont_add(int facility, int level, enum log_flags flags, const char *
 		cont.facility = facility;
 		cont.level = level;
 		cont.owner = current;
-		cont.ts_nsec = local_clock();
+		cont.ts_nsec = yield_local_clock();
 		cont.flags = flags;
 		cont.cons = 0;
 		cont.flushed = false;
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+		cont.cpu_tcid = cpu_tcid;
+#endif
 	}
 
 	memcpy(cont.buf + cont.len, text, len);
@@ -1692,7 +1781,11 @@ static size_t cont_print_text(char *text, size_t size)
 	return textlen;
 }
 
-static size_t log_output(int facility, int level, enum log_flags lflags, const char *dict, size_t dictlen, char *text, size_t text_len)
+static size_t log_output(int facility, int level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+		int cpu_tcid,
+#endif
+		enum log_flags lflags, const char *dict, size_t dictlen, char *text, size_t text_len)
 {
 	/*
 	 * If an earlier line was buffered, and we're a continuation
@@ -1700,7 +1793,11 @@ static size_t log_output(int facility, int level, enum log_flags lflags, const c
 	 */
 	if (cont.len) {
 		if (cont.owner == current && (lflags & LOG_CONT)) {
-			if (cont_add(facility, level, lflags, text, text_len))
+			if (cont_add(facility, level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+						cpu_tcid,
+#endif
+						lflags, text, text_len))
 				return text_len;
 		}
 		/* Otherwise, make sure it's flushed */
@@ -1713,12 +1810,20 @@ static size_t log_output(int facility, int level, enum log_flags lflags, const c
 
 	/* If it doesn't end in a newline, try to buffer the current line */
 	if (!(lflags & LOG_NEWLINE)) {
-		if (cont_add(facility, level, lflags, text, text_len))
+		if (cont_add(facility, level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+					cpu_tcid,
+#endif
+					lflags, text, text_len))
 			return text_len;
 	}
 
 	/* Store it in the record log */
-	return log_store(facility, level, lflags, 0, dict, dictlen, text, text_len);
+	return log_store(facility, level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+			cpu_tcid,
+#endif
+			lflags, 0, dict, dictlen, text, text_len);
 }
 
 asmlinkage int vprintk_emit(int facility, int level,
@@ -1730,7 +1835,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	char *text = textbuf;
 	size_t text_len = 0;
 	enum log_flags lflags = 0;
-	unsigned long flags;
+	unsigned long flags = 0;
 	int this_cpu;
 	int printed_len = 0;
 	int nmi_message_lost;
@@ -1743,16 +1848,18 @@ asmlinkage int vprintk_emit(int facility, int level,
 		in_sched = true;
 	}
 
-	boot_delay_msec(level);
-	printk_delay();
+	if (yield_is_linux_context()) {
+		boot_delay_msec(level);
+		printk_delay();
+	}
 
-	local_irq_save(flags);
-	this_cpu = smp_processor_id();
+	yield_local_irq_save(flags);
+	this_cpu = TC_SET_YIELDCONTEXT(smp_processor_id(), is_yield_context());
 
 	/*
 	 * Ouch, printk recursed into itself!
 	 */
-	if (unlikely(logbuf_cpu == this_cpu)) {
+	if (unlikely(yield_is_linux_context() && logbuf_cpu == this_cpu)) {
 		/*
 		 * If a crash is occurring during printk() on this CPU,
 		 * then try to get the crash message out but make sure
@@ -1768,9 +1875,11 @@ asmlinkage int vprintk_emit(int facility, int level,
 		zap_locks();
 	}
 
-	lockdep_off();
+	if (yield_is_linux_context()) {
+		lockdep_off();
+	}
 	/* This stops the holder of console_sem just where we want him */
-	raw_spin_lock(&logbuf_lock);
+	yield_raw_spin_lock(&logbuf_lock);
 	logbuf_cpu = this_cpu;
 
 	if (unlikely(recursion_bug)) {
@@ -1779,7 +1888,11 @@ asmlinkage int vprintk_emit(int facility, int level,
 
 		recursion_bug = false;
 		/* emit KERN_CRIT message */
-		printed_len += log_store(0, 2, LOG_PREFIX|LOG_NEWLINE, 0,
+		printed_len += log_store(0, 2,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+					this_cpu,
+#endif
+					LOG_PREFIX|LOG_NEWLINE, 0,
 					 NULL, 0, recursion_msg,
 					 strlen(recursion_msg));
 	}
@@ -1789,7 +1902,11 @@ asmlinkage int vprintk_emit(int facility, int level,
 		text_len = scnprintf(textbuf, sizeof(textbuf),
 				     "BAD LUCK: lost %d message(s) from NMI context!",
 				     nmi_message_lost);
-		printed_len += log_store(0, 2, LOG_PREFIX|LOG_NEWLINE, 0,
+		printed_len += log_store(0, 2,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+					this_cpu,
+#endif
+					LOG_PREFIX|LOG_NEWLINE, 0,
 					 NULL, 0, textbuf, text_len);
 	}
 
@@ -1804,6 +1921,14 @@ asmlinkage int vprintk_emit(int facility, int level,
 		text_len--;
 		lflags |= LOG_NEWLINE;
 	}
+#if defined(CONFIG_AVM_DEBUG)
+	if (facility & FORCE_PRINTK_LINUX_FACILITIES_VALUE) {
+		facility &= ~FORCE_PRINTK_LINUX_FACILITIES_VALUE;
+	} else if (force_printk_avm || (facility & FORCE_PRINTK_AVM_FACILITIES_VALUE)) {
+		facility &= ~FORCE_PRINTK_AVM_FACILITIES_VALUE;
+		lflags |= LOG_PRINTK_AVM; /*--- force console-output over avm_debug_console_write() ---*/
+	}
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) ---*/
 
 	/* strip kernel syslog prefix and extract log level or control flags */
 	if (facility == 0) {
@@ -1833,16 +1958,24 @@ asmlinkage int vprintk_emit(int facility, int level,
 	if (dict)
 		lflags |= LOG_PREFIX|LOG_NEWLINE;
 
-	printed_len += log_output(facility, level, lflags, dict, dictlen, text, text_len);
+	printed_len += log_output(facility, level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_SMP)
+			this_cpu,
+#endif
+			lflags, dict, dictlen, text, text_len);
 
 	logbuf_cpu = UINT_MAX;
-	raw_spin_unlock(&logbuf_lock);
-	lockdep_on();
-	local_irq_restore(flags);
+	yield_raw_spin_unlock(&logbuf_lock);
+	if (yield_is_linux_context()) {
+		lockdep_on();
+	}
+	yield_local_irq_restore(flags);
 
 	/* If called from the scheduler, we can not call up(). */
 	if (!in_sched) {
-		lockdep_off();
+		if (yield_is_linux_context()) {
+			lockdep_off();
+		}
 		/*
 		 * Try to acquire and then immediately release the console
 		 * semaphore.  The release will print out buffers and wake up
@@ -1850,7 +1983,9 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 */
 		if (console_trylock())
 			console_unlock();
-		lockdep_on();
+		if (yield_is_linux_context()) {
+			lockdep_on();
+		}
 	}
 
 	return printed_len;
@@ -1928,6 +2063,44 @@ asmlinkage __visible int printk(const char *fmt, ...)
 }
 EXPORT_SYMBOL(printk);
 
+#ifdef CONFIG_AVM_DEBUG
+asmlinkage int printk_linux(const char *fmt, ...)
+{
+	va_list args;
+	int r;
+
+	va_start(args, fmt);
+	r = vprintk_emit(FORCE_PRINTK_LINUX_FACILITIES_VALUE, -1, NULL, 0, fmt,
+			 args);
+	va_end(args);
+
+	return r;
+}
+EXPORT_SYMBOL(printk_linux);
+
+/*--------------------------------------------------------------------------------*\
+ * ret: old-mode: 1 bended, 0: std.printk
+\*--------------------------------------------------------------------------------*/
+int printk_avm_console_bend(unsigned int activate)
+{
+	int ret = 0;
+#ifdef CONFIG_AVM_DEBUG
+	ret = force_printk_avm;
+	force_printk_avm = activate ? 1 : 0;
+#endif /*--- #ifdef CONFIG_AVM_DEBUG ---*/
+	return ret;
+}
+EXPORT_SYMBOL(printk_avm_console_bend);
+
+/*--------------------------------------------------------------------------------*\
+\*--------------------------------------------------------------------------------*/
+void vprintk_restore(void)
+{ /* depreciated: use printk_avm_console_bend() instead */
+	printk_avm_console_bend(0);
+}
+EXPORT_SYMBOL(vprintk_restore);
+#endif /* CONFIG_AVM_ENHANCED */
+
 #else /* CONFIG_PRINTK */
 
 #define LOG_LINE_MAX		0
@@ -1957,6 +2130,9 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 				  char *dict, size_t dict_len,
 				  char *text, size_t text_len) { return 0; }
 static void call_console_drivers(int level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK)
+				 int flags,
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK) ---*/
 				 const char *ext_text, size_t ext_len,
 				 const char *text, size_t len) {}
 static size_t msg_print_text(const struct printk_log *msg,
@@ -1966,6 +2142,14 @@ static bool suppress_message_printing(int level) { return false; }
 
 /* Still needs to be defined for users */
 DEFINE_PER_CPU(printk_func_t, printk_func);
+
+#ifdef CONFIG_AVM_ENHANCED
+static int no_vprintk(const char *fmt __maybe_unused,
+		      va_list args __maybe_unused)
+{
+	return 0;
+}
+#endif /* CONFIG_AVM_ENHANCED */
 
 #endif /* CONFIG_PRINTK */
 
@@ -2171,11 +2355,13 @@ EXPORT_SYMBOL(console_lock);
  * access to the console system and the console_drivers list.
  *
  * returns 1 on success, and 0 on failure to acquire the lock.
+ * YIELD-Kontext fest
  */
 int console_trylock(void)
 {
-	if (down_trylock_console_sem())
+	if (down_trylock_console_sem()) {
 		return 0;
+	}
 	if (console_suspended) {
 		up_console_sem();
 		return 0;
@@ -2192,7 +2378,7 @@ int console_trylock(void)
 	 * rcu_preempt_depth(), otherwise RCU read sections modify
 	 * preempt_count().
 	 */
-	console_may_schedule = !oops_in_progress &&
+	console_may_schedule = yield_is_linux_context() && !oops_in_progress &&
 			preemptible() &&
 			!rcu_preempt_depth();
 	return 1;
@@ -2232,12 +2418,15 @@ static inline int can_use_console(void)
 	return cpu_online(raw_smp_processor_id()) || have_callable_console();
 }
 
+/*--------------------------------------------------------------------------------*\
+ * YIELD-Kontext fest
+\*--------------------------------------------------------------------------------*/
 static void console_cont_flush(char *text, size_t size)
 {
 	unsigned long flags;
 	size_t len;
 
-	raw_spin_lock_irqsave(&logbuf_lock, flags);
+	yield_raw_spin_lock_irqsave(&logbuf_lock, flags);
 
 	if (!cont.len)
 		goto out;
@@ -2258,14 +2447,18 @@ static void console_cont_flush(char *text, size_t size)
 		goto out;
 
 	len = cont_print_text(text, size);
-	raw_spin_unlock(&logbuf_lock);
-	stop_critical_timings();
-	call_console_drivers(cont.level, NULL, 0, text, len);
-	start_critical_timings();
-	local_irq_restore(flags);
+	yield_raw_spin_unlock(&logbuf_lock);
+	yield_stop_critical_timings();
+	call_console_drivers(cont.level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK)
+			     cont.flags,
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK) ---*/
+			NULL, 0, text, len);
+	yield_start_critical_timings();
+	yield_local_irq_restore(flags);
 	return;
 out:
-	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
+	yield_raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 }
 
 /**
@@ -2281,6 +2474,7 @@ out:
  * If there is output waiting, we wake /dev/kmsg and syslog() users.
  *
  * console_unlock(); may be called from any context.
+ * YIELD-Kontext fest
  */
 void console_unlock(void)
 {
@@ -2334,7 +2528,7 @@ again:
 		size_t len;
 		int level;
 
-		raw_spin_lock_irqsave(&logbuf_lock, flags);
+		yield_raw_spin_lock_irqsave(&logbuf_lock, flags);
 		if (seen_seq != log_next_seq) {
 			wake_klogd = true;
 			seen_seq = log_next_seq;
@@ -2386,12 +2580,16 @@ skip:
 		}
 		console_idx = log_next(console_idx);
 		console_seq++;
-		raw_spin_unlock(&logbuf_lock);
+		yield_raw_spin_unlock(&logbuf_lock);
 
-		stop_critical_timings();	/* don't trace print latency */
-		call_console_drivers(level, ext_text, ext_len, text, len);
-		start_critical_timings();
-		local_irq_restore(flags);
+		yield_stop_critical_timings(); /* don't trace print latency */
+		call_console_drivers(level,
+#if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK)
+				     msg->flags,
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) && defined(CONFIG_PRINTK) ---*/
+				ext_text, ext_len, text, len);
+		yield_start_critical_timings();
+		yield_local_irq_restore(flags);
 
 		if (do_cond_resched)
 			cond_resched();
@@ -2402,7 +2600,7 @@ skip:
 	if (unlikely(exclusive_console))
 		exclusive_console = NULL;
 
-	raw_spin_unlock(&logbuf_lock);
+	yield_raw_spin_unlock(&logbuf_lock);
 
 	up_console_sem();
 
@@ -2412,14 +2610,14 @@ skip:
 	 * there's a new owner and the console_unlock() from them will do the
 	 * flush, no worries.
 	 */
-	raw_spin_lock(&logbuf_lock);
+	yield_raw_spin_lock(&logbuf_lock);
 	retry = console_seq != log_next_seq;
-	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
+	yield_raw_spin_unlock_irqrestore(&logbuf_lock, flags);
 
 	if (retry && console_trylock())
 		goto again;
 
-	if (wake_klogd)
+	if (wake_klogd && yield_is_linux_context())
 		wake_up_klogd();
 }
 EXPORT_SYMBOL(console_unlock);
@@ -2890,6 +3088,27 @@ EXPORT_SYMBOL(printk_timed_ratelimit);
 
 static DEFINE_SPINLOCK(dump_list_lock);
 static LIST_HEAD(dump_list);
+
+#if defined(CONFIG_AVM_DEBUG)
+bool kmsg_dump_get_buffer_nocontext(bool syslog, char *buf, size_t size,
+				    size_t *len)
+{
+	struct kmsg_dumper _dumper, *dumper;
+	unsigned long flags;
+
+	dumper = &_dumper;
+	/* initialize iterator with data about the stored records */
+	dumper->active = true;
+	raw_spin_lock_irqsave(&logbuf_lock, flags);
+	dumper->cur_seq = clear_seq;
+	dumper->cur_idx = clear_idx;
+	dumper->next_seq = log_next_seq;
+	dumper->next_idx = log_next_idx;
+	raw_spin_unlock_irqrestore(&logbuf_lock, flags);
+
+	return kmsg_dump_get_buffer(dumper, 0, buf, size, len);
+}
+#endif /*--- #if defined(CONFIG_AVM_DEBUG) ---*/
 
 /**
  * kmsg_dump_register - register a kernel log dumper.

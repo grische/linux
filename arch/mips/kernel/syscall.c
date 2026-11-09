@@ -111,7 +111,7 @@ static inline int mips_atomic_set(unsigned long addr, unsigned long new)
 
 	if (cpu_has_llsc && R10000_LLSC_WAR) {
 		__asm__ __volatile__ (
-		"	.set	arch=r4000				\n"
+		"	.set	arch=mips32r2				\n"
 		"	li	%[err], 0				\n"
 		"1:	ll	%[old], (%[addr])			\n"
 		"	move	%[tmp], %[new]				\n"

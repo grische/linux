@@ -1,0 +1,229 @@
+/dts-v1/;
+#include <dt-bindings/interrupt-controller/mips-gic.h>
+#include <dt-bindings/clock/intel,falconmx-clk.h>
+#include <dt-bindings/pinctrl/intel,equilibrium.h>
+
+#include "../falconmx.dtsi"
+
+/ {
+	model = "AVM FM-Bridge";
+	compatible = "intel,falconmx";
+/*
+	chosen {
+		bootargs = "earlycon=lantiq,0x16380000 console=ttyLTQ0,9600 root=/dev/ram panic=1 init=/etc/preinit maxcpus=1 nocoherentio clk_ignore_unused mem=96M@512M";
+		stdout-path = "serial0";
+	};
+*/
+	memory@0 {
+		device_type = "memory";
+		reg = <0x20000000 0x06000000>;
+	};
+};
+
+&pcie0 {
+	status = "disabled";
+	lantiq,rst-high-active = <0>; /* 0 - low activ, 1 -- high active */
+	lantiq,rst-interval = <200>; /* in mili-seconds, up to 500 ms*/
+	lantiq,inbound-swap = <1>; /* 0 -- no swap, 1 -- swap */
+	lantiq,outbound-swap = <0>; /* 0 -- no swap, 1 -- swap */
+	lantiq,phy-mode = <0>; /* 0 -36Mhz, 1 - 36MHzSSC, 2 - 25Mhz, 3 - 25MHzSSC, 4 - 100MHz, 5 - 100MHz SSC */
+	reset-gpio = <&gpio0 21 0>; /* default value , it can be updated on board. */
+	lantiq,cphy-mode = <0>; /* 0, 1, 4, 5 */
+};
+
+&pcie1 {
+	status = "disabled";
+	lantiq,rst-high-active = <0>; /* 0 - low activ, 1 -- high active */
+	lantiq,rst-interval = <200>; /* in mili-seconds, up to 500 ms*/
+	lantiq,inbound-swap = <1>; /* 0 -- no swap, 1 -- swap */
+	lantiq,outbound-swap = <0>; /* 0 -- no swap, 1 -- swap */
+	lantiq,phy-mode = <0>; /* 0 -36Mhz, 1 - 36MHzSSC, 2 - 25Mhz, 3 - 25MHzSSC, 4 - 100MHz, 5 - 100MHz SSC */
+	reset-gpio = <&gpio0 22 0>; /* default value , it can be updated on board. */
+	lantiq,cphy-mode = <0>;
+};
+
+
+&i2c0 {
+	status = "ok";
+	ina219: ina219@40 {
+		compatible = "ti,ina219";
+		reg = <0x40>;
+		shunt-resistor = <10000>;
+		rail-name = "PWR_12V";
+		};
+
+	dcdc:tps65273@62 {
+		status = "ok";
+		compatible = "ti,tps65273";
+		reg = <0x62>;
+
+		regulators {
+			dcdc2 {
+				regulator-name = "1V15VDD";
+				regulator-always-on;
+				regulator-min-microvolt = <900000>;
+				regulator-max-microvolt = <1200000>;
+				vout-slew-rate = <0>;
+				vout-psm-mode  = <0>;
+				vout-irdrop-offset  = <10000>;
+			};
+		};
+/*
+		vout1_status = <1>;
+		vout2_status = <1>;
+		vout1_slew_rate = <0>;
+		vout2_slew_rate = <0>;
+		vout1_psm_mode = <0>;
+		vout2_psm_mode = <0>;
+*/
+	};
+};
+
+/*
+&ssc1 {
+		status="ok";
+		mt29f@0 {
+				#address-cells = <1>;
+				#size-cells = <1>;
+				reg = <0 1>;
+				compatible = "spinand,mt29f";
+				linux,modalias = "mt29f";
+				spi-max-frequency = <1000000>;
+
+				partition@0 {
+					label = "uboot";
+					reg = <0x000000 0x100000>;
+				};
+
+				partition@100000 {
+					label = "data";
+					reg = <0x100000 0x1000000>;
+				};
+
+				partition@1100000 {
+					label = "res";
+					reg = <0x1100000 0x6E00000>;
+				};
+			};
+};
+*/
+
+&eth {
+	status = "ok";
+
+	lan0: interface@0 {
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <1>;
+		intel,dp-dev-port = <3>;
+		intel,dp-port-id = <3>;
+
+		ethernet@1 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <1>;
+			phy-mode = "rgmii";
+		};
+	};
+
+	lan1: interface@1 {
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <1>;
+		intel,dp-dev-port = <4>;
+		intel,dp-port-id = <4>;
+
+		ethernet@1 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <2>;
+			phy-mode = "rgmii";
+		};
+	};
+
+	wan: interface@5 {
+		compatible = "lantiq,xrx500-pdi";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <5>;
+		lantiq,wan = <1>;
+		intel,dp-dev-port = <2>;
+		intel,dp-port-id = <2>;
+
+		ethernet@5 {
+			compatible = "lantiq,xrx500-pdi-port";
+			reg = <1>;
+			phy-mode = "rgmii";
+		};
+	};
+};
+
+&pon_eth {
+	intel,with-fcs;
+};
+
+&osc0 {
+	clock-frequency = <1200000>;
+};
+
+/* I2C baud-rate is lowered down due to read/write issue in HAPS */
+&i2c0 {
+	clock-frequency = <5000>;
+};
+
+&cqm {
+	intel,bm-buff-num = <0x80 0x80 0x80 0x80>;
+	intel,bm-buff-size = <0x800 0x800 0x800 0x800>;
+	/* even when we are in PON mode use the XPCS */
+	intel,force-xpcs;
+};
+
+
+&gsw_mac0 {
+	board_type = "HAPS";
+};
+
+&gsw_mac1 {
+	board_type = "HAPS";
+};
+
+&gsw_mac2 {
+	board_type = "HAPS";
+};
+
+&ssc0 {
+	ltq-spinand@1 {
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		reg = <1>;
+		compatible = "lantiq,spinand";
+		linux,mtd-name = "nand.0";
+		spi-max-frequency = <2000000>;
+
+		/* Basic fallback partition layout. Real partition should be
+		 * defined in kernel boot parameters by uboot.
+		 */
+		partition@0 {
+			reg = <0x0 0x40000>;
+			label = "uboot";
+			read-only;
+		};
+
+		partition@40000 {
+			reg = <0x40000 0x80000>;
+			label = "uboot_env";
+		};
+
+		partition@C0000 {
+			reg = <0xC0000 0x740000>;
+			label = "image0";
+		};
+
+		partition@800000 {
+			reg = <0x800000 0x800000>;
+			label = "image1";
+		};
+	};
+};
+

@@ -1,0 +1,13 @@
+/dts-v1/;
+
+/include/ "../falconmx_bootcore.dtsi"
+
+/ {
+	model = "FM-Bridge BOOTCORE (MIPS 4Kec)";
+
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0e000000 0x02000000>;
+	};
+};

@@ -475,3 +475,60 @@ header-y += xilinx-v4l2-controls.h
 header-y += zorro.h
 header-y += zorro_ids.h
 header-y += userfaultfd.h
+
+# headers are not present for GRX5B (bootcore)
+avm_labile_headers += ar7wdt.h
+avm_labile_headers += avm_debug.h
+avm_labile_headers += avm_event.h
+avm_labile_headers += avm_hw_config.h
+avm_labile_headers += avm_kernel_config.h
+avm_labile_headers += avm_net_trace.h
+avm_labile_headers += avm_power.h
+avm_labile_headers += avm_profile.h
+avm_labile_headers += capi_oslib.h
+avm_labile_headers += kconfig.h
+avm_labile_headers += new_capi.h
+avm_labile_headers += pcmlink_ul.h
+avm_labile_headers += simple_proc.h
+avm_labile_headers += tffs.h
+avm_labile_headers += zugriff.h
+avm_labile_headers += ppa_api.h
+avm_labile_headers += ppa_api_common.h
+avm_labile_headers += ppa_stack_al.h
+avm_labile_headers += gsw_types.h
+avm_labile_headers += lantiq_gsw_flow.h
+
+
+# avm_labile_headers contains header files that might not exist
+avm_labile_headers += rprot_nettty.h
+avm_labile_headers += ulpcmlink.h
+avm_labile_headers += avm_dect_api.h
+avm_labile_headers += dio_fpapi.h
+avm_labile_headers += primitiv.h
+
+# these headers will be header-y, when we are finished 
+# porting avm stack to VRX
+avm_labile_headers += avm_led_event.h
+avm_labile_headers += avm_net_trace_ioctl.h
+avm_labile_headers += avm_pa.h
+avm_labile_headers += avm_pa_hw.h
+avm_labile_headers += avm_pa_ifx_multiplexer.h
+avm_labile_headers += avm_pa_intern.h
+avm_labile_headers += avm_proc.h
+avm_labile_headers += capi_codec.h
+avm_labile_headers += capidef.h
+avm_labile_headers += codec_dsp.h
+avm_labile_headers += import_rtp.h
+avm_labile_headers += pcmlink_audio.h
+avm_labile_headers += pcmroute.h
+avm_labile_headers += rtp_fastpath.h
+
+
+# Check existence of avm_labile_headers ('wildcard' functions requires complete
+# path, 'header-y' forbids absolute path names).
+header-y += $(patsubst $(srctree)/include/uapi/linux/%,%,\
+  $(wildcard \
+   $(addprefix $(srctree)/include/uapi/linux/,\
+    $(avm_labile_headers))))
+
+-include $(srctree)/avm/make/generated/uapi-compat-headers.make

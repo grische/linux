@@ -113,7 +113,13 @@
 
 #define IGMP_V1_ROUTER_PRESENT_TIMEOUT		(400*HZ)
 #define IGMP_V2_ROUTER_PRESENT_TIMEOUT		(400*HZ)
+
+#ifdef CONFIG_MCAST_LATENCY_OPTIMIZATION
+#define IGMP_V2_UNSOLICITED_REPORT_INTERVAL (2 * HZ)
+#else
 #define IGMP_V2_UNSOLICITED_REPORT_INTERVAL	(10*HZ)
+#endif
+
 #define IGMP_V3_UNSOLICITED_REPORT_INTERVAL	(1*HZ)
 #define IGMP_QUERY_RESPONSE_INTERVAL		(10*HZ)
 #define IGMP_QUERY_ROBUSTNESS_VARIABLE		2
@@ -1289,7 +1295,13 @@ static void igmp_group_dropped(struct ip_mc_list *im)
 		/* IGMPv3 */
 		igmpv3_add_delrec(in_dev, im);
 
+#ifdef CONFIG_MCAST_LATENCY_OPTIMIZATION
+		in_dev->mr_ifc_count = in_dev->mr_qrv ? in_dev->mr_qrv : IGMP_QUERY_ROBUSTNESS_VARIABLE;
+		in_dev_hold(in_dev);
+		igmp_ifc_timer_expire((unsigned long)in_dev);
+#else
 		igmp_ifc_event(in_dev);
+#endif
 	}
 #endif
 }
@@ -1315,15 +1327,27 @@ static void igmp_group_added(struct ip_mc_list *im)
 	if (in_dev->dead)
 		return;
 	if (IGMP_V1_SEEN(in_dev) || IGMP_V2_SEEN(in_dev)) {
+#ifdef CONFIG_MCAST_LATENCY_OPTIMIZATION
+		atomic_inc(&im->refcnt);
+		igmp_timer_expire((unsigned long)im);
+#else
 		spin_lock_bh(&im->lock);
 		igmp_start_timer(im, IGMP_INITIAL_REPORT_DELAY);
 		spin_unlock_bh(&im->lock);
+#endif
 		return;
 	}
 	/* else, v3 */
-
-	im->crcount = in_dev->mr_qrv ?: net->ipv4.sysctl_igmp_qrv;
+	if (im->sfmode == MCAST_EXCLUDE) {
+		im->crcount = in_dev->mr_qrv ?: net->ipv4.sysctl_igmp_qrv;
+	}
+#ifdef CONFIG_MCAST_LATENCY_OPTIMIZATION
+	in_dev->mr_ifc_count = in_dev->mr_qrv ? in_dev->mr_qrv : IGMP_QUERY_ROBUSTNESS_VARIABLE;
+	in_dev_hold(in_dev);
+	igmp_ifc_timer_expire((unsigned long)in_dev);
+#else
 	igmp_ifc_event(in_dev);
+#endif
 #endif
 }
 
@@ -1388,7 +1412,8 @@ static void ip_mc_hash_remove(struct in_device *in_dev,
  *	A socket has joined a multicast group on device dev.
  */
 
-void ip_mc_inc_group(struct in_device *in_dev, __be32 addr)
+static void __ip_mc_inc_group(struct in_device *in_dev, __be32 addr,
+			      unsigned int mode)
 {
 	struct ip_mc_list *im;
 #ifdef CONFIG_IP_MULTICAST
@@ -1400,7 +1425,7 @@ void ip_mc_inc_group(struct in_device *in_dev, __be32 addr)
 	for_each_pmc_rtnl(in_dev, im) {
 		if (im->multiaddr == addr) {
 			im->users++;
-			ip_mc_add_src(in_dev, &addr, MCAST_EXCLUDE, 0, NULL, 0);
+			ip_mc_add_src(in_dev, &addr, mode, 0, NULL, 0);
 			goto out;
 		}
 	}
@@ -1414,8 +1439,8 @@ void ip_mc_inc_group(struct in_device *in_dev, __be32 addr)
 	in_dev_hold(in_dev);
 	im->multiaddr = addr;
 	/* initial mode is (EX, empty) */
-	im->sfmode = MCAST_EXCLUDE;
-	im->sfcount[MCAST_EXCLUDE] = 1;
+	im->sfmode = mode;
+	im->sfcount[mode] = 1;
 	atomic_set(&im->refcnt, 1);
 	spin_lock_init(&im->lock);
 #ifdef CONFIG_IP_MULTICAST
@@ -1437,6 +1462,11 @@ void ip_mc_inc_group(struct in_device *in_dev, __be32 addr)
 		ip_rt_multicast_event(in_dev);
 out:
 	return;
+}
+
+void ip_mc_inc_group(struct in_device *in_dev, __be32 addr)
+{
+	__ip_mc_inc_group(in_dev, addr, MCAST_EXCLUDE);
 }
 EXPORT_SYMBOL(ip_mc_inc_group);
 
@@ -2133,7 +2163,8 @@ static void ip_mc_clear_src(struct ip_mc_list *pmc)
 /* Join a multicast group
  */
 
-int ip_mc_join_group(struct sock *sk, struct ip_mreqn *imr)
+static int __ip_mc_join_group(struct sock *sk, struct ip_mreqn *imr,
+			      unsigned int mode)
 {
 	__be32 addr = imr->imr_multiaddr.s_addr;
 	struct ip_mc_socklist *iml, *i;
@@ -2174,14 +2205,29 @@ int ip_mc_join_group(struct sock *sk, struct ip_mreqn *imr)
 	memcpy(&iml->multi, imr, sizeof(*imr));
 	iml->next_rcu = inet->mc_list;
 	iml->sflist = NULL;
-	iml->sfmode = MCAST_EXCLUDE;
+	iml->sfmode = mode;
 	rcu_assign_pointer(inet->mc_list, iml);
-	ip_mc_inc_group(in_dev, addr);
+	__ip_mc_inc_group(in_dev, addr, mode);
 	err = 0;
 done:
 	return err;
 }
+
+/* Join ASM (Any-Source Multicast) group
+ */
+int ip_mc_join_group(struct sock *sk, struct ip_mreqn *imr)
+{
+	return __ip_mc_join_group(sk, imr, MCAST_EXCLUDE);
+}
 EXPORT_SYMBOL(ip_mc_join_group);
+
+/* Join SSM (Source-Specific Multicast) group
+ */
+int ip_mc_join_group_ssm(struct sock *sk, struct ip_mreqn *imr,
+			 unsigned int mode)
+{
+	return __ip_mc_join_group(sk, imr, mode);
+}
 
 static int ip_mc_leave_src(struct sock *sk, struct ip_mc_socklist *iml,
 			   struct in_device *in_dev)

@@ -27,6 +27,11 @@
 #include "xhci.h"
 #include "xhci-trace.h"
 
+#if defined (CONFIG_GRX5_AVM_FRITZ_BOX)
+/* 20190827 AVM/WKR USB3 ports switchable */
+extern int usb3port_config;
+#endif
+
 #define	PORT_WAKE_BITS	(PORT_WKOC_E | PORT_WKDISC_E | PORT_WKCONN_E)
 #define	PORT_RWC_BITS	(PORT_CSC | PORT_PEC | PORT_WRC | PORT_OCC | \
 			 PORT_RC | PORT_PLC | PORT_PE)
@@ -1114,7 +1119,21 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			 * However, hub_wq will ignore the roothub events until
 			 * the roothub is registered.
 			 */
+#if defined (CONFIG_GRX5_AVM_FRITZ_BOX)
+			/* 20190827 AVM/WKR USB3 ports switchable */
+			temp |= PORT_POWER;
+			if (hcd->speed >= HCD_USB3) {
+				const int port_bit = (hcd->self.busnum < 3) ? 1: 2;
+				if (!(usb3port_config & port_bit)) {
+					temp &= ~PORT_POWER;
+					pr_info("AVM: disable USB3 bus#%d port#%d config=%x\n",
+						hcd->self.busnum, wIndex, usb3port_config);
+				}
+			}
+			writel(temp, port_array[wIndex]);
+#else
 			writel(temp | PORT_POWER, port_array[wIndex]);
+#endif
 
 			temp = readl(port_array[wIndex]);
 			xhci_dbg(xhci, "set port power, actual port %d status  = 0x%x\n", wIndex, temp);

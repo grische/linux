@@ -1,0 +1,3 @@
+linux/avm_pa.h avm/pa/avm_pa.h
+linux/avm_pa_hw.h avm/pa/avm_pa_hw.h
+linux/avm_pa_ifx_multiplexer.h avm/pa/avm_pa_ifx_multiplexer.h

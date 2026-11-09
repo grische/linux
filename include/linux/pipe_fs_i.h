@@ -123,6 +123,7 @@ static inline __must_check bool pipe_buf_get(struct pipe_inode_info *pipe,
 	return buf->ops->get(pipe, buf);
 }
 
+extern const struct pipe_buf_operations packet_pipe_buf_illegal;
 /**
  * pipe_buf_release - put a reference to a pipe_buffer
  * @pipe:	the pipe that the buffer belongs to
@@ -133,8 +134,10 @@ static inline void pipe_buf_release(struct pipe_inode_info *pipe,
 {
 	const struct pipe_buf_operations *ops = buf->ops;
 
-	buf->ops = NULL;
-	ops->release(pipe, buf);
+	if (buf->ops != &packet_pipe_buf_illegal) {
+		buf->ops = &packet_pipe_buf_illegal;
+		ops->release(pipe, buf);
+	}
 }
 
 /**

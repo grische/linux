@@ -51,17 +51,18 @@
 #define PORT(x)                 (x / PINS)
 #define PORT_PIN(x)             (x % PINS)
 
-#define MFP_FALCON(a, f0, f1, f2, f3)		\
-{						\
-	.name = #a,				\
-	.pin = a,				\
-	.func = {				\
-		FALCON_MUX_##f0,		\
-		FALCON_MUX_##f1,		\
-		FALCON_MUX_##f2,		\
-		FALCON_MUX_##f3,		\
-	},					\
-}
+#define MFP_FALCON(a, f0, f1, f2, f3)    \
+	{                                \
+		.name = #a,              \
+		.pin = a,                \
+		.func = {                \
+			FALCON_MUX_##f0, \
+			FALCON_MUX_##f1, \
+			FALCON_MUX_##f2, \
+			FALCON_MUX_##f3, \
+			FALCON_MUX_NONE, \
+		},                       \
+	}
 
 #define GRP_MUX(a, m, p)	\
 {				\

@@ -166,6 +166,11 @@ enum {
 extern struct resource ioport_resource;
 extern struct resource iomem_resource;
 
+#ifdef CONFIG_AVM_ENHANCED
+extern struct resource avm_gpio_resource;
+extern struct resource gpio_resource __deprecated;
+#endif
+
 extern struct resource *request_resource_conflict(struct resource *root, struct resource *new);
 extern int request_resource(struct resource *root, struct resource *new);
 extern int release_resource(struct resource *new);

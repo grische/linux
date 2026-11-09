@@ -4,6 +4,26 @@
 struct usb_hub_descriptor;
 struct usb_dev_state;
 
+#ifdef CONFIG_AVM_USB_SUSPEND
+
+#ifdef CONFIG_PM
+#error CONFIG_PM must not be set while CONFIG_AVM_USB_SUSPEND is active
+#endif
+
+//#define AVM_USB_SUSPEND_DEBUG
+#define AVM_USB_SUSPEND_DELAY 60
+#define AVM_USB_SUSPEND_MAX_BLACKLIST_SIZE 8
+#define AVM_USB_SUSPEND_SPINDOWN_DELAY (630*1000) // 10.5 min in ms
+#define AVM_USB_SUSPEND_FLASH_DELAY    (20*1000)  // 20 s in ms
+#define AVM_USB_SUSPEND_MIN_DELAY      2000       // 2 s in ms
+
+struct avm_usb_suspend_blacklist {
+	unsigned int idVendor;
+	unsigned int idProduct;
+	unsigned int bcdDevice;
+};
+#endif
+
 /* Functions local to drivers/usb/core/ */
 
 extern int usb_create_sysfs_dev_files(struct usb_device *dev);
@@ -75,17 +95,12 @@ extern int usb_suspend(struct device *dev, pm_message_t msg);
 extern int usb_resume(struct device *dev, pm_message_t msg);
 extern int usb_resume_complete(struct device *dev);
 
+#endif
+
+#if defined (CONFIG_PM) || defined (CONFIG_AVM_USB_SUSPEND)
+
 extern int usb_port_suspend(struct usb_device *dev, pm_message_t msg);
 extern int usb_port_resume(struct usb_device *dev, pm_message_t msg);
-
-extern void usb_autosuspend_device(struct usb_device *udev);
-extern int usb_autoresume_device(struct usb_device *udev);
-extern int usb_remote_wakeup(struct usb_device *dev);
-extern int usb_runtime_suspend(struct device *dev);
-extern int usb_runtime_resume(struct device *dev);
-extern int usb_runtime_idle(struct device *dev);
-extern int usb_enable_usb2_hardware_lpm(struct usb_device *udev);
-extern int usb_disable_usb2_hardware_lpm(struct usb_device *udev);
 
 #else
 
@@ -99,11 +114,178 @@ static inline int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	return 0;
 }
 
+#endif
+
+#ifdef CONFIG_AVM_USB_SUSPEND
+extern int suspend_error_count;
+
+extern void avm_usb_suspend_init(struct usb_device *udev);
+extern void avm_usb_suspend_stop(struct usb_device *udev);
+extern void avm_usb_suspend_schedule(struct usb_device *udev, unsigned int delay);
+extern void avm_usb_suspend_set_delay(struct usb_device *udev, unsigned msesc);
+extern int avm_usb_suspend_is_blacklisted(struct usb_device *udev);
+extern void avm_usb_suspend_add_to_blacklist(struct usb_device *udev);
+
+#define avm_usb_suspend_get(udev_p) __avm_usb_suspend_get_func(udev_p, __func__)
+#define avm_usb_suspend_put(udev_p) __avm_usb_suspend_put_func(udev_p, __func__)
+#define avm_usb_suspend_get_locked(udev_p) __avm_usb_suspend_get_locked_func(udev_p, __func__)
+#define avm_usb_suspend_put_locked(udev_p) __avm_usb_suspend_put_locked_func(udev_p, __func__)
+
+extern int	__avm_usb_suspend_start_timer(struct usb_device *udev);
+extern int	__avm_usb_suspend_do_resume(struct usb_device *udev);
+extern void	__avm_usb_suspend_do_suspend(struct usb_device *udev);
+
+extern int	__avm_usb_suspend_get(struct usb_device *udev);
+extern void	__avm_usb_suspend_put(struct usb_device *udev);
+
+static inline bool avm_usb_suspend_is_idle(struct usb_device *udev)
+{
+	return (atomic_read(&udev->avm_use_count) == 0);
+}
+
+static inline int __avm_usb_suspend_get_locked_func(struct usb_device *udev, const char *func_name)
+{
+	int ret;
+#ifdef AVM_USB_SUSPEND_DEBUG
+	WARN_ON(!mutex_is_locked(&udev->dev.mutex));
+#endif
+	ret = __avm_usb_suspend_get(udev);
+#ifdef AVM_USB_SUSPEND_DEBUG
+	printk(KERN_ERR "%s(): avm_usb_suspend_get ret = %d, avm_use_count = %d\n",
+						func_name, ret, atomic_read(&udev->avm_use_count));
+#endif
+	return ret;
+}
+
+static inline void __avm_usb_suspend_put_locked_func(struct usb_device *udev, const char *func_name)
+{
+#ifdef AVM_USB_SUSPEND_DEBUG
+	WARN_ON(!mutex_is_locked(&udev->dev.mutex));
+#endif
+	__avm_usb_suspend_put(udev);
+#ifdef AVM_USB_SUSPEND_DEBUG
+	printk(KERN_ERR "%s(): avm_usb_suspend_put avm_use_count = %d\n",
+						func_name, atomic_read(&udev->avm_use_count));
+#endif
+}
+
+#ifdef AVM_USB_SUSPEND_DEBUG
+static inline void __avm_usb_suspend_wait_until_unlocked(struct usb_device *udev)
+{
+	int count;
+
+	for (count = 0; count < 100; count ++) {
+		if(!mutex_is_locked(&udev->dev.mutex))
+			break;
+		schedule();
+	}
+}
+#endif
+
+static inline int __avm_usb_suspend_get_func(struct usb_device *udev, const char *func_name)
+{
+	int ret;
+#ifdef AVM_USB_SUSPEND_DEBUG
+	__avm_usb_suspend_wait_until_unlocked(udev);
+	WARN_ON(mutex_is_locked(&udev->dev.mutex));
+#endif
+	usb_lock_device(udev);
+	ret = __avm_usb_suspend_get_locked_func(udev, func_name);
+	usb_unlock_device(udev);
+	return ret;
+}
+
+static inline void __avm_usb_suspend_put_func(struct usb_device *udev, const char *func_name)
+{
+#ifdef AVM_USB_SUSPEND_DEBUG
+	__avm_usb_suspend_wait_until_unlocked(udev);
+	WARN_ON(mutex_is_locked(&udev->dev.mutex));
+#endif
+	usb_lock_device(udev);
+	__avm_usb_suspend_put_locked_func(udev, func_name);
+	usb_unlock_device(udev);
+}
+
+static inline void avm_usb_suspend_min_delay(struct usb_device *udev, unsigned msecs)
+{
+#ifdef AVM_USB_SUSPEND_DEBUG
+	__avm_usb_suspend_wait_until_unlocked(udev);
+	WARN_ON(mutex_is_locked(&udev->dev.mutex));
+#endif
+	if (udev->avm_usb_suspend_enable &&
+		(udev->avm_usb_suspend_delay > 0) && (udev->avm_usb_suspend_delay < msecs_to_jiffies(msecs))) {
+		avm_usb_suspend_set_delay(udev, msecs);
+	}
+}
+
+static inline void avm_usb_suspend_max_delay(struct usb_device *udev, unsigned msecs)
+{
+#ifdef AVM_USB_SUSPEND_DEBUG
+	__avm_usb_suspend_wait_until_unlocked(udev);
+	WARN_ON(mutex_is_locked(&udev->dev.mutex));
+#endif
+	if (udev->avm_usb_suspend_enable && (udev->avm_usb_suspend_delay > msecs_to_jiffies(msecs))) {
+		avm_usb_suspend_set_delay(udev, msecs);
+	}
+}
+
+static inline unsigned int avm_usb_suspend_get_idle_ms(struct usb_device *udev)
+{
+	if (atomic_read(&udev->avm_use_count) > 0) {
+		return 0;
+	}
+
+	return jiffies_to_msecs(jiffies - udev->avm_usb_suspend_last_busy);
+}
+
+#else
+
+#define avm_usb_suspend_get(udev_p) do {} while (0)
+#define avm_usb_suspend_put(udev_p) do {} while (0)
+#define avm_usb_suspend_get_locked(udev_p) do {} while (0)
+#define avm_usb_suspend_put_locked(udev_p) do {} while (0)
+#define avm_usb_suspend_schedule(udev_p,delay) do {} while (0)
+#define avm_usb_suspend_set_delay(udev_p,delay) do {} while (0)
+#define avm_usb_suspend_min_delay(udev_p,delay) do {} while (0)
+#define avm_usb_suspend_max_delay(udev_p,delay) do {} while (0)
+#define avm_usb_suspend_get_idle_ms(udev) (0)
+
+#endif
+
+#ifdef CONFIG_PM
+
+extern void usb_autosuspend_device(struct usb_device *udev);
+extern int usb_autoresume_device(struct usb_device *udev);
+extern int usb_remote_wakeup(struct usb_device *dev);
+extern int usb_runtime_suspend(struct device *dev);
+extern int usb_runtime_resume(struct device *dev);
+extern int usb_runtime_idle(struct device *dev);
+extern int usb_enable_usb2_hardware_lpm(struct usb_device *udev);
+extern int usb_disable_usb2_hardware_lpm(struct usb_device *udev);
+
+#else
+
+#ifdef CONFIG_AVM_USB_SUSPEND
+
+static inline void usb_autosuspend_device(struct usb_device *udev)
+{
+	avm_usb_suspend_put_locked(udev);
+}
+
+static inline int usb_autoresume_device(struct usb_device *udev)
+{
+	return avm_usb_suspend_get_locked(udev);
+}
+
+#else
+
 #define usb_autosuspend_device(udev)		do {} while (0)
 static inline int usb_autoresume_device(struct usb_device *udev)
 {
 	return 0;
 }
+
+#endif /* CONFIG_AVM_USB_SUSPEND */
 
 static inline int usb_enable_usb2_hardware_lpm(struct usb_device *udev)
 {

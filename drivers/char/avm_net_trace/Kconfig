@@ -1,0 +1,11 @@
+#
+# AVM_NET_TRACE
+#
+#
+
+config AVM_NET_TRACE
+	bool "AVM net trace"
+	default y
+	help
+	  This driver provides tracing of network packets in pcap format.
+

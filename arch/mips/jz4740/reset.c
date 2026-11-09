@@ -29,7 +29,7 @@ static void jz4740_halt(void)
 {
 	while (1) {
 		__asm__(".set push;\n"
-			".set mips3;\n"
+			".set mips32r2;\n"
 			"wait;\n"
 			".set pop;\n"
 		);

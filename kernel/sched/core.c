@@ -75,6 +75,9 @@
 #include <linux/compiler.h>
 #include <linux/frame.h>
 #include <linux/prefetch.h>
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+#include <linux/avm_profile.h>
+#endif/*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING)  ---*/
 
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
@@ -2766,6 +2769,9 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 	 * transition, resulting in a double drop.
 	 */
 	prev_state = prev->state;
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_sched();
+#endif/*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING)  ---*/
 	vtime_task_switch(prev);
 	perf_event_task_sched_in(prev, current);
 	finish_lock_switch(rq, prev);

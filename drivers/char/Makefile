@@ -45,12 +45,22 @@ obj-$(CONFIG_NSC_GPIO)		+= nsc_gpio.o
 obj-$(CONFIG_GPIO_TB0219)	+= tb0219.o
 obj-$(CONFIG_TELCLOCK)		+= tlclk.o
 
+obj-$(CONFIG_AVM_NET_TRACE)	+= avm_net_trace/
 obj-$(CONFIG_MWAVE)		+= mwave/
 obj-y				+= agp/
 obj-$(CONFIG_PCMCIA)		+= pcmcia/
 
 obj-$(CONFIG_HANGCHECK_TIMER)	+= hangcheck-timer.o
 obj-$(CONFIG_TCG_TPM)		+= tpm/
+obj-$(CONFIG_TFFS)		+= tffs/
+obj-$(CONFIG_AVM_PIGLET_NOEMIF)	+= Piglet_noemif/
+obj-$(CONFIG_AVM_POWER)		+= avm_power/
+obj-y	+= avm_new/
+obj-$(CONFIG_UBIK2)		+= ubik2/
+obj-$(CONFIG_AVM_FLASH_UPDATE)	+= flash_update/
+obj-$(CONFIG_AVM_DECT_IO)	+= dect_io/
+
+obj-$(CONFIG_AVM_SAMMEL)        += avm_new/
 
 obj-$(CONFIG_PS3_FLASH)		+= ps3flash.o
 
@@ -58,5 +68,6 @@ obj-$(CONFIG_JS_RTC)		+= js-rtc.o
 js-rtc-y = rtc.o
 
 obj-$(CONFIG_TILE_SROM)		+= tile-srom.o
+obj-$(CONFIG_LTQ_VOIP_TIMER)     += ltq_voip_timer/
 obj-$(CONFIG_XILLYBUS)		+= xillybus/
 obj-$(CONFIG_POWERNV_OP_PANEL)	+= powernv-op-panel.o

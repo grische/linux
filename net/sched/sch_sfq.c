@@ -485,8 +485,9 @@ sfq_dequeue(struct Qdisc *sch)
 	struct sfq_slot *slot;
 
 	/* No active slots */
-	if (q->tail == NULL)
+	if (q->cur_depth == 0) {
 		return NULL;
+	}
 
 next_slot:
 	a = q->tail->next;

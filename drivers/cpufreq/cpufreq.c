@@ -836,6 +836,151 @@ static ssize_t show_bios_limit(struct cpufreq_policy *policy, char *buf)
 	return sprintf(buf, "%u\n", policy->cpuinfo.max_freq);
 }
 
+/* AVM cpu frequency kick */
+#define KICK_MSECS 60000 /* 60 second kick */
+
+ssize_t switch_scaling_governor(struct cpufreq_policy *policy,
+				char *str_governor)
+{
+	int err;
+	struct cpufreq_policy new_policy;
+
+	if (!policy || !str_governor)
+		return -EINVAL;
+
+	memcpy(&new_policy, policy, sizeof(*policy));
+
+	if (cpufreq_parse_governor(str_governor, &new_policy.policy,
+						&new_policy.governor))
+		return -EINVAL;
+
+	err = cpufreq_set_policy(policy, &new_policy);
+
+	return err;
+}
+
+static void _kick_disable(struct cpufreq_policy *policy)
+{
+	if (policy->kick_locked) {
+		pr_debug_ratelimited("%s: do not disable kick (locked)!\n",
+				__func__);
+		return;
+	}
+
+	if (delayed_work_pending(&policy->kick_dwork)) {
+		pr_debug_ratelimited("%s: kick still pending!\n", __func__);
+		return;
+	}
+
+	if (switch_scaling_governor(policy, policy->kicked_gov))
+		pr_warn("%s: Returning to previous governor failed!\n",
+			__func__);
+	kfree(policy->kicked_gov);
+	policy->kicked_gov = NULL;
+}
+
+static void kick_disable(struct work_struct *worker)
+{
+	struct delayed_work *dwork =
+		container_of(worker, struct delayed_work, work);
+	struct cpufreq_policy *policy =
+		container_of(dwork, struct cpufreq_policy, kick_dwork);
+
+	mutex_lock(&policy->kick_lock);
+	_kick_disable(policy);
+	mutex_unlock(&policy->kick_lock);
+}
+
+static void kick_unlock(struct cpufreq_policy *policy)
+{
+	mutex_lock(&policy->kick_lock);
+	if (policy->kick_locked)
+		policy->kick_locked--;
+	else
+		pr_warn_ratelimited("%s: kick is not locked!\n", __func__);
+	_kick_disable(policy);
+	mutex_unlock(&policy->kick_lock);
+}
+
+static void _kick_enable(struct cpufreq_policy *policy)
+{
+	if (!policy->kicked_gov) {
+		policy->kicked_gov =
+			kstrdup(policy->governor->name, GFP_KERNEL);
+		if (switch_scaling_governor(policy, "performance"))
+			pr_warn("%s: Switching to performance governor failed!\n",
+					__func__);
+	}
+}
+
+static void kick_enable(struct cpufreq_policy *policy)
+{
+	unsigned long new_expire = msecs_to_jiffies(KICK_MSECS);
+
+	mutex_lock(&policy->kick_lock);
+	mod_delayed_work(system_wq, &policy->kick_dwork, new_expire);
+	_kick_enable(policy);
+	mutex_unlock(&policy->kick_lock);
+}
+
+static void kick_lock(struct cpufreq_policy *policy)
+{
+	mutex_lock(&policy->kick_lock);
+	if (policy->kick_locked < UINT_MAX)
+		policy->kick_locked++;
+	else
+		pr_warn_ratelimited("%s: reached maximum amount of kick locks, something might be wrong?\n",
+				__func__);
+	_kick_enable(policy);
+	mutex_unlock(&policy->kick_lock);
+}
+
+static ssize_t show_kick(struct cpufreq_policy *policy, char *buf)
+{
+	unsigned long jiff, exp, pending = 0;
+	ssize_t err;
+	int locked, active;
+
+	mutex_lock(&policy->kick_lock);
+	locked = policy->kick_locked;
+	active = !!policy->kicked_gov;
+
+
+	if (delayed_work_pending(&policy->kick_dwork)) {
+		jiff = jiffies;
+		exp = policy->kick_dwork.timer.expires;
+		pending = time_after(jiff, exp) ? 0
+						: jiffies_to_msecs(exp - jiff);
+	}
+
+	mutex_unlock(&policy->kick_lock);
+	err = snprintf(buf, PAGE_SIZE,
+		       pending ? "%s(%s): %lu.%03lus\n":"%s(%s)\n",
+		       active ? "active" : "inactive",
+		       locked ? "locked" : "not locked",
+		       pending / 1000, pending % 1000);
+
+	return err;
+}
+
+static ssize_t store_kick(struct cpufreq_policy *policy, const char *buf,
+			  size_t count)
+{
+	if (!strncmp(buf, "unlock", 6)) {
+		pr_debug_ratelimited("kick unlock");
+		kick_unlock(policy);
+	} else if (!strncmp(buf, "lock", 4)) {
+		pr_debug_ratelimited("kick lock");
+		kick_lock(policy);
+	} else if (!strncmp(buf, "kick", 4)) {
+		pr_debug_ratelimited("kick 60s");
+		kick_enable(policy);
+	} else {
+		return -EINVAL;
+	}
+	return count;
+}
+
 cpufreq_freq_attr_ro_perm(cpuinfo_cur_freq, 0400);
 cpufreq_freq_attr_ro(cpuinfo_min_freq);
 cpufreq_freq_attr_ro(cpuinfo_max_freq);
@@ -850,6 +995,7 @@ cpufreq_freq_attr_rw(scaling_min_freq);
 cpufreq_freq_attr_rw(scaling_max_freq);
 cpufreq_freq_attr_rw(scaling_governor);
 cpufreq_freq_attr_rw(scaling_setspeed);
+cpufreq_freq_attr_rw(kick);
 
 static struct attribute *default_attrs[] = {
 	&cpuinfo_min_freq.attr,
@@ -863,6 +1009,7 @@ static struct attribute *default_attrs[] = {
 	&scaling_driver.attr,
 	&scaling_available_governors.attr,
 	&scaling_setspeed.attr,
+	&kick.attr,
 	NULL
 };
 
@@ -1077,6 +1224,13 @@ static struct cpufreq_policy *cpufreq_policy_alloc(unsigned int cpu)
 	INIT_WORK(&policy->update, handle_update);
 
 	policy->cpu = cpu;
+
+	/* AVM kick initialization */
+	policy->kick_locked = 0;
+	policy->kicked_gov = NULL;
+	INIT_DELAYED_WORK(&policy->kick_dwork, kick_disable);
+	mutex_init(&policy->kick_lock);
+
 	return policy;
 
 err_free_real_cpus:
@@ -1134,6 +1288,9 @@ static void cpufreq_policy_free(struct cpufreq_policy *policy, bool notify)
 	free_cpumask_var(policy->real_cpus);
 	free_cpumask_var(policy->related_cpus);
 	free_cpumask_var(policy->cpus);
+	/* AVM kick */
+	cancel_delayed_work(&policy->kick_dwork);
+	kfree(policy->kicked_gov);
 	kfree(policy);
 }
 

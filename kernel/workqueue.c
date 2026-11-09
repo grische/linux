@@ -49,6 +49,9 @@
 #include <linux/moduleparam.h>
 #include <linux/uaccess.h>
 #include <linux/nmi.h>
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+#include <linux/avm_profile.h>
+#endif /*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING) ---*/
 
 #include "workqueue_internal.h"
 
@@ -2088,6 +2091,10 @@ __acquires(&pool->lock)
 
 	lock_map_acquire_read(&pwq->wq->lockdep_map);
 	lock_map_acquire(&lockdep_map);
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_workitem_begin,
+				 (unsigned long)worker->current_func, (unsigned int)work);
+#endif /*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING) ---*/
 	trace_workqueue_execute_start(work);
 	worker->current_func(work);
 	/*
@@ -2095,6 +2102,10 @@ __acquires(&pool->lock)
 	 * point will only record its address.
 	 */
 	trace_workqueue_execute_end(work);
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_workitem_end,
+			     (unsigned long)worker->current_func, (unsigned int)work);
+#endif /*--- #if defined(CONFIG_AVM_SIMPLE_PROFILING) ---*/
 	lock_map_release(&lockdep_map);
 	lock_map_release(&pwq->wq->lockdep_map);
 

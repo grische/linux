@@ -267,7 +267,7 @@ do {									\
 
 #define __enable_fpu_hazard						\
 	.set	push;							\
-	.set	mips64;							\
+	.set	mips64r2;							\
 	.set	noreorder;						\
 	___ssnop;							\
 	bnezl	$0, .+4;						\

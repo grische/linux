@@ -125,7 +125,8 @@ static inline unsigned long kmem_cache_flags(unsigned long object_size,
 #if defined(CONFIG_DEBUG_SLAB)
 #define SLAB_DEBUG_FLAGS (SLAB_RED_ZONE | SLAB_POISON | SLAB_STORE_USER)
 #elif defined(CONFIG_SLUB_DEBUG)
-#define SLAB_DEBUG_FLAGS (SLAB_RED_ZONE | SLAB_POISON | SLAB_STORE_USER | \
+#define SLAB_DEBUG_FLAGS (SLAB_RED_ZONE | SLAB_POISON | \
+			  SLAB_STORE_USER | SLAB_STORE_USER_LITE | \
 			  SLAB_TRACE | SLAB_CONSISTENCY_CHECKS)
 #else
 #define SLAB_DEBUG_FLAGS (0)
@@ -376,7 +377,8 @@ static inline size_t slab_ksize(const struct kmem_cache *s)
 	 * back there or track user information then we can
 	 * only use the space before that information.
 	 */
-	if (s->flags & (SLAB_DESTROY_BY_RCU | SLAB_STORE_USER))
+	if (s->flags & (SLAB_DESTROY_BY_RCU |
+			SLAB_STORE_USER | SLAB_STORE_USER_LITE))
 		return s->inuse;
 	/*
 	 * Else we can use all the padding etc for the allocation
@@ -488,5 +490,26 @@ static inline int cache_random_seq_create(struct kmem_cache *cachep,
 }
 static inline void cache_random_seq_destroy(struct kmem_cache *cachep) { }
 #endif /* CONFIG_SLAB_FREELIST_RANDOM */
+
+#if defined(CONFIG_SLUB_AVM_ALLOC_LIST)
+extern unsigned int slab_track_time;
+
+struct _slab_avm_alloc_entry {
+	unsigned long caller;
+	unsigned int count;
+	unsigned long long sum_time;
+};
+
+struct _slab_avm_topalloclist {
+	struct _slab_avm_alloc_entry entry[128];
+	unsigned int entries;
+	unsigned int ignored;	/*--- not enough entries ---*/
+	unsigned long sum_count; /*--- all caller-count + ignored ---*/
+};
+
+void cache_avm_topalloc_list(struct _slab_avm_topalloclist *ptoplist,
+			    struct kmem_cache *cachep,
+			    unsigned long tresh_jiffiesdiff);
+#endif/*--- #if defined(CONFIG_SLUB_AVM_ALLOC_LIST) ---*/
 
 #endif /* MM_SLAB_H */

@@ -21,7 +21,7 @@
 
 #include <asm/asmmacro.h>
 
-	.set	mips1
+	.set	mips32r2
 	.align	5
 
 /*

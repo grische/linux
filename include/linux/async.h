@@ -14,12 +14,26 @@
 
 #include <linux/types.h>
 #include <linux/list.h>
+#include <linux/workqueue.h>
 
 typedef u64 async_cookie_t;
 typedef void (*async_func_t) (void *data, async_cookie_t cookie);
 struct async_domain {
 	struct list_head pending;
 	unsigned registered:1;
+};
+
+extern struct list_head async_global_pending;
+extern spinlock_t async_lock;
+
+struct async_entry {
+	struct list_head	domain_list;
+	struct list_head	global_list;
+	struct work_struct	work;
+	async_cookie_t		cookie;
+	async_func_t		func;
+	void			*data;
+	struct async_domain	*domain;
 };
 
 /*

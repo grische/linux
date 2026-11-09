@@ -32,7 +32,7 @@
 	.previous
 
 	.set	noreorder
-	.set	mips1
+	.set	mips32r2
 
 /**
  * _save_fp_context() - save FP context from the FPU

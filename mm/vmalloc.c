@@ -2734,3 +2734,92 @@ module_init(proc_vmalloc_init);
 
 #endif
 
+#if defined(CONFIG_AVM_ENHANCED)
+/**
+ */
+static struct vmap_area *__is_addr_in_vmap_area(unsigned long addr)
+{
+	struct rb_node *n = vmap_area_root.rb_node;
+
+	while (n) {
+		struct vmap_area *va;
+
+		if (!virt_addr_valid(n)) {
+			return NULL;
+		}
+		va = rb_entry(n, struct vmap_area, rb_node);
+		if (!virt_addr_valid(va)) {
+			return NULL;
+		}
+		if ((addr >= va->va_start) && (addr < va->va_end)) {
+			return va;
+		}
+		if (addr < va->va_start)
+			n = n->rb_left;
+		else if (addr > va->va_start)
+			n = n->rb_right;
+	}
+	return NULL;
+}
+/**
+ * @brief get vmalloc-area-infos if addr in range
+ * @return va_start (zero if not exist)
+ */
+unsigned long get_vmap_area(unsigned long addr,
+			    unsigned long *caller,
+			    unsigned long *size,
+			    unsigned long *vm_flags)
+{
+	unsigned long flags;
+	unsigned long _size = 0, _caller = 0, _va_start = 0, _vm_flags = 0;
+	struct vmap_area *va;
+
+	if (!spin_trylock_irqsave(&vmap_area_lock, flags)) {
+		return 0;
+	}
+	va = __is_addr_in_vmap_area(addr);
+	if (va && (va->flags & VM_VM_AREA)) {
+		if (virt_addr_valid(va->vm)) {
+			_caller	  = (unsigned long)va->vm->caller;
+			_vm_flags = va->vm->flags;
+		}
+		_va_start = va->va_start;
+		_size	  = va->va_end - va->va_start;
+	}
+	spin_unlock_irqrestore(&vmap_area_lock, flags);
+
+	if (caller)
+		*caller  = _caller;
+	if (size)
+		*size     = _size;
+	if (vm_flags)
+		*vm_flags = _vm_flags;
+	return _va_start;
+}
+/**
+ * @brief get vmalloc-used in bytes
+ * return: < 0 can't get spinlock
+ */
+int get_used_vmalloc_mem(void)
+{
+	int size = 0;
+	unsigned long flags;
+	struct vmap_area *va;
+
+	if (!spin_trylock_irqsave(&vmap_area_lock, flags)) {
+		return -1;
+	}
+	list_for_each_entry(va, &vmap_area_list, list) {
+		if (va && (va->flags & VM_VM_AREA)) {
+			if (virt_addr_valid(va->vm)) {
+				if (va->vm->flags & VM_ALLOC) {
+					size += va->va_end - va->va_start;
+				}
+			}
+		}
+	}
+	spin_unlock_irqrestore(&vmap_area_lock, flags);
+	return size;
+}
+#endif /*--- #if defined(CONFIG_AVM_ENHANCED) ---*/
+

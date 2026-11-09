@@ -80,6 +80,10 @@
 #include <linux/netlink.h>
 #include <linux/tcp.h>
 
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#endif
+
 static int
 ip_fragment(struct net *net, struct sock *sk, struct sk_buff *skb,
 	    unsigned int mtu,
@@ -99,6 +103,16 @@ int __ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 
 	iph->tot_len = htons(skb->len);
 	ip_send_check(iph);
+
+#ifdef CONFIG_AVM_PA
+#ifdef AVM_PA_LOCAL_OUT_RECEIVE
+	/* Someone must set AVM_PKT_INFO(skb)->local_out_pid_handle beforehand
+	 * to have a session.
+	 */
+	if (avm_pa_local_out_receive(skb, sk, AF_INET) == AVM_PA_RX_STOLEN)
+		return 0;
+#endif
+#endif
 
 	/* if egress device is enslaved to an L3 master device pass the
 	 * skb to its handler for processing
@@ -299,8 +313,12 @@ static int ip_finish_output(struct net *net, struct sock *sk, struct sk_buff *sk
 	if (skb_is_gso(skb))
 		return ip_finish_output_gso(net, sk, skb, mtu);
 
-	if (skb->len > mtu || (IPCB(skb)->flags & IPSKB_FRAG_PMTU))
+	if (skb->len > mtu || (IPCB(skb)->flags & IPSKB_FRAG_PMTU)) {
+		if (skb->dev->type == ARPHRD_TUNNEL6) {
+			return ip_finish_output2(net, sk, skb);
+		}
 		return ip_fragment(net, sk, skb, mtu, ip_finish_output2);
+	}
 
 	return ip_finish_output2(net, sk, skb);
 }
@@ -506,6 +524,9 @@ static void ip_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 #ifdef CONFIG_NET_SCHED
 	to->tc_index = from->tc_index;
 #endif
+#ifdef CONFIG_AVM_PA
+	memcpy(AVM_PKT_INFO(to), AVM_PKT_INFO(from), sizeof(*AVM_PKT_INFO(to)));
+#endif
 	nf_copy(to, from);
 #if IS_ENABLED(CONFIG_IP_VS)
 	to->ipvs_property = from->ipvs_property;
@@ -553,6 +574,9 @@ int ip_do_fragment(struct net *net, struct sock *sk, struct sk_buff *skb,
 	__be16 not_last_frag;
 	struct rtable *rt = skb_rtable(skb);
 	int err = 0;
+#ifdef CONFIG_INTEL_IPQOS_MARK_SKBPRIO
+	__u32 old_priority = skb->priority;
+#endif
 
 	/* for offloaded checksums cleanup checksum before fragmentation */
 	if (skb->ip_summed == CHECKSUM_PARTIAL &&
@@ -647,6 +671,9 @@ int ip_do_fragment(struct net *net, struct sock *sk, struct sk_buff *skb,
 				ip_send_check(iph);
 			}
 
+#ifdef CONFIG_INTEL_IPQOS_MARK_SKBPRIO
+			skb->priority = old_priority;
+#endif
 			err = output(net, sk, skb);
 
 			if (!err)
@@ -784,6 +811,9 @@ slow_path:
 
 		ip_send_check(iph);
 
+#ifdef CONFIG_INTEL_IPQOS_MARK_SKBPRIO
+		skb2->priority = old_priority;
+#endif
 		err = output(net, sk, skb2);
 		if (err)
 			goto fail;
@@ -1601,7 +1631,8 @@ void ip_send_unicast_reply(struct sock *sk, struct sk_buff *skb,
 			   RT_SCOPE_UNIVERSE, ip_hdr(skb)->protocol,
 			   ip_reply_arg_flowi_flags(arg),
 			   daddr, saddr,
-			   tcp_hdr(skb)->source, tcp_hdr(skb)->dest);
+			   tcp_hdr(skb)->source, tcp_hdr(skb)->dest,
+			   arg->uid);
 	security_skb_classify_flow(skb, flowi4_to_flowi(&fl4));
 	rt = ip_route_output_key(net, &fl4);
 	if (IS_ERR(rt))

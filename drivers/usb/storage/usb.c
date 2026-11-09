@@ -79,6 +79,9 @@
 
 #define DRV_NAME "usb-storage"
 
+/* == 20180328 AVM/VGJ - Include AVM USB Suspend functions == */
+#include "../core/usb.h"
+
 /* Some informational data */
 MODULE_AUTHOR("Matthew Dharm <mdharm-usb@one-eyed-alien.net>");
 MODULE_DESCRIPTION("USB Mass Storage driver for Linux");
@@ -872,6 +875,10 @@ static void quiesce_and_remove_host(struct us_data *us)
 		wake_up(&us->delay_wait);
 	}
 
+	/* == 20171214 AVM/VGJ - Inc USB use counter -> prevents suspension
+	 * Restore incremented counter to prevent suspension by default ==*/
+	avm_usb_suspend_get_locked(us->pusb_dev);
+
 	/*
 	 * Prevent SCSI scanning (if it hasn't started yet)
 	 * or wait for the SCSI-scanning routine to stop.
@@ -879,14 +886,25 @@ static void quiesce_and_remove_host(struct us_data *us)
 	cancel_delayed_work_sync(&us->scan_dwork);
 
 	/* Balance autopm calls if scanning was cancelled */
-	if (test_bit(US_FLIDX_SCAN_PENDING, &us->dflags))
+	if (test_bit(US_FLIDX_SCAN_PENDING, &us->dflags)) {
 		usb_autopm_put_interface_no_suspend(us->pusb_intf);
+		/* == 20171214 AVM/VGJ - Dec USB use counter -> Driver was not yet probed ==*/
+		avm_usb_suspend_put_locked(us->pusb_dev);
+	}
+
 
 	/*
 	 * Removing the host will perform an orderly shutdown: caches
 	 * synchronized, disks spun down, etc.
 	 */
+	/* == 20171214 AVM/WKR - FIX: Prevent deadlock with suspend_put in invoke_transport() == */
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	usb_unlock_device(us->pusb_dev);
+#endif
 	scsi_remove_host(host);
+#if defined (CONFIG_AVM_USB_SUSPEND)
+	usb_lock_device(us->pusb_dev);
+#endif
 
 	/*
 	 * Prevent any new commands from being accepted and cut short
@@ -941,6 +959,9 @@ static void usb_stor_scan_dwork(struct work_struct *work)
 	/* Should we unbind if no devices were detected? */
 
 	usb_autopm_put_interface(us->pusb_intf);
+	/* == 20171214 AVM/VGJ - Dec USB use counter -> allows suspension
+	 * Inc is done in usbcore to prevent suspension by default ==*/
+	avm_usb_suspend_put(us->pusb_dev);
 	clear_bit(US_FLIDX_SCAN_PENDING, &us->dflags);
 }
 
@@ -1121,6 +1142,23 @@ static int storage_probe(struct usb_interface *intf,
 	struct us_data *us;
 	int result;
 	int size;
+
+#if defined (CONFIG_AVM_KERNEL)
+	/* == AVM/WK CHANGESET: STICK_AND_SURF ==
+	 * Filter out all AVM (057C) mass storage devices...
+	 */
+	{
+		struct usb_device *udev;
+		#define AVM_VENDOR_ID				0x057C
+		udev = interface_to_usbdev(intf);
+		if (le16_to_cpu(udev->descriptor.idVendor) == AVM_VENDOR_ID) {
+			printk (KERN_INFO "USB Mass Storage device (%04x:%04x) ignored!\n",
+				le16_to_cpu(udev->descriptor.idVendor),
+				le16_to_cpu(udev->descriptor.idProduct));
+			return -ENODEV;
+		}
+	}
+#endif
 
 	/* If uas is enabled and this device can do uas then ignore it. */
 #if IS_ENABLED(CONFIG_USB_UAS)

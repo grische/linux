@@ -75,18 +75,27 @@ SECTIONS
 		__stop___dbe_table = .;
 	}
 
+	/* Bug table for data bus errors */
+	__bug_debug_table : {
+		__start___bug_debug_table = .;
+		*(__bug_debug_table )
+		__stop___bug_debug_table = .;
+	}
+
 #ifdef CONFIG_CAVIUM_OCTEON_SOC
 #define NOTES_HEADER
 #else /* CONFIG_CAVIUM_OCTEON_SOC */
 #define NOTES_HEADER :note
 #endif /* CONFIG_CAVIUM_OCTEON_SOC */
 	NOTES :text NOTES_HEADER
+
 	.dummy : { *(.dummy) } :text
 
 	_sdata = .;			/* Start of data section */
 	RODATA
 
 	/* writeable */
+	__data_start = .;
 	.data : {	/* Data */
 		. = . + DATAOFFSET;		/* for CONFIG_MAPPED_KERNEL */
 
@@ -96,6 +105,12 @@ SECTIONS
 		READ_MOSTLY_DATA(1 << CONFIG_MIPS_L1_CACHE_SHIFT)
 		DATA_DATA
 		CONSTRUCTORS
+#ifdef CONFIG_AVM_FW_INFO_EMBED
+		. = ALIGN(4 * 1024);
+		__avm_kernel_config_start = .;
+		. += 192 * 1024;
+		__avm_kernel_config_end = .;
+#endif
 	}
 	_gp = . + 0x8000;
 	.lit8 : {

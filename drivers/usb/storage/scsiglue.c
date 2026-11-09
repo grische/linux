@@ -81,7 +81,6 @@ static const char* host_info(struct Scsi_Host *host)
 static int slave_alloc (struct scsi_device *sdev)
 {
 	struct us_data *us = host_to_us(sdev->host);
-	int maxp;
 
 	/*
 	 * Set the INQUIRY transfer length to 36.  We don't use any of
@@ -89,15 +88,6 @@ static int slave_alloc (struct scsi_device *sdev)
 	 * less than 36 bytes.
 	 */
 	sdev->inquiry_len = 36;
-
-	/*
-	 * USB has unusual scatter-gather requirements: the length of each
-	 * scatterlist element except the last must be divisible by the
-	 * Bulk maxpacket value.  Fortunately this value is always a
-	 * power of 2.  Inform the block layer about this requirement.
-	 */
-	maxp = usb_maxpacket(us->pusb_dev, us->recv_bulk_pipe, 0);
-	blk_queue_virt_boundary(sdev->request_queue, maxp - 1);
 
 	/*
 	 * Some host controllers may have alignment requirements.
@@ -599,8 +589,37 @@ static ssize_t max_sectors_store(struct device *dev, struct device_attribute *at
 }
 static DEVICE_ATTR_RW(max_sectors);
 
+#if defined (CONFIG_AVM_USB_SUSPEND)
+/* Output routine for the sysfs max_spinup_ms file */
+static ssize_t show_max_spinup_ms(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct us_data *us = host_to_us(dev_to_shost(dev));
+
+	return sprintf(buf, "%u\n", us->max_spinup_ms);
+}
+
+/* Input routine for the sysfs max_sectors file */
+static ssize_t store_max_spinup_ms(struct device *dev, struct device_attribute *attr, const char *buf,
+		size_t count)
+{
+	struct us_data *us = host_to_us(dev_to_shost(dev));
+	unsigned int ms;
+
+	if (sscanf(buf, "%u", &ms) > 0) {
+		us->max_spinup_ms = ms;
+		return count;
+	}
+	return -EINVAL;
+}
+
+static DEVICE_ATTR(max_spinup_ms, S_IRUGO | S_IWUSR, show_max_spinup_ms, store_max_spinup_ms);
+#endif
+
 static struct device_attribute *sysfs_device_attr_list[] = {
 	&dev_attr_max_sectors,
+#if defined (CONFIG_AVM_USB_SUSPEND)
+		&dev_attr_max_spinup_ms,
+#endif
 	NULL,
 };
 
@@ -655,7 +674,14 @@ static const struct scsi_host_template usb_stor_host_template = {
 	 * and Apple Mac OS X 10.11 limiting transfers to 256 sectors for USB2
 	 * and 2048 for USB3 devices.
 	 */
+#if defined (CONFIG_AVM_KERNEL)
+	/* == AVM/WK 20160420 - further transfer speed optimization == */
+	/* limit the total size of a transfer to 512 KB to reduce USB irqs */
+	.max_sectors =                  1024,
+#else
+	/* limit the total size of a transfer to 120 KB */
 	.max_sectors =                  240,
+#endif
 
 	/*
 	 * merge commands... this seems to help performance, but

@@ -112,7 +112,8 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	if (IS_ERR(sblk)) {
 		ERROR("unable to read squashfs_super_block\n");
-		err = PTR_ERR(sblk);
+		/*--- err = PTR_ERR(sblk); ---*//*--- JZ-27891 mit err = -EIO wird kein anderes FS mehr gemountet ---*/
+        err = -EINVAL;
 		sblk = NULL;
 		goto failed_mount;
 	}
@@ -120,7 +121,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	err = -EINVAL;
 
 	/* Check it is a SQUASHFS superblock */
-	sb->s_magic = le32_to_cpu(sblk->s_magic);
+	sb->s_magic = squash_le32_to_cpu(sblk->s_magic);
 	if (sb->s_magic != SQUASHFS_MAGIC) {
 		if (!silent)
 			ERROR("Can't find a SQUASHFS superblock on %pg\n",
@@ -129,22 +130,21 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	/* Check the MAJOR & MINOR versions and lookup compression type */
-	msblk->decompressor = supported_squashfs_filesystem(
-			le16_to_cpu(sblk->s_major),
-			le16_to_cpu(sblk->s_minor),
-			le16_to_cpu(sblk->compression));
+	msblk->decompressor = supported_squashfs_filesystem(squash_le16_to_cpu(sblk->s_major),
+							    squash_le16_to_cpu(sblk->s_minor),
+							    squash_le16_to_cpu(sblk->compression));
 	if (msblk->decompressor == NULL)
 		goto failed_mount;
 
 	/* Check the filesystem does not extend beyond the end of the
 	   block device */
-	msblk->bytes_used = le64_to_cpu(sblk->bytes_used);
+	msblk->bytes_used = squash_le64_to_cpu(sblk->bytes_used);
 	if (msblk->bytes_used < 0 || msblk->bytes_used >
 			i_size_read(sb->s_bdev->bd_inode))
 		goto failed_mount;
 
 	/* Check block size for sanity */
-	msblk->block_size = le32_to_cpu(sblk->block_size);
+	msblk->block_size = squash_le32_to_cpu(sblk->block_size);
 	if (msblk->block_size > SQUASHFS_FILE_MAX_SIZE)
 		goto failed_mount;
 
@@ -159,7 +159,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	/* Check block log for sanity */
-	msblk->block_log = le16_to_cpu(sblk->block_log);
+	msblk->block_log = squash_le16_to_cpu(sblk->block_log);
 	if (msblk->block_log > SQUASHFS_FILE_MAX_LOG)
 		goto failed_mount;
 
@@ -168,15 +168,15 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 		goto failed_mount;
 
 	/* Check the root inode for sanity */
-	root_inode = le64_to_cpu(sblk->root_inode);
+	root_inode = squash_le64_to_cpu(sblk->root_inode);
 	if (SQUASHFS_INODE_OFFSET(root_inode) > SQUASHFS_METADATA_SIZE)
 		goto failed_mount;
 
-	msblk->inode_table = le64_to_cpu(sblk->inode_table_start);
-	msblk->directory_table = le64_to_cpu(sblk->directory_table_start);
-	msblk->inodes = le32_to_cpu(sblk->inodes);
-	msblk->fragments = le32_to_cpu(sblk->fragments);
-	flags = le16_to_cpu(sblk->flags);
+	msblk->inode_table = squash_le64_to_cpu(sblk->inode_table_start);
+	msblk->directory_table = squash_le64_to_cpu(sblk->directory_table_start);
+	msblk->inodes = squash_le32_to_cpu(sblk->inodes);
+	msblk->fragments = squash_le32_to_cpu(sblk->fragments);
+	flags = squash_le16_to_cpu(sblk->flags);
 
 	TRACE("Found valid superblock on %pg\n", sb->s_bdev);
 	TRACE("Inodes are %scompressed\n", SQUASHFS_UNCOMPRESSED_INODES(flags)
@@ -187,13 +187,13 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 	TRACE("Block size %d\n", msblk->block_size);
 	TRACE("Number of inodes %d\n", msblk->inodes);
 	TRACE("Number of fragments %d\n", msblk->fragments);
-	TRACE("Number of ids %d\n", le16_to_cpu(sblk->no_ids));
+	TRACE("Number of ids %d\n", squash_le16_to_cpu(sblk->no_ids));
 	TRACE("sblk->inode_table_start %llx\n", msblk->inode_table);
 	TRACE("sblk->directory_table_start %llx\n", msblk->directory_table);
 	TRACE("sblk->fragment_table_start %llx\n",
-		(u64) le64_to_cpu(sblk->fragment_table_start));
+		(u64) squash_le64_to_cpu(sblk->fragment_table_start));
 	TRACE("sblk->id_table_start %llx\n",
-		(u64) le64_to_cpu(sblk->id_table_start));
+		(u64) squash_le64_to_cpu(sblk->id_table_start));
 
 	sb->s_maxbytes = MAX_LFS_FILESIZE;
 	sb->s_flags |= MS_RDONLY;
@@ -223,7 +223,7 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 
 	/* Handle xattrs */
 	sb->s_xattr = squashfs_xattr_handlers;
-	xattr_id_table_start = le64_to_cpu(sblk->xattr_id_table_start);
+	xattr_id_table_start = squash_le64_to_cpu(sblk->xattr_id_table_start);
 	if (xattr_id_table_start == SQUASHFS_INVALID_BLK) {
 		next_table = msblk->bytes_used;
 		goto allocate_id_index_table;
@@ -244,18 +244,18 @@ static int squashfs_fill_super(struct super_block *sb, void *data, int silent)
 allocate_id_index_table:
 	/* Allocate and read id index table */
 	msblk->id_table = squashfs_read_id_index_table(sb,
-		le64_to_cpu(sblk->id_table_start), next_table,
-		le16_to_cpu(sblk->no_ids));
+		squash_le64_to_cpu(sblk->id_table_start), next_table,
+		squash_le16_to_cpu(sblk->no_ids));
 	if (IS_ERR(msblk->id_table)) {
 		ERROR("unable to read id index table\n");
 		err = PTR_ERR(msblk->id_table);
 		msblk->id_table = NULL;
 		goto failed_mount;
 	}
-	next_table = le64_to_cpu(msblk->id_table[0]);
+	next_table = squash_le64_to_cpu(msblk->id_table[0]);
 
 	/* Handle inode lookup table */
-	lookup_table_start = le64_to_cpu(sblk->lookup_table_start);
+	lookup_table_start = squash_le64_to_cpu(sblk->lookup_table_start);
 	if (lookup_table_start == SQUASHFS_INVALID_BLK)
 		goto handle_fragments;
 
@@ -268,7 +268,7 @@ allocate_id_index_table:
 		msblk->inode_lookup_table = NULL;
 		goto failed_mount;
 	}
-	next_table = le64_to_cpu(msblk->inode_lookup_table[0]);
+	next_table = squash_le64_to_cpu(msblk->inode_lookup_table[0]);
 
 	sb->s_export_op = &squashfs_export_ops;
 
@@ -286,14 +286,15 @@ handle_fragments:
 
 	/* Allocate and read fragment index table */
 	msblk->fragment_index = squashfs_read_fragment_index_table(sb,
-		le64_to_cpu(sblk->fragment_table_start), next_table, fragments);
+		squash_le64_to_cpu(sblk->fragment_table_start), next_table,
+		fragments);
 	if (IS_ERR(msblk->fragment_index)) {
 		ERROR("unable to read fragment index table\n");
 		err = PTR_ERR(msblk->fragment_index);
 		msblk->fragment_index = NULL;
 		goto failed_mount;
 	}
-	next_table = le64_to_cpu(msblk->fragment_index[0]);
+	next_table = squash_le64_to_cpu(msblk->fragment_index[0]);
 
 check_directory_table:
 	/* Sanity check directory_table */

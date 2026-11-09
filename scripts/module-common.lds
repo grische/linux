@@ -22,6 +22,7 @@ SECTIONS {
 
 	. = ALIGN(8);
 	.init_array		0 : { *(SORT(.init_array.*)) *(.init_array) }
+	.ctors			0 : { *(SORT(.ctors.*)) *(.ctors) }
 
 	__jump_table		0 : ALIGN(8) { KEEP(*(__jump_table)) }
 }

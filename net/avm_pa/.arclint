@@ -1,0 +1,20 @@
+{
+    "linters": {
+        "checkpatch": {
+            "type": "script-and-regex",
+            "script-and-regex.script": "f() { ../../scripts/checkpatch.pl --max-line-length=100 --ignore LINUX_VERSION_CODE,CODE_INDENT,CONSTANT_COMPARISON --show-types --terse -f \"$1\" || true; }; f",
+            "script-and-regex.regex": "/^.*:(?P<line>.*): (?P<severity>(WARNING|ERROR)):(?P<name>([A-Z_]+)):(?P<message>.*)$/m",
+            "include": [
+                "(\\.c$)",
+                "(\\.h$)"
+            ],
+            "exclude": [
+                "(^avm_pa.c$)",
+                "(^avm_pa.h$)",
+                "(^avm_pa_hw.h$)",
+                "(^avm_pa_intern.h$)",
+                "(^avm_pa_ifx_multiplexer.h$)"
+            ]
+        }
+    }
+}

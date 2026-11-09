@@ -97,6 +97,33 @@
 #define USEROP   1
 #define KERNELOP 2
 
+/**
+ * AVM: mbahr:
+ * Grosses Problem:
+ * fuer memcpy und copy_from_user wird gleiche Funktion verwendet
+ * die Load-Befehle werden mit Fixup-Exception-Handler "abgefangen"
+ * diese duerfen aber nur bei User-Copy zuschlagen - und erfordern ein gesetztes
+ * AT (entspricht src+len). Ein memcpy kann also je nach AT grosse Bereiche des Kernels zerschreiben,
+ * ohne das es sofort auffaellt.
+ * Absicherung:
+ * Als Indicator wird bei memcpy() initial AT auf zero gesetzt und dann ein
+ * BUG ausgeloest, wenn im Fixup-Exceptionhandler AT==zero
+ */
+
+	.data
+bug_text1: .ascii __FILE__"\0"
+bug_text2: .ascii "memcpy\0"
+bug_text3: .ascii "invalid src-addr see: dst=a0 src=a1\0"
+	.previous
+
+#define BUG_MEMCPY(dst, src, reg, line)  \
+    movz a0, dst, reg; \
+    movz a1, src, reg; \
+1:	teq zero, reg, 12; \
+	.section __bug_debug_table,"a";\
+	PTR	1b, bug_text1, line, bug_text2, bug_text3;\
+	.previous
+
 /*
  * Wrapper to add an entry in the exception table
  * in case the insn causes a memory exception.
@@ -561,6 +588,7 @@
 	LOADK	t0, THREAD_BUADDR(t0)	# t0 is just past last good address
 	 nop
 	SUB	len, AT, t0		# len number of uncopied bytes
+	BUG_MEMCPY(dst, src, AT, __LINE__)
 	bnez	t6, .Ldone\@	/* Skip the zeroing part if inatomic */
 	/*
 	 * Here's where we rely on src and dst being incremented in tandem,
@@ -688,6 +716,7 @@ LEAF(__copy_user_inatomic)
 LEAF(memcpy)					/* a0=dst a1=src a2=len */
 	move	v0, dst				/* return value */
 .L__memcpy:
+	move    AT, zero            /* AVM: mbahr: kernel space-indicator */
 FEXPORT(__copy_user)
 	li	t6, 0	/* not inatomic */
 __copy_user_common:

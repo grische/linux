@@ -1,0 +1,6 @@
+{
+  "phabricator.uri" : "http://phab.hulk.avm.de/",
+  "repository.callsign" : "GPA",
+  "arc.land.onto.default": "stable/master",
+  "arc.feature.start.default": "origin/stable/master"
+}

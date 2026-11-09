@@ -1,0 +1,33 @@
+avm_gpio-API using the gpiolib
+
+This is a pseudo-device that takes an GPIO and allows its use via the avm_gpio
+API.
+
+Required properties:
+- compatible:		"avm,avm_generic_gpio"
+- gpio:			The GPIO to expose via the avm_gpio API.
+
+Exactly one of these properties is required:
+- avm,input:		Initialize the GPIO as an input.
+- avm,output:		Initialize the GPIO as an output.
+
+Optional properties:
+- pinctrl-*:		pinctrl-Properties as usual. The driver will try to map
+			the avm_gpio FUNCTION_PINMUX1, FUNCTION_PINMUX2 and
+			FUNCTION_PINMUX3 to the the pinctrl-states "mux1",
+			"mux2" and "mux3" accordingly.
+
+Examples of avm_gpio nodes:
+	gpio_avm_button_dect {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio1 0 GPIO_ACTIVE_HIGH>;
+		avm,input;
+	};
+
+	gpio_avm_pcmlink_dcl {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio0 31 GPIO_ACTIVE_HIGH>;
+		avm,output;
+		pinctrl-names = "mux3";
+		pinctrl-0 = <&pinctrl_tdm_dcl>;
+	};

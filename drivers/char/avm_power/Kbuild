@@ -1,0 +1,24 @@
+ccflags-$(CONFIG_AVM_POWER) += -Wall -Wextra
+
+obj-$(CONFIG_AVM_POWER) += avm_power.o
+
+avm_power-objs  = avm_cpu_process.o
+avm_power-objs += avm_power_cpuidle.o
+avm_power-objs += avm_power_dsl.o
+avm_power-objs += avm_power_file.o
+avm_power-objs += avm_power_loadcontrol.o
+avm_power-objs += avm_power_main.o
+avm_power-objs += avm_power_pm_qos.o
+avm_power-objs += avm_power_speedstep.o
+avm_power-objs += avm_power_telefon.o
+avm_power-objs += avm_power_temperature.o
+avm_power-objs += avm_power_usb.o
+avm_power-objs += avm_power_wlan.o
+
+remote-source = $(CONFIG_AVM_POWER_REMOTE_SOURCE)
+local-source = $(if $(CONFIG_AVM_POWER_REMOTE_SOURCE),,y)
+avm_power-$(remote-source) += avm_power_remote_source.o
+avm_power-$(local-source) += avm_power_if.o
+avm_power-$(local-source) += avm_power_pminfo.o
+
+avm_power-$(CONFIG_AVM_POWER_REMOTE_SINK) += avm_power_remote_sink.o

@@ -683,6 +683,60 @@ static int __init __fdt_scan_reserved_mem(unsigned long node, const char *uname,
 }
 
 /**
+ * fdt_scan_reserved_mem_prop_avm() - scan a property of the reserved memory node in
+ * legacy avm format
+ */
+static int __init __fdt_scan_reserved_mem_prop_avm(const __be32 *prop, const char *uname, u32 len,
+					  void *data)
+{
+	int t_len = (dt_root_addr_cells + dt_root_size_cells) * sizeof(__be32);
+	phys_addr_t base, size;
+
+	if (!strcmp(uname, "#size-cells") || !strcmp(uname, "#address-cells") || !strcmp(uname, "ranges")) {
+		/* scan next prop */
+		return 0;
+	}
+
+	if (len != t_len) {
+		pr_err("Reserved memory (avm): invalid reg property (length=%d) in '%s', skipping property.\n",
+				len, uname);
+		/* scan next prop */
+		return 0;
+	}
+
+	base = dt_mem_next_cell(dt_root_addr_cells, &prop);
+	size = dt_mem_next_cell(dt_root_size_cells, &prop) + 1;
+
+	if (size && (early_init_dt_reserve_memory_arch(base, size, 0) == 0))
+		pr_err("Reserved memory (avm): reserved region for property '%s': base %pa, size %pa\n",
+				uname, &base, &size);
+	else
+		pr_err("Reserved memory (avm): failed to reserve memory for property '%s': base %pa, size %pa\n",
+				uname, &base, &size);
+
+	/* scan next prop */
+	return 0;
+}
+
+/**
+ * fdt_scan_reserved_mem_avm() - scan a single FDT node for reserved memory in
+ * legacy avm format
+ */
+static int __init __fdt_scan_reserved_mem_avm(unsigned long node, const char *uname,
+					  int depth, void *data)
+{
+	if (depth != 1 || strcmp(uname, "reserved-memory") != 0) {
+		/* scan next node */
+		return 0;
+	}
+
+	of_scan_flat_dt_nodeprops(node, __fdt_scan_reserved_mem_prop_avm, NULL);
+
+	/* scanning of /reserved-memory has been finished */
+	return 1;
+}
+
+/**
  * early_init_fdt_scan_reserved_mem() - create reserved memory regions
  *
  * This function grabs memory from early allocator for device exclusive use
@@ -707,6 +761,7 @@ void __init early_init_fdt_scan_reserved_mem(void)
 
 	of_scan_flat_dt(__fdt_scan_reserved_mem, NULL);
 	fdt_init_reserved_mem();
+	of_scan_flat_dt(__fdt_scan_reserved_mem_avm, NULL);
 }
 
 /**
@@ -752,6 +807,37 @@ int __init of_scan_flat_dt(int (*it)(unsigned long node,
 		if (*pathp == '/')
 			pathp = kbasename(pathp);
 		rc = it(offset, pathp, depth, data);
+	}
+	return rc;
+}
+
+/**
+ * of_scan_flat_dt - scan flattened tree blob and call callback on each.
+ * @it: callback function
+ * @data: context data pointer
+ *
+ * This function is used to scan the flattened device-tree, it is
+ * used to extract the memory information at boot before we can
+ * unflatten the tree
+ */
+int __init of_scan_flat_dt_nodeprops(unsigned long node, int (*it)(const __be32 *prop,
+				     const char *uname, unsigned int len, void *data),
+			   void *data)
+{
+	const void *blob = initial_boot_params;
+	const __be32 *propp;
+	const char *namep;
+	int offset, rc = 0, len;
+
+	if (!blob)
+		return 0;
+
+	for (offset = fdt_first_property_offset(blob, node);
+	     offset >= 0 && offset >= node && !rc;
+	     offset = fdt_next_property_offset(blob, offset)) {
+
+		propp = fdt_getprop_by_offset(blob, offset, &namep, &len);
+		rc = it(propp, namep, len, data);
 	}
 	return rc;
 }
@@ -1081,6 +1167,12 @@ int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,
 	p = of_get_flat_dt_prop(node, "bootargs", &l);
 	if (p != NULL && l > 0)
 		strlcpy(data, p, min((int)l, COMMAND_LINE_SIZE));
+	p = of_get_flat_dt_prop(node, "bootargs-append", &l);
+	if (p != NULL && l > 0) {
+		if (strlen(data) > 0)
+			strlcat(data, " ", COMMAND_LINE_SIZE);
+		strlcat(data, p, min_t(int, strlen(data) + (int)l, COMMAND_LINE_SIZE));
+	}
 
 	/*
 	 * CONFIG_CMDLINE is meant to be a default in case nothing else

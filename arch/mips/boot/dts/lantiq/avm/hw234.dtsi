@@ -1,0 +1,25 @@
+#include "grx550_common.dtsi"
+#include "leds-hw226.dtsi"
+
+&avm_gpio {
+	gpio_avm_lte_power {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio0 19 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_lte_reset {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio1 1 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_lte_disable {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+	gpio_avm_lte_vctrl {
+		compatible = "avm,avm_gpio_generic";
+		gpio = <&gpio0 14 GPIO_ACTIVE_HIGH>;
+		avm,output;
+	};
+};

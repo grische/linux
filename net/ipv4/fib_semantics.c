@@ -88,55 +88,58 @@ u32 fib_multipath_secret __read_mostly;
 
 #define endfor_nexthops(fi) }
 
-
 const struct fib_prop fib_props[RTN_MAX + 1] = {
 	[RTN_UNSPEC] = {
-		.error	= 0,
-		.scope	= RT_SCOPE_NOWHERE,
+		.error = 0,
+		.scope = RT_SCOPE_NOWHERE,
 	},
 	[RTN_UNICAST] = {
-		.error	= 0,
-		.scope	= RT_SCOPE_UNIVERSE,
+		.error = 0,
+		.scope = RT_SCOPE_UNIVERSE,
 	},
 	[RTN_LOCAL] = {
-		.error	= 0,
-		.scope	= RT_SCOPE_HOST,
+		.error = 0,
+		.scope = RT_SCOPE_HOST,
 	},
 	[RTN_BROADCAST] = {
-		.error	= 0,
-		.scope	= RT_SCOPE_LINK,
+		.error = 0,
+		.scope = RT_SCOPE_LINK,
 	},
 	[RTN_ANYCAST] = {
-		.error	= 0,
-		.scope	= RT_SCOPE_LINK,
+		.error = 0,
+		.scope = RT_SCOPE_LINK,
 	},
 	[RTN_MULTICAST] = {
-		.error	= 0,
-		.scope	= RT_SCOPE_UNIVERSE,
+		.error = 0,
+		.scope = RT_SCOPE_UNIVERSE,
 	},
 	[RTN_BLACKHOLE] = {
-		.error	= -EINVAL,
-		.scope	= RT_SCOPE_UNIVERSE,
+		.error = -EINVAL,
+		.scope = RT_SCOPE_UNIVERSE,
 	},
 	[RTN_UNREACHABLE] = {
-		.error	= -EHOSTUNREACH,
-		.scope	= RT_SCOPE_UNIVERSE,
+		.error = -EHOSTUNREACH,
+		.scope = RT_SCOPE_UNIVERSE,
 	},
 	[RTN_PROHIBIT] = {
-		.error	= -EACCES,
-		.scope	= RT_SCOPE_UNIVERSE,
+		.error = -EACCES,
+		.scope = RT_SCOPE_UNIVERSE,
 	},
 	[RTN_THROW] = {
-		.error	= -EAGAIN,
-		.scope	= RT_SCOPE_UNIVERSE,
+		.error = -EAGAIN,
+		.scope = RT_SCOPE_UNIVERSE,
 	},
 	[RTN_NAT] = {
-		.error	= -EINVAL,
-		.scope	= RT_SCOPE_NOWHERE,
+		.error = -EINVAL,
+		.scope = RT_SCOPE_NOWHERE,
 	},
 	[RTN_XRESOLVE] = {
-		.error	= -EINVAL,
-		.scope	= RT_SCOPE_NOWHERE,
+		.error = -EINVAL,
+		.scope = RT_SCOPE_NOWHERE,
+	},
+	[RTN_POLICY_FAILED] = {
+		.error = -EACCES,
+		.scope = RT_SCOPE_UNIVERSE,
 	},
 };
 

@@ -23,6 +23,10 @@
  * squashfs_fs.h
  */
 
+#define squash_le64_to_cpu(a)   (unsigned long long)(a)
+#define squash_le32_to_cpu(a)   (unsigned int)(a)
+#define squash_le16_to_cpu(a)   (unsigned short)((a) & 0xFFFF)
+
 #define SQUASHFS_CACHED_FRAGMENTS	CONFIG_SQUASHFS_FRAGMENT_CACHE_SIZE
 #define SQUASHFS_MAJOR			4
 #define SQUASHFS_MINOR			0
@@ -131,7 +135,7 @@
 
 static inline int squashfs_block_size(__le32 raw)
 {
-	u32 size = le32_to_cpu(raw);
+	u32 size = squash_le32_to_cpu(raw);
 	return (size >> 25) ? -EIO : size;
 }
 

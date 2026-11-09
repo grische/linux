@@ -229,15 +229,18 @@ static int unix_mkname(struct sockaddr_un *sunaddr, int len, unsigned int *hashp
 	if (!sunaddr || sunaddr->sun_family != AF_UNIX)
 		return -EINVAL;
 	if (sunaddr->sun_path[0]) {
-		/*
-		 * This may look like an off by one error but it is a bit more
-		 * subtle. 108 is the longest valid AF_UNIX path for a binding.
-		 * sun_path[108] doesn't as such exist.  However in kernel space
-		 * we are guaranteed that it is a valid memory location in our
-		 * kernel address buffer.
-		 */
+		unsigned char value;
+		if (len == sizeof(*sunaddr))
+			len--; /*--- mbahr@avm: don't write over struct-boundary ! ---*/
+		value = ((unsigned char *)sunaddr)[len];
 		((char *)sunaddr)[len] = 0;
 		len = strlen(sunaddr->sun_path)+1+sizeof(short);
+		if (value && (len == sizeof(*sunaddr))) {
+			/*--- mbahr@avm: check - UNIX_MAX_PATH include zero-termination! ---*/
+			printk(KERN_ERR "%s: error sun_path exceeded '%s%c'\n",
+			       __func__, sunaddr->sun_path, value);
+			return -EINVAL;
+		}
 		return len;
 	}
 

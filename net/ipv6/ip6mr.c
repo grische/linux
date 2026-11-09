@@ -123,6 +123,11 @@ static int ip6mr_rtm_dumproute(struct sk_buff *skb,
 static void mroute_clean_tables(struct mr6_table *mrt, bool all);
 static void ipmr_expire_process(unsigned long arg);
 
+#if IS_ENABLED(CONFIG_MCAST_HELPER)
+void (*five_tuple_info6_ptr)(struct sk_buff *skb, char iface_name[20]) = NULL;
+EXPORT_SYMBOL(five_tuple_info6_ptr);
+#endif
+
 #ifdef CONFIG_IPV6_MROUTE_MULTIPLE_TABLES
 #define ip6mr_for_each_table(mrt, net) \
 	list_for_each_entry_rcu(mrt, &net->ipv6.mr6_tables, list)
@@ -168,6 +173,8 @@ static int ip6mr_rule_action(struct fib_rule *rule, struct flowi *flp,
 	case FR_ACT_UNREACHABLE:
 		return -ENETUNREACH;
 	case FR_ACT_PROHIBIT:
+		return -EACCES;
+	case FR_ACT_POLICY_FAILED:
 		return -EACCES;
 	case FR_ACT_BLACKHOLE:
 	default:
@@ -854,7 +861,7 @@ static void ip6mr_destroy_unres(struct mr6_table *mrt, struct mfc6_cache *c)
 			nlh->nlmsg_len = nlmsg_msg_size(sizeof(struct nlmsgerr));
 			skb_trim(skb, nlh->nlmsg_len);
 			((struct nlmsgerr *)nlmsg_data(nlh))->error = -ETIMEDOUT;
-			rtnl_unicast(skb, net, NETLINK_CB(skb).portid);
+			rtnl_unicast(skb, net, nlh->nlmsg_pid);
 		} else
 			kfree_skb(skb);
 	}
@@ -1119,7 +1126,7 @@ static void ip6mr_cache_resolve(struct net *net, struct mr6_table *mrt,
 				skb_trim(skb, nlh->nlmsg_len);
 				((struct nlmsgerr *)nlmsg_data(nlh))->error = -EMSGSIZE;
 			}
-			rtnl_unicast(skb, net, NETLINK_CB(skb).portid);
+			rtnl_unicast(skb, net, nlh->nlmsg_pid);
 		} else
 			ip6_mr_forward(net, mrt, skb, c);
 	}
@@ -1178,30 +1185,37 @@ static int ip6mr_cache_report(struct mr6_table *mrt, struct sk_buff *pkt,
 	} else
 #endif
 	{
-	/*
+
+#if IS_ENABLED(CONFIG_MCAST_HELPER)
+		/* Send five tuple info to mcast helper */
+		if (ipv6_hdr(pkt)->nexthdr == 17)
+			if (five_tuple_info6_ptr != NULL)
+				five_tuple_info6_ptr(pkt, mrt->vif6_table[mifi].dev->name);
+#endif
+		/*
 	 *	Copy the IP header
 	 */
 
-	skb_put(skb, sizeof(struct ipv6hdr));
-	skb_reset_network_header(skb);
-	skb_copy_to_linear_data(skb, ipv6_hdr(pkt), sizeof(struct ipv6hdr));
+		skb_put(skb, sizeof(struct ipv6hdr));
+		skb_reset_network_header(skb);
+		skb_copy_to_linear_data(skb, ipv6_hdr(pkt), sizeof(struct ipv6hdr));
 
-	/*
+		/*
 	 *	Add our header
 	 */
-	skb_put(skb, sizeof(*msg));
-	skb_reset_transport_header(skb);
-	msg = (struct mrt6msg *)skb_transport_header(skb);
+		skb_put(skb, sizeof(*msg));
+		skb_reset_transport_header(skb);
+		msg = (struct mrt6msg *)skb_transport_header(skb);
 
-	msg->im6_mbz = 0;
-	msg->im6_msgtype = assert;
-	msg->im6_mif = mifi;
-	msg->im6_pad = 0;
-	msg->im6_src = ipv6_hdr(pkt)->saddr;
-	msg->im6_dst = ipv6_hdr(pkt)->daddr;
+		msg->im6_mbz = 0;
+		msg->im6_msgtype = assert;
+		msg->im6_mif = mifi;
+		msg->im6_pad = 0;
+		msg->im6_src = ipv6_hdr(pkt)->saddr;
+		msg->im6_dst = ipv6_hdr(pkt)->daddr;
 
-	skb_dst_set(skb, dst_clone(skb_dst(pkt)));
-	skb->ip_summed = CHECKSUM_UNNECESSARY;
+		skb_dst_set(skb, dst_clone(skb_dst(pkt)));
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
 	}
 
 	if (!mrt->mroute6_sk) {
@@ -1466,7 +1480,6 @@ static int ip6mr_mfc_add(struct net *net, struct mr6_table *mrt,
 	for (i = 0; i < MAXMIFS; i++) {
 		if (IF_ISSET(i, &mfc->mf6cc_ifset))
 			ttls[i] = 1;
-
 	}
 
 	line = MFC6_HASH(&mfc->mf6cc_mcastgrp.sin6_addr, &mfc->mf6cc_origin.sin6_addr);

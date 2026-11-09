@@ -3212,6 +3212,13 @@ int ieee80211_channel_switch(struct wiphy *wiphy, struct net_device *dev,
 	return err;
 }
 
+static bool ieee80211_is_all_iface_idle(struct wiphy *wiphy)
+{
+	struct ieee80211_local *local = wiphy_priv(wiphy);
+
+	return drv_is_all_iface_idle(local);
+}
+
 u64 ieee80211_mgmt_tx_cookie(struct ieee80211_local *local)
 {
 	lockdep_assert_held(&local->mtx);
@@ -3674,8 +3681,8 @@ const struct cfg80211_ops mac80211_config_ops = {
 	.set_wds_peer = ieee80211_set_wds_peer,
 	.rfkill_poll = ieee80211_rfkill_poll,
 	CFG80211_TESTMODE_CMD(ieee80211_testmode_cmd)
-	CFG80211_TESTMODE_DUMP(ieee80211_testmode_dump)
-	.set_power_mgmt = ieee80211_set_power_mgmt,
+		CFG80211_TESTMODE_DUMP(ieee80211_testmode_dump)
+			.set_power_mgmt = ieee80211_set_power_mgmt,
 	.set_bitrate_mask = ieee80211_set_bitrate_mask,
 	.remain_on_channel = ieee80211_remain_on_channel,
 	.cancel_remain_on_channel = ieee80211_cancel_remain_on_channel,
@@ -3698,6 +3705,7 @@ const struct cfg80211_ops mac80211_config_ops = {
 	.get_channel = ieee80211_cfg_get_channel,
 	.start_radar_detection = ieee80211_start_radar_detection,
 	.channel_switch = ieee80211_channel_switch,
+	.is_all_iface_idle = ieee80211_is_all_iface_idle,
 	.set_qos_map = ieee80211_set_qos_map,
 	.set_ap_chanwidth = ieee80211_set_ap_chanwidth,
 	.add_tx_ts = ieee80211_add_tx_ts,

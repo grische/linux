@@ -337,6 +337,34 @@ struct tc_choke_xstats {
 	__u32		matched;	/* Drops due to flow match */
 };
 
+/* LLQ section */
+
+enum {
+	TCA_LLQ_UNSPEC,
+	TCA_LLQ_OPTIONS,
+	__TCA_LLQ_MAX,
+};
+
+#define TCA_LLQ_MAX	(__TCA_LLQ_MAX - 1)
+
+struct tc_llq_copt {
+	__u8 priority;
+	__u8 weight;
+};
+
+struct tc_llq_cinfo {
+	__u8 priority;
+	__u8 weight;
+	long deficit;
+	long quantum;
+};
+
+struct tc_llq_qopt {
+	__s32			maxq; /* biggest possible quantum in classes */
+	__s32			minq; /* smallest possible quantum in classes */
+	__u32			defaultclass;
+};
+
 /* HTB section */
 #define TC_HTB_NUMPRIO		8
 #define TC_HTB_MAXDEPTH		8

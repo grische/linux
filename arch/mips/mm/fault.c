@@ -27,6 +27,10 @@
 #include <asm/ptrace.h>
 #include <asm/highmem.h>		/* For VMALLOC_END */
 #include <linux/kdebug.h>
+#if defined(CONFIG_AVM_POWER)
+#include <avm/power/power.h>
+#endif /*--- #if defined(CONFIG_AVM_POWER) ---*/
+#include <avm/profile/profile.h>
 
 int show_unhandled_signals = 1;
 
@@ -152,7 +156,21 @@ good_area:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_hw_irq_begin,
+			     (unsigned int)regs->cp0_epc, AVM_PROFILE_PAGE_FAULT_ID);
+#endif
+#if defined(CONFIG_AVM_POWER)
+	avm_page_statistic_fault_get();
+#endif /*--- #if defined(CONFIG_AVM_POWER) ---*/
 	fault = handle_mm_fault(vma, address, flags);
+#if defined(CONFIG_AVM_POWER)
+	avm_page_statistic_fault_put();
+#endif /*--- #if defined(CONFIG_AVM_POWER) ---*/
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_hw_irq_end,
+			     regs->cp0_epc, AVM_PROFILE_PAGE_FAULT_ID);
+#endif
 
 	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
 		return;
@@ -337,7 +355,15 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs,
 {
 	enum ctx_state prev_state;
 
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_exception_begin, regs->cp0_epc,
+				 (regs->cp0_cause & CAUSEF_EXCCODE) >> CAUSEB_EXCCODE);
+#endif
 	prev_state = exception_enter();
 	__do_page_fault(regs, write, address);
 	exception_exit(prev_state);
+#if defined(CONFIG_AVM_SIMPLE_PROFILING)
+	avm_simple_profiling_log(avm_profile_data_type_exception_end, regs->cp0_epc,
+				 (regs->cp0_cause & CAUSEF_EXCCODE) >> CAUSEB_EXCCODE);
+#endif
 }

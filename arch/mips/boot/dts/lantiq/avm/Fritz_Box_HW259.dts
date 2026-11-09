@@ -1,0 +1,19 @@
+/dts-v1/;
+
+#include "hw259.dtsi"
+
+/ {
+
+    model = "AVM7590ax (GRX550, HW259) Main model";
+
+    chosen {
+        //bootargs-append = "maxcpus=4 cca=5 pci=pcie_bus_perf";
+    };
+
+    avm-hw-revision{
+        compatible = "avm,avm_hw_revision";
+        revision = "259";
+        subrevision = "0";
+    };
+
+};

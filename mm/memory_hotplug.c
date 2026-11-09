@@ -1586,7 +1586,11 @@ static struct page *new_node_page(struct page *page, unsigned long private,
 
 	if (!nodes_empty(nmask))
 		new_page = __alloc_pages_nodemask(gfp_mask, 0,
-					node_zonelist(nid, gfp_mask), &nmask);
+					node_zonelist(nid, gfp_mask), &nmask
+#if defined(CONFIG_AVM_PAGE_TRACE)
+					, _RET_IP_
+#endif
+					);
 	if (!new_page)
 		new_page = __alloc_pages(gfp_mask, 0,
 					node_zonelist(nid, gfp_mask));

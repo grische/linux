@@ -178,7 +178,7 @@ static int platram_probe(struct platform_device *pdev)
 
 	/* remap the memory area */
 
-	info->map.virt = ioremap(res->start, info->map.size);
+	info->map.virt = ioremap_cache(res->start, info->map.size);
 	dev_dbg(&pdev->dev, "virt %p, %lu bytes\n", info->map.virt, info->map.size);
 
 	if (info->map.virt == NULL) {

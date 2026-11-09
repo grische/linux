@@ -1,0 +1,4 @@
+config UBIK2_ISDNSTACK_ON_CPU
+    int
+	default 0
+

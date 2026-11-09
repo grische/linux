@@ -247,6 +247,7 @@
 struct tty_struct;
 struct tty_driver;
 struct serial_icounter_struct;
+extern unsigned int avm_console_enabled;
 
 struct tty_operations {
 	struct tty_struct * (*lookup)(struct tty_driver *driver,
@@ -290,6 +291,7 @@ struct tty_operations {
 	int (*poll_get_char)(struct tty_driver *driver, int line);
 	void (*poll_put_char)(struct tty_driver *driver, int line, char ch);
 #endif
+	int (*avm_console_enabled)(struct tty_struct *tty);
 	const struct file_operations *proc_fops;
 };
 

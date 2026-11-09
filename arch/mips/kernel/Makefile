@@ -47,6 +47,8 @@ obj-$(CONFIG_SMP_UP)		+= smp-up.o
 obj-$(CONFIG_CPU_BMIPS)		+= smp-bmips.o bmips_vec.o bmips_5xxx_init.o
 
 obj-$(CONFIG_MIPS_MT)		+= mips-mt.o
+obj-$(CONFIG_AVM_YIELD)         += yield_context.o yield.o
+obj-$(CONFIG_AVM_IRQ_HACK)	+= avm_irq_hack.o
 obj-$(CONFIG_MIPS_MT_FPAFF)	+= mips-mt-fpaff.o
 obj-$(CONFIG_MIPS_MT_SMP)	+= smp-mt.o
 obj-$(CONFIG_MIPS_CMP)		+= smp-cmp.o

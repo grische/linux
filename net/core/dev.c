@@ -99,6 +99,10 @@
 #include <net/sock.h>
 #include <net/busy_poll.h>
 #include <linux/rtnetlink.h>
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#endif
+#include <avm/profile/profile.h>
 #include <linux/stat.h>
 #include <net/dst.h>
 #include <net/dst_metadata.h>
@@ -142,6 +146,9 @@
 #include <linux/sctp.h>
 #include <linux/crash_dump.h>
 
+#ifdef CONFIG_PPA_API_SW_FASTPATH
+#include <net/ppa/ppa_api.h>
+#endif
 #include "net-sysfs.h"
 
 /* Instead of increasing this, you should create a hash table. */
@@ -155,6 +162,11 @@ static DEFINE_SPINLOCK(offload_lock);
 struct list_head ptype_base[PTYPE_HASH_SIZE] __read_mostly;
 struct list_head ptype_all __read_mostly;	/* Taps */
 static struct list_head offload_base __read_mostly;
+
+#if IS_ENABLED(CONFIG_MCAST_HELPER)
+int (*mcast_helper_sig_check_update_ptr)(struct sk_buff *skb) = NULL;
+EXPORT_SYMBOL(mcast_helper_sig_check_update_ptr);
+#endif
 
 static int netif_rx_internal(struct sk_buff *skb);
 static int call_netdevice_notifiers_info(unsigned long val,
@@ -357,6 +369,23 @@ static inline void netdev_set_addr_lockdep_class(struct net_device *dev)
 		Protocol management and registration routines
 
 *******************************************************************************/
+
+#ifdef CONFIG_AVM_RECV_HOOKS
+static int (*avm_recvhook)(struct sk_buff *skb);
+static int (*avm_early_recvhook)(struct sk_buff *skb);
+
+void set_avm_recvhook(int (*recvhook)(struct sk_buff *skb))
+{
+	avm_recvhook = recvhook;
+}
+EXPORT_SYMBOL(set_avm_recvhook);
+
+void set_avm_early_recvhook(int (*recvhook)(struct sk_buff *skb))
+{
+	avm_early_recvhook = recvhook;
+}
+EXPORT_SYMBOL(set_avm_early_recvhook);
+#endif
 
 /*
  *	Add a protocol ID to the list. Now that the input handler is
@@ -2969,6 +2998,13 @@ static int xmit_one(struct sk_buff *skb, struct net_device *dev,
 	unsigned int len;
 	int rc;
 
+#ifdef CONFIG_AVM_PA
+	/* At this point all offload features are handled and the skb is
+	 * optimized for the driver.
+	 */
+	avm_pa_dev_snoop_transmit(AVM_PA_DEVINFO(dev), skb);
+#endif
+
 	if (!list_empty(&ptype_all) || !list_empty(&dev->ptype_all))
 		dev_queue_xmit_nit(skb, dev);
 
@@ -3069,7 +3105,7 @@ out_null:
 
 struct sk_buff *validate_xmit_skb_list(struct sk_buff *skb, struct net_device *dev)
 {
-	struct sk_buff *next, *head = NULL, *tail;
+	struct sk_buff *next, *head = NULL, *tail = NULL;
 
 	for (; skb != NULL; skb = next) {
 		next = skb->next;
@@ -3181,6 +3217,9 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 
 		rc = NET_XMIT_SUCCESS;
 	} else {
+#if defined(CONFIG_AVM_PA) && defined(AVM_PA_MARK_SHAPED)
+		avm_pa_mark_shaped(skb);
+#endif
 		rc = q->enqueue(skb, q, &to_free) & NET_XMIT_MASK;
 		if (qdisc_run_begin(q)) {
 			if (unlikely(contended)) {
@@ -3407,10 +3446,25 @@ static int __dev_queue_xmit(struct sk_buff *skb, void *accel_priv)
 	if (unlikely(skb_shinfo(skb)->tx_flags & SKBTX_SCHED_TSTAMP))
 		__skb_tstamp_tx(skb, NULL, skb->sk, SCM_TSTAMP_SCHED);
 
+	avm_simple_profiling_skb(0, skb);
+
 	/* Disable soft irqs for various locks below. Also
 	 * stops preemption for RCU.
 	 */
 	rcu_read_lock_bh();
+
+#if IS_ENABLED(CONFIG_MCAST_HELPER)
+	if (mcast_helper_sig_check_update_ptr != NULL) {
+		/*ret = mcast_helper_sig_check_update_ptr(skb);*/
+		mcast_helper_sig_check_update_ptr(skb);
+		/*if (ret == 1)
+		{
+			//dev_kfree_skb_any(skb);
+			//rcu_read_unlock_bh();
+			//return rc;
+		}*/
+	}
+#endif
 
 	skb_update_prio(skb);
 
@@ -3858,6 +3912,12 @@ static int netif_rx_internal(struct sk_buff *skb)
 	net_timestamp_check(netdev_tstamp_prequeue, skb);
 
 	trace_netif_rx(skb);
+#ifdef CONFIG_PPA_API_SW_FASTPATH
+	if (ppa_hook_sw_fastpath_send_fn) {
+		if (ppa_hook_sw_fastpath_send_fn(skb) == 0)
+			return NET_RX_SUCCESS;
+	}
+#endif
 #ifdef CONFIG_RPS
 	if (static_key_false(&rps_needed)) {
 		struct rps_dev_flow voidflow, *rflow = &voidflow;
@@ -4223,6 +4283,27 @@ ncls:
 	if (pfmemalloc && !skb_pfmemalloc_protocol(skb))
 		goto drop;
 
+
+#ifdef CONFIG_AVM_PA
+#ifdef CONFIG_AVM_NET_DEBUG_SKBUFF_LEAK
+	skb_track_funccall(skb, avm_pa_dev_receive);
+#endif
+	if (avm_pa_dev_receive(AVM_PA_DEVINFO(skb->dev), skb) == 0) {
+		ret = NET_RX_SUCCESS;
+		goto out;
+	}
+#endif
+
+#ifdef CONFIG_AVM_RECV_HOOKS
+	if (avm_early_recvhook && (*avm_early_recvhook)(skb)) {
+		/*
+		 * paket consumed by hook
+		 */
+		ret = NET_RX_SUCCESS;
+		goto out;
+	}
+#endif
+
 	if (skb_vlan_tag_present(skb)) {
 		if (pt_prev) {
 			ret = deliver_skb(skb, pt_prev, orig_dev);
@@ -4264,6 +4345,16 @@ ncls:
 		 */
 		skb->vlan_tci = 0;
 	}
+
+#ifdef CONFIG_AVM_RECV_HOOKS
+	if (avm_recvhook && (*avm_recvhook)(skb)) {
+		/*
+		 * paket consumed by hook
+		 */
+		ret = NET_RX_SUCCESS;
+		goto out;
+	}
+#endif
 
 	type = skb->protocol;
 
@@ -4571,6 +4662,9 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 	int same_flow;
 	enum gro_result ret;
 	int grow;
+
+	if (skb->gro_skip)
+		goto normal;
 
 	if (!(skb->dev->features & NETIF_F_GRO))
 		goto normal;
@@ -5867,6 +5961,48 @@ static void __netdev_adjacent_dev_unlink_neighbour(struct net_device *dev,
 					   &upper_dev->adj_list.lower);
 }
 
+static void __netdev_addr_mask(unsigned char *mask, const unsigned char *addr,
+			       struct net_device *dev)
+{
+	int i;
+
+	for (i = 0; i < dev->addr_len; i++)
+		mask[i] |= addr[i] ^ dev->dev_addr[i];
+}
+
+static void __netdev_upper_mask(unsigned char *mask, struct net_device *dev,
+				struct net_device *lower)
+{
+	struct net_device *cur;
+	struct list_head *iter;
+
+	netdev_for_each_upper_dev_rcu (dev, cur, iter) {
+		__netdev_addr_mask(mask, cur->dev_addr, lower);
+		__netdev_upper_mask(mask, cur, lower);
+	}
+}
+
+static void __netdev_update_addr_mask(struct net_device *dev)
+{
+	unsigned char mask[MAX_ADDR_LEN];
+	struct net_device *cur;
+	struct list_head *iter;
+
+	memset(mask, 0, sizeof(mask));
+	__netdev_upper_mask(mask, dev, dev);
+	memcpy(dev->local_addr_mask, mask, dev->addr_len);
+
+	netdev_for_each_lower_dev (dev, cur, iter)
+		__netdev_update_addr_mask(cur);
+}
+
+static void netdev_update_addr_mask(struct net_device *dev)
+{
+	rcu_read_lock();
+	__netdev_update_addr_mask(dev);
+	rcu_read_unlock();
+}
+
 static int __netdev_upper_dev_link(struct net_device *dev,
 				   struct net_device *upper_dev, bool master,
 				   void *upper_priv, void *upper_info)
@@ -6065,6 +6201,8 @@ void netdev_upper_dev_unlink(struct net_device *dev,
 	list_for_each_entry(i, &upper_dev->all_adj_list.upper, list)
 		__netdev_adjacent_dev_unlink(dev, i->dev, i->ref_nr);
 
+	netdev_update_addr_mask(dev);
+	netdev_update_addr_mask(dev);
 	call_netdevice_notifiers_info(NETDEV_CHANGEUPPER, dev,
 				      &changeupper_info.info);
 }
@@ -6667,6 +6805,7 @@ int dev_set_mac_address(struct net_device *dev, struct sockaddr *sa)
 	if (err)
 		return err;
 	dev->addr_assign_type = NET_ADDR_SET;
+	netdev_update_addr_mask(dev);
 	call_netdevice_notifiers(NETDEV_CHANGEADDR, dev);
 	add_device_randomness(dev->dev_addr, dev->addr_len);
 	return 0;
@@ -7578,6 +7717,9 @@ void netdev_run_todo(void)
 		WARN_ON(rcu_access_pointer(dev->ip6_ptr));
 		WARN_ON(dev->dn_ptr);
 
+#ifdef CONFIG_AVM_PA
+		avm_pa_dev_unregister_sync(AVM_PA_DEVINFO(dev));
+#endif
 		if (dev->destructor)
 			dev->destructor(dev);
 
@@ -7769,6 +7911,9 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	hash_init(dev->qdisc_hash);
 #endif
 	dev->priv_flags = IFF_XMIT_DST_RELEASE | IFF_XMIT_DST_RELEASE_PERM;
+#ifdef CONFIG_AVM_PA
+	avm_pa_dev_init(AVM_PA_DEVINFO(dev));
+#endif
 	setup(dev);
 
 	if (!dev->tx_queue_len) {

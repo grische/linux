@@ -3,7 +3,7 @@
 	.text
 	.section .text..start, "ax"
 	.set noreorder
-	.set mips3
+	.set mips32r2
 
 	/* Magic words identifying a software image */
 	.word	LASAT_K_MAGIC0_VAL

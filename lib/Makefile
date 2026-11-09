@@ -2,6 +2,16 @@
 # Makefile for some libs needed in the kernel.
 #
 
+ifdef CONFIG_JFFS2_ZLIB
+	CONFIG_ZLIB_INFLATE:=y
+	CONFIG_ZLIB_DEFLATE:=y
+endif
+
+ifdef CONFIG_JFFS2_LZMA
+	CONFIG_LZMA_DECOMPRESS:=y
+	CONFIG_LZMA_COMPRESS:=y
+endif
+
 ifdef CONFIG_FUNCTION_TRACER
 ORIG_CFLAGS := $(KBUILD_CFLAGS)
 KBUILD_CFLAGS = $(subst $(CC_FLAGS_FTRACE),,$(ORIG_CFLAGS))
@@ -37,7 +47,7 @@ obj-y += bcd.o div64.o sort.o parser.o halfmd4.o debug_locks.o random32.o \
 	 gcd.o lcm.o list_sort.o uuid.o flex_array.o iov_iter.o clz_ctz.o \
 	 bsearch.o find_bit.o llist.o memweight.o kfifo.o \
 	 percpu-refcount.o percpu_ida.o rhashtable.o reciprocal_div.o \
-	 once.o
+	 once.o refcount.o
 obj-y += string_helpers.o
 obj-$(CONFIG_TEST_STRING_HELPERS) += test-string_helpers.o
 obj-y += hexdump.o
@@ -110,6 +120,8 @@ obj-$(CONFIG_LZ4HC_COMPRESS) += lz4/
 obj-$(CONFIG_LZ4_DECOMPRESS) += lz4/
 obj-$(CONFIG_XZ_DEC) += xz/
 obj-$(CONFIG_RAID6_PQ) += raid6/
+obj-$(CONFIG_LZMA_COMPRESS) += lzma/
+obj-$(CONFIG_LZMA_DECOMPRESS) += lzma/
 
 lib-$(CONFIG_DECOMPRESS_GZIP) += decompress_inflate.o
 lib-$(CONFIG_DECOMPRESS_BZIP2) += decompress_bunzip2.o

@@ -77,7 +77,7 @@ static inline void set_value_reg32(volatile u32 *const addr,
 
 	__asm__ __volatile__(
 	"	.set	push				\n"
-	"	.set	arch=r4000			\n"
+	"	.set	arch=mips32r2			\n"
 	"1:	ll	%0, %1	# set_value_reg32	\n"
 	"	and	%0, %2				\n"
 	"	or	%0, %3				\n"
@@ -99,7 +99,7 @@ static inline void set_reg32(volatile u32 *const addr,
 
 	__asm__ __volatile__(
 	"	.set	push				\n"
-	"	.set	arch=r4000			\n"
+	"	.set	arch=mips32r2			\n"
 	"1:	ll	%0, %1		# set_reg32	\n"
 	"	or	%0, %2				\n"
 	"	sc	%0, %1				\n"
@@ -120,7 +120,7 @@ static inline void clear_reg32(volatile u32 *const addr,
 
 	__asm__ __volatile__(
 	"	.set	push				\n"
-	"	.set	arch=r4000			\n"
+	"	.set	arch=mips32r2			\n"
 	"1:	ll	%0, %1		# clear_reg32	\n"
 	"	and	%0, %2				\n"
 	"	sc	%0, %1				\n"
@@ -141,7 +141,7 @@ static inline void toggle_reg32(volatile u32 *const addr,
 
 	__asm__ __volatile__(
 	"	.set	push				\n"
-	"	.set	arch=r4000			\n"
+	"	.set	arch=mips32r2			\n"
 	"1:	ll	%0, %1		# toggle_reg32	\n"
 	"	xor	%0, %2				\n"
 	"	sc	%0, %1				\n"
@@ -217,7 +217,7 @@ static inline u32 blocking_read_reg32(volatile u32 *const addr)
 #define custom_read_reg32(address, tmp)				\
 	__asm__ __volatile__(					\
 	"	.set	push				\n"	\
-	"	.set	arch=r4000			\n"	\
+	"	.set	arch=mips32r2			\n"	\
 	"1:	ll	%0, %1	#custom_read_reg32	\n"	\
 	"	.set	pop				\n"	\
 	: "=r" (tmp), "=" GCC_OFF_SMALL_ASM() (*address)		\
@@ -226,7 +226,7 @@ static inline u32 blocking_read_reg32(volatile u32 *const addr)
 #define custom_write_reg32(address, tmp)			\
 	__asm__ __volatile__(					\
 	"	.set	push				\n"	\
-	"	.set	arch=r4000			\n"	\
+	"	.set	arch=mips32r2			\n"	\
 	"	sc	%0, %1	#custom_write_reg32	\n"	\
 	"	"__beqz"%0, 1b				\n"	\
 	"	nop					\n"	\

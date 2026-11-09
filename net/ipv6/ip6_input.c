@@ -47,6 +47,10 @@
 #include <net/inet_ecn.h>
 #include <net/dst_metadata.h>
 
+#ifdef CONFIG_AVM_PA
+#include <avm/pa/avm_pa.h>
+#endif
+
 int ip6_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	/* if ingress device is enslaved to an L3 master device pass the
@@ -94,6 +98,10 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	}
 
 	memset(IP6CB(skb), 0, sizeof(struct inet6_skb_parm));
+
+#ifdef CONFIG_AVM_PA
+	AVM_PKT_INFO(skb)->ptype_pid_handle = AVM_PA_PTYPE_DEVINFO(pt)->pid_handle;
+#endif
 
 	/*
 	 * Store incoming device index. When the packet will

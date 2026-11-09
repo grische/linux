@@ -148,7 +148,7 @@ symbol		=	value
 
 #define PREF(hint,addr)					\
 		.set	push;				\
-		.set	arch=r5000;			\
+		.set	arch=mips32r2;			\
 		pref	hint, addr;			\
 		.set	pop
 
@@ -161,7 +161,7 @@ symbol		=	value
 
 #define PREFX(hint,addr)				\
 		.set	push;				\
-		.set	arch=r5000;			\
+		.set	arch=mips32r2;			\
 		prefx	hint, addr;			\
 		.set	pop
 

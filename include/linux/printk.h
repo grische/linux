@@ -162,6 +162,14 @@ int printk_emit(int facility, int level,
 asmlinkage __printf(1, 2) __cold
 int printk(const char *fmt, ...);
 
+#ifdef CONFIG_AVM_ENHANCED
+asmlinkage __printf(1, 2) __cold int printk_linux(const char *fmt, ...);
+
+extern void
+vprintk_restore(void); /* depreciated: use printk_avm_console_bend() instead */
+extern int printk_avm_console_bend(unsigned int activate);
+#endif
+
 /*
  * Special printk facility for scheduler/timekeeping use only, _DO_NOT_USE_ !
  */
@@ -210,6 +218,33 @@ int printk_deferred(const char *s, ...)
 {
 	return 0;
 }
+#ifdef CONFIG_AVM_ENHANCED
+static inline __printf(1, 2) __cold
+	int printk_linux(const char *fmt __maybe_unused, ...)
+{
+	return 0;
+}
+static inline int printk_avm_console_bend(unsigned int activate __maybe_unused)
+{
+	return 0;
+}
+#endif
+
+static inline __printf(5, 0) __cold
+	int vprintk_emit(int facility __maybe_unused, int level __maybe_unused,
+			 const char *dict __maybe_unused,
+			 size_t dictlen __maybe_unused,
+			 const char *fmt __maybe_unused,
+			 va_list args __maybe_unused)
+{
+	return 0;
+}
+
+static inline __printf(1, 2) __cold
+	int printk_deferred(const char *s __maybe_unused, ...)
+{
+	return 0;
+}
 static inline int printk_ratelimit(void)
 {
 	return 0;
@@ -253,6 +288,16 @@ static inline void dump_stack_print_info(const char *log_lvl)
 static inline void show_regs_print_info(const char *log_lvl)
 {
 }
+#endif
+
+#ifdef CONFIG_AVM_ENHANCED
+static __printf(1, 2) int _printk(const char *fmt, ...)
+	__attribute__((weakref("printk")))
+	__attribute__((deprecated("Neuer Name 'printk()'")));
+
+static __printf(1, 2) int __printk(const char *fmt, ...)
+	__attribute__((weakref("printk_linux")))
+	__attribute__((deprecated("Neuer Name 'printk_linux()'")));
 #endif
 
 extern asmlinkage void dump_stack(void) __cold;

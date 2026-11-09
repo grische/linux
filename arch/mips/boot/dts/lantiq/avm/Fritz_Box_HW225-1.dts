@@ -1,0 +1,19 @@
+/dts-v1/;
+
+#include "hw225.dtsi"
+
+/ {
+
+    model = "AVM7580 vrx318 (GRX550, HW225-1) Main model";
+
+    chosen {
+        //bootargs-append = "maxcpus=4 cca=5 pci=pcie_bus_perf";
+    };
+
+    avm-hw-revision{
+        compatible = "avm,avm_hw_revision";
+        revision = "225";
+        subrevision = "1";
+    };
+
+};

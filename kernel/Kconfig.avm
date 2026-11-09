@@ -1,0 +1,62 @@
+menuconfig AVM_KERNEL
+	bool "AVM kernel enhancements"
+
+if AVM_KERNEL
+
+config AVM_ENHANCED
+	bool "AVM collection of various enhanced kernel-features"
+	select BUG_EXTRA_INFO if MIPS
+	select AVM_PROM_ENVIRONMENT
+	select AVM_RTNETLINK_ENHANCEMENT
+	select AVM_NET_SKB_INPUT_DEV
+	help
+	  Be aware: For compatibility reasons AVM_ENHANCED currently selects a
+	  list of other (smaller) AVM kernel enhancements.
+
+
+config AVM_PROM_ENVIRONMENT
+	bool "Enable AVM EVA prom environment support"
+	select ZLIB_DEFLATE
+	help
+	  Adds support to access AVM's EVA environment variables.
+
+config OF_AVM_DT_ENV
+	bool "prom_getenv reads environment from the chosen node of the device tree"
+	default n
+	depends on AVM_PROM_ENVIRONMENT
+	help
+	  This option enables the reading of the environment via prom_getenv from the
+	  device tree. This option may only be enabled if the environment is passed via
+	  the device tree. (e.g. 4080)
+
+config OF_AVM_DT
+	bool "Support avm_hw_config table in device tree"
+	help
+	  This option enables the generation of the avm_hw_config_table out of
+	  the device tree.
+
+config AVM_KERNEL_CONFIG
+	bool "AVM Kernel Config section"
+
+config AVM_DT_FROM_CONFIG
+	bool "Get Devicetree from AVM Kernel Config section"
+	depends on AVM_KERNEL_CONFIG
+
+config AVM_GPIO_SHIM
+	bool "AVM GPIO API"
+	help
+	  AVM API for accessing GPIOs and LEDs.
+
+config AVM_GPIO_SHIM_GPIOD
+	bool "Access to GPIOs"
+	depends on AVM_GPIO_SHIM && GPIOLIB
+	help
+	  Support accessing GPIOs via the AVM GPIO API.
+
+config AVM_GPIO_SHIM_LED
+	bool "Access to LEDs"
+	depends on AVM_GPIO_SHIM && LEDS_TRIGGERS
+	help
+	  Support accessing LEDs via the AVM GPIO API.
+
+endif # AVM_KERNEL

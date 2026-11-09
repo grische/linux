@@ -225,7 +225,12 @@ skip:
 			dev_dbg(&intf->dev,
 				"ACM capabilities %02x, not really RNDIS?\n",
 				header.usb_cdc_acm_descriptor->bmCapabilities);
+
+/* == 20171008 AVM/VGJ - CHANGESET: Fix for buggy ZTE rndis modems, ignore buggy descriptor */
+#if 0
 			goto bad_desc;
+#endif
+
 	}
 
 	if (header.usb_cdc_ether_desc && info->ether->wMaxSegmentSize) {

@@ -374,6 +374,7 @@ USERINCLUDE    := \
 		-I$(objtree)/arch/$(hdr-arch)/include/generated/uapi \
 		-I$(srctree)/include/uapi \
 		-I$(objtree)/include/generated/uapi \
+		$(USERINCLUDE_AVM_SUBPROJECTS) \
                 -include $(srctree)/include/linux/kconfig.h
 
 # Use LINUXINCLUDE when you must reference the include/ directory.
@@ -383,7 +384,9 @@ LINUXINCLUDE    := \
 		-I$(objtree)/arch/$(hdr-arch)/include/generated/uapi \
 		-I$(objtree)/arch/$(hdr-arch)/include/generated \
 		$(if $(KBUILD_SRC), -I$(srctree)/include) \
-		-I$(objtree)/include
+		-I$(objtree)/include \
+		$(LINUXINCLUDE_AVM_SUBPROJECTS) \
+		$(USERINCLUDE)
 
 LINUXINCLUDE	+= $(filter-out $(LINUXINCLUDE),$(USERINCLUDE))
 
@@ -407,8 +410,8 @@ KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
 KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION)
 
 export VERSION PATCHLEVEL SUBLEVEL KERNELRELEASE KERNELVERSION
-export ARCH SRCARCH CONFIG_SHELL HOSTCC HOSTCFLAGS CROSS_COMPILE AS LD CC
-export CPP AR NM STRIP OBJCOPY OBJDUMP
+export ARCH SRCARCH SUBARCH CONFIG_SHELL HOSTCC HOSTCFLAGS CROSS_COMPILE AS LD
+export CC CPP AR NM STRIP OBJCOPY OBJDUMP
 export MAKE AWK GENKSYMS INSTALLKERNEL PERL PYTHON UTS_MACHINE
 export HOSTCXX HOSTCXXFLAGS LDFLAGS_MODULE CHECK CHECKFLAGS
 
@@ -658,12 +661,12 @@ KBUILD_CFLAGS	+= $(call cc-option,-fdata-sections,)
 endif
 
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
-KBUILD_CFLAGS	+= -Os $(call cc-disable-warning,maybe-uninitialized,)
+KBUILD_CFLAGS	+= -Os $(call cc-disable-warning,maybe-uninitialized,) $(EXTRA_OPTIMIZATION)
 else
 ifdef CONFIG_PROFILE_ALL_BRANCHES
-KBUILD_CFLAGS	+= -O2 $(call cc-disable-warning,maybe-uninitialized,)
+KBUILD_CFLAGS	+= -O2 $(call cc-disable-warning,maybe-uninitialized,) $(EXTRA_OPTIMIZATION)
 else
-KBUILD_CFLAGS   += -O2
+KBUILD_CFLAGS   += -O2 -fno-reorder-blocks -fno-tree-ch $(EXTRA_OPTIMIZATION)
 endif
 endif
 
@@ -1158,7 +1161,8 @@ firmware_install:
 # Kernel headers
 
 #Default location for installed headers
-export INSTALL_HDR_PATH = $(objtree)/usr
+# (AVM|PHU: disabled, because it overwrites the .kernelvariables of GU)
+#export INSTALL_HDR_PATH = $(objtree)/usr
 
 # If we do an all arch process set dst to asm-$(hdr-arch)
 hdr-dst = $(if $(KBUILD_HEADERS), dst=include/asm-$(hdr-arch), dst=include/asm)
@@ -1310,6 +1314,7 @@ MRPROPER_FILES += .config .config.old .version .old_version \
 		  signing_key.pem signing_key.priv signing_key.x509	\
 		  x509.genkey extra_certificates signing_key.x509.keyid	\
 		  signing_key.x509.signer vmlinux-gdb.py
+MRPROPER_FILES += .kernelvariables .kernelvariables.old
 
 # clean - Delete most, but leave enough to build external modules
 #
@@ -1732,6 +1737,8 @@ ifneq ($(cmd_files),)
   $(cmd_files): ;	# Do not try to update included dependency files
   include $(cmd_files)
 endif
+
+-include $(srctree)/avm/make/generated/linux.make
 
 endif	# skip-makefile
 
