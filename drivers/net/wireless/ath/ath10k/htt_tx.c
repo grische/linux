@@ -415,14 +415,15 @@ static void ath10k_htt_tx_free_txq(struct ath10k_htt *htt)
 	struct ath10k *ar = htt->ar;
 	size_t size;
 
-	if (!test_bit(ATH10K_FW_FEATURE_PEER_FLOW_CONTROL,
-		      ar->running_fw->fw_file.fw_features))
+	if (!htt->tx_q_state.vaddr)
 		return;
 
 	size = sizeof(*htt->tx_q_state.vaddr);
 
 	dma_unmap_single(ar->dev, htt->tx_q_state.paddr, size, DMA_TO_DEVICE);
 	kfree(htt->tx_q_state.vaddr);
+	htt->tx_q_state.vaddr = NULL;
+	htt->tx_q_state.paddr = 0;
 }
 
 static int ath10k_htt_tx_alloc_txq(struct ath10k_htt *htt)
@@ -450,6 +451,8 @@ static int ath10k_htt_tx_alloc_txq(struct ath10k_htt *htt)
 	if (ret) {
 		ath10k_warn(ar, "failed to dma map tx_q_state: %d\n", ret);
 		kfree(htt->tx_q_state.vaddr);
+		htt->tx_q_state.vaddr = NULL;
+		htt->tx_q_state.paddr = 0;
 		return -EIO;
 	}
 
@@ -526,8 +529,18 @@ int ath10k_htt_tx_start(struct ath10k_htt *htt)
 	spin_lock_init(&htt->tx_lock);
 	idr_init(&htt->pending_tx);
 
-	if (htt->tx_mem_allocated)
+	if (htt->tx_mem_allocated) {
+		/* The tx memory can come from the start of a firmware that
+		 * did not need the queue state buffer.
+		 */
+		if (!htt->tx_q_state.vaddr) {
+			ret = ath10k_htt_tx_alloc_txq(htt);
+			if (ret)
+				goto free_idr_pending_tx;
+		}
+
 		return 0;
+	}
 
 	if (ar->bus_param.dev_type == ATH10K_DEV_TYPE_HL)
 		return 0;
