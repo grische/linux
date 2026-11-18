@@ -70,7 +70,7 @@ bool nbp_switchdev_allowed_egress(const struct net_bridge_port *p,
 	struct br_input_skb_cb *cb = BR_INPUT_SKB_CB(skb);
 
 	return !test_bit(p->hwdom, &cb->fwd_hwdoms) &&
-		(!skb->offload_fwd_mark || cb->src_hwdom != p->hwdom);
+		(!skb->offload_fwd_mark || !p->hwdom || cb->src_hwdom != p->hwdom);
 }
 
 /* Flags that can be offloaded to hardware */
@@ -141,14 +141,10 @@ static void br_switchdev_fdb_populate(struct net_bridge *br,
 	item->info.ctx = ctx;
 }
 
-void
-br_switchdev_fdb_notify(struct net_bridge *br,
-			const struct net_bridge_fdb_entry *fdb, int type)
+static bool br_switchdev_fdb_notifies(const struct net_bridge_fdb_entry *fdb)
 {
-	struct switchdev_notifier_fdb_info item;
-
 	if (test_bit(BR_FDB_LOCKED, &fdb->flags))
-		return;
+		return false;
 
 	/* Entries with these flags were created using ndm_state == NUD_REACHABLE,
 	 * ndm_flags == NTF_MASTER( | NTF_STICKY), ext_flags == 0 by something
@@ -156,9 +152,58 @@ br_switchdev_fdb_notify(struct net_bridge *br,
 	 * Drivers don't know how to deal with these, so don't notify them to
 	 * avoid confusing them.
 	 */
-	if (test_bit(BR_FDB_ADDED_BY_USER, &fdb->flags) &&
-	    !test_bit(BR_FDB_STATIC, &fdb->flags) &&
-	    !test_bit(BR_FDB_ADDED_BY_EXT_LEARN, &fdb->flags))
+	return !test_bit(BR_FDB_ADDED_BY_USER, &fdb->flags) ||
+	       test_bit(BR_FDB_STATIC, &fdb->flags) ||
+	       test_bit(BR_FDB_ADDED_BY_EXT_LEARN, &fdb->flags);
+}
+
+/**
+ * br_switchdev_fdb_find_port - find the port of an entry switchdev knows of
+ * @br_dev: the bridge device
+ * @addr: the MAC address of the entry
+ * @vid: the VLAN of the entry
+ *
+ * Must be called under RCU; the device is valid until the read-side critical
+ * section ends.
+ *
+ * Return: the port of the non-local entry for @addr and @vid, or NULL if
+ * there is none or switchdev is not notified of it.
+ */
+struct net_device *br_switchdev_fdb_find_port(const struct net_device *br_dev,
+					      const unsigned char *addr,
+					      u16 vid)
+{
+	const struct net_bridge_port *p;
+	struct net_bridge_fdb_entry *f;
+
+	RCU_LOCKDEP_WARN(!rcu_read_lock_held(), "suspicious use outside RCU");
+
+	if (!netif_is_bridge_master(br_dev))
+		return NULL;
+
+	f = br_fdb_find_rcu(netdev_priv(br_dev), addr, vid);
+	if (!f || test_bit(BR_FDB_LOCAL, &f->flags) ||
+	    !br_switchdev_fdb_notifies(f))
+		return NULL;
+
+	/* learned by a switchdev driver, which is not notified back */
+	if (test_bit(BR_FDB_ADDED_BY_EXT_LEARN, &f->flags) &&
+	    !test_bit(BR_FDB_ADDED_BY_USER, &f->flags))
+		return NULL;
+
+	p = READ_ONCE(f->dst);
+
+	return p ? p->dev : NULL;
+}
+EXPORT_SYMBOL_GPL(br_switchdev_fdb_find_port);
+
+void
+br_switchdev_fdb_notify(struct net_bridge *br,
+			const struct net_bridge_fdb_entry *fdb, int type)
+{
+	struct switchdev_notifier_fdb_info item;
+
+	if (!br_switchdev_fdb_notifies(fdb))
 		return;
 
 	br_switchdev_fdb_populate(br, &item, fdb, NULL);
@@ -575,10 +620,18 @@ static void br_switchdev_host_mdb(struct net_device *dev,
 				  struct net_bridge_mdb_entry *mp, int type)
 {
 	struct net_device *lower_dev;
+	struct net_bridge_port *port;
 	struct list_head *iter;
 
-	netdev_for_each_lower_dev(dev, lower_dev, iter)
+	rcu_read_lock();
+	netdev_for_each_lower_dev(dev, lower_dev, iter) {
+		port = br_port_get_rcu(lower_dev);
+		if (!port || !port->offload_count)
+			continue;
+
 		br_switchdev_host_mdb_one(dev, lower_dev, mp, type);
+	}
+	rcu_read_unlock();
 }
 
 static int

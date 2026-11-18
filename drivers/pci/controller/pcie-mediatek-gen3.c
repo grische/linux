@@ -10,6 +10,7 @@
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/delay.h>
+#include <linux/gpio/consumer.h>
 #include <linux/iopoll.h>
 #include <linux/irq.h>
 #include <linux/irqchip/irq-msi-lib.h>
@@ -189,6 +190,8 @@ struct mtk_msi_set {
  * @num_clks: PCIe clocks count for this port
  * @max_link_speed: Maximum link speed (PCIe Gen) for this port
  * @num_lanes: Number of PCIe lanes for this port
+ * @wifi_reset: reset pin for WIFI chip
+ * @wifi_reset_delay_ms: delay time for WIFI chip reset
  * @irq: PCIe controller interrupt number
  * @saved_irq_state: IRQ enable state saved at suspend time
  * @irq_lock: lock protecting IRQ register access
@@ -210,6 +213,9 @@ struct mtk_gen3_pcie {
 	int num_clks;
 	u8 max_link_speed;
 	u8 num_lanes;
+
+	struct gpio_desc *wifi_reset;
+	u32 wifi_reset_delay_ms;
 
 	int irq;
 	u32 saved_irq_state;
@@ -463,6 +469,12 @@ static int mtk_pcie_startup_port(struct mtk_gen3_pcie *pcie)
 	val = readl_relaxed(pcie->base + PCIE_MISC_CTRL_REG);
 	val |= PCIE_DISABLE_DVFSRC_VLT_REQ;
 	writel_relaxed(val, pcie->base + PCIE_MISC_CTRL_REG);
+
+	if (pcie->wifi_reset) {
+		gpiod_set_value_cansleep(pcie->wifi_reset, 1);
+		msleep(pcie->wifi_reset_delay_ms);
+		gpiod_set_value_cansleep(pcie->wifi_reset, 0);
+	}
 
 	/*
 	 * Airoha EN7581 has a hw bug asserting/releasing PCIE_PE_RSTB signal
@@ -924,6 +936,20 @@ static int mtk_pcie_parse_port(struct mtk_gen3_pcie *pcie)
 			dev_warn(dev, "invalid num-lanes, using controller defaults\n");
 		else
 			pcie->num_lanes = num_lanes;
+	}
+
+	ret = of_property_read_u32(dev->of_node, "wifi-reset-msleep",
+				   &pcie->wifi_reset_delay_ms);
+	if (!ret) {
+		pcie->wifi_reset = devm_gpiod_get_optional(dev, "wifi-reset",
+							   GPIOD_OUT_LOW);
+		if (IS_ERR(pcie->wifi_reset)) {
+			ret = PTR_ERR(pcie->wifi_reset);
+			if (ret != -EPROBE_DEFER)
+				dev_err(dev,
+					"failed to request WIFI reset gpio\n");
+			return ret;
+		}
 	}
 
 	return 0;

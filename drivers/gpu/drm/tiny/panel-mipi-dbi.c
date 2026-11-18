@@ -116,6 +116,7 @@ struct panel_mipi_dbi_config {
 struct panel_mipi_dbi_commands {
 	const u8 *buf;
 	size_t len;
+	bool adopt;
 };
 
 static struct panel_mipi_dbi_commands *
@@ -237,6 +238,7 @@ static void panel_mipi_dbi_enable(struct drm_simple_display_pipe *pipe,
 				  struct drm_plane_state *plane_state)
 {
 	struct mipi_dbi_dev *dbidev = drm_to_mipi_dbi_dev(pipe->crtc.dev);
+	struct panel_mipi_dbi_commands *commands;
 	struct mipi_dbi *dbi = &dbidev->dbi;
 	int ret, idx;
 
@@ -245,11 +247,48 @@ static void panel_mipi_dbi_enable(struct drm_simple_display_pipe *pipe,
 
 	drm_dbg(pipe->crtc.dev, "\n");
 
+	commands = dbidev->driver_private;
+
+	/*
+	 * The bootloader left the panel running and said so in DT, so resetting
+	 * it here would only throw away what is already on screen. One shot
+	 * when an init sequence is loaded: a later enable, after suspend or DPMS
+	 * off, has to initialize for real. Without a sequence there is nothing
+	 * to initialize with, so every enable adopts the panel.
+	 * mipi_dbi_display_is_on() cannot answer this because the panel is
+	 * write-only.
+	 */
+	if (commands && commands->adopt) {
+		if (commands->len)
+			commands->adopt = false;
+
+		/*
+		 * Take the regulators the reset path would have taken, or
+		 * mipi_dbi_pipe_disable() drops references we never held.
+		 */
+		if (dbidev->regulator) {
+			ret = regulator_enable(dbidev->regulator);
+			if (ret)
+				goto out_exit;
+		}
+		if (dbidev->io_regulator) {
+			ret = regulator_enable(dbidev->io_regulator);
+			if (ret) {
+				if (dbidev->regulator)
+					regulator_disable(dbidev->regulator);
+				goto out_exit;
+			}
+		}
+
+		mipi_dbi_enable_flush(dbidev, crtc_state, plane_state);
+		goto out_exit;
+	}
+
 	ret = mipi_dbi_poweron_conditional_reset(dbidev);
 	if (ret < 0)
 		goto out_exit;
 	if (!ret)
-		panel_mipi_dbi_commands_execute(dbi, dbidev->driver_private);
+		panel_mipi_dbi_commands_execute(dbi, commands);
 
 	mipi_dbi_enable_flush(dbidev, crtc_state, plane_state);
 out_exit:
@@ -318,8 +357,10 @@ static int panel_mipi_dbi_spi_probe(struct spi_device *spi)
 	struct device *dev = &spi->dev;
 	struct drm_display_mode mode;
 	struct mipi_dbi_dev *dbidev;
+	struct panel_mipi_dbi_commands *commands;
 	struct drm_device *drm;
 	struct mipi_dbi *dbi;
+	bool adopt;
 	struct gpio_desc *dc;
 	unsigned int bpp;
 	size_t buf_size;
@@ -367,9 +408,21 @@ static int panel_mipi_dbi_spi_probe(struct spi_device *spi)
 	if (device_property_present(dev, "write-only"))
 		dbi->read_commands = NULL;
 
-	dbidev->driver_private = panel_mipi_dbi_commands_from_fw(dev);
-	if (IS_ERR(dbidev->driver_private))
-		return PTR_ERR(dbidev->driver_private);
+	adopt = device_property_present(dev, "bootloader-initialized");
+
+	commands = panel_mipi_dbi_commands_from_fw(dev);
+	if (IS_ERR(commands)) {
+		/* the bootloader ran the sequence, so we do not need a copy */
+		if (!adopt)
+			return PTR_ERR(commands);
+
+		commands = devm_kzalloc(dev, sizeof(*commands), GFP_KERNEL);
+		if (!commands)
+			return -ENOMEM;
+	}
+
+	commands->adopt = adopt;
+	dbidev->driver_private = commands;
 
 	ret = panel_mipi_dbi_get_format(dev, formats, &bpp);
 	if (ret)
@@ -390,10 +443,18 @@ static int panel_mipi_dbi_spi_probe(struct spi_device *spi)
 
 	spi_set_drvdata(spi, drm);
 
-	if (bpp == 16)
-		drm_client_setup_with_fourcc(drm, DRM_FORMAT_RGB565);
-	else
-		drm_client_setup_with_fourcc(drm, DRM_FORMAT_RGB888);
+	/*
+	 * An fbdev client modesets as soon as it is set up, flushing a zeroed
+	 * framebuffer over whatever the bootloader drew. Leave it out entirely
+	 * and let the first modeset come from userspace, which has a real frame
+	 * to show.
+	 */
+	if (!adopt) {
+		if (bpp == 16)
+			drm_client_setup_with_fourcc(drm, DRM_FORMAT_RGB565);
+		else
+			drm_client_setup_with_fourcc(drm, DRM_FORMAT_RGB888);
+	}
 
 	return 0;
 }

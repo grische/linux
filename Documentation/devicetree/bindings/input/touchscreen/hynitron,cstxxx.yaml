@@ -20,6 +20,7 @@ properties:
   compatible:
     enum:
       - hynitron,cst340
+      - hynitron,cst3530
 
   reg:
     maxItems: 1

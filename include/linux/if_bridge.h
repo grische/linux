@@ -61,6 +61,7 @@ struct br_ip_list {
 #define BR_PORT_LOCKED		BIT(21)
 #define BR_PORT_MAB		BIT(22)
 #define BR_NEIGH_VLAN_SUPPRESS	BIT(23)
+#define BR_BPDU_FILTER		BIT(24)
 
 #define BR_DEFAULT_AGEING_TIME	(300 * HZ)
 
@@ -169,6 +170,19 @@ static inline int br_mst_get_state(const struct net_device *dev, u16 msti,
 				   u8 *state)
 {
 	return -EINVAL;
+}
+#endif
+
+#if IS_ENABLED(CONFIG_BRIDGE) && IS_ENABLED(CONFIG_NET_SWITCHDEV)
+struct net_device *br_switchdev_fdb_find_port(const struct net_device *br_dev,
+					      const unsigned char *addr,
+					      u16 vid);
+#else
+static inline struct net_device *
+br_switchdev_fdb_find_port(const struct net_device *br_dev,
+			   const unsigned char *addr, u16 vid)
+{
+	return NULL;
 }
 #endif
 

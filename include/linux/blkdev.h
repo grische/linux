@@ -82,11 +82,13 @@ struct partition_meta_info {
  * ``GENHD_FL_NO_PART``: partition support is disabled.  The kernel will not
  * scan for partitions from add_disk, and users can't add partitions manually.
  *
+ * ``GENHD_FL_NVMEM``: the block device should be considered as NVMEM provider.
  */
 enum {
 	GENHD_FL_REMOVABLE			= 1 << 0,
 	GENHD_FL_HIDDEN				= 1 << 1,
 	GENHD_FL_NO_PART			= 1 << 2,
+	GENHD_FL_NVMEM				= 1 << 3,
 };
 
 enum {
@@ -1870,5 +1872,13 @@ static inline int bio_split_rw_at(struct bio *bio,
 }
 
 #define DEFINE_IO_COMP_BATCH(name)	struct io_comp_batch name = { }
+
+
+#ifdef CONFIG_BLOCK_NOTIFIERS
+#define BLK_DEVICE_ADD		1
+#define BLK_DEVICE_REMOVE	2
+extern void blk_register_notify(struct notifier_block *nb);
+extern void blk_unregister_notify(struct notifier_block *nb);
+#endif
 
 #endif /* _LINUX_BLKDEV_H */

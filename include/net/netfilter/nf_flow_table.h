@@ -136,6 +136,9 @@ struct flow_offload_tuple {
 	u8				dir:2,
 					xmit_type:3,
 					encap_num:2,
+					bridge_path:1,
+					bridge_vlan:1,
+					port_vlans:2,
 					in_vlan_ingress:2;
 	u16				mtu;
 	union {
@@ -185,6 +188,7 @@ struct flow_offload {
 	unsigned long				flags;
 	u16					type;
 	u32					timeout;
+	u32					priority;
 	struct rcu_head				rcu_head;
 };
 
@@ -215,6 +219,9 @@ struct nf_flow_route {
 			u32			hw_ifindex;
 			u8			h_source[ETH_ALEN];
 			u8			h_dest[ETH_ALEN];
+			u8			bridge_path:1,
+						bridge_vlan:1,
+						port_vlans:2;
 		} out;
 		enum flow_offload_xmit_type	xmit_type;
 	} tuple[FLOW_OFFLOAD_DIR_MAX];
@@ -301,6 +308,11 @@ int nf_flow_table_init(struct nf_flowtable *flow_table);
 void nf_flow_table_free(struct nf_flowtable *flow_table);
 
 void flow_offload_teardown(struct flow_offload *flow);
+
+int nf_flow_table_iterate(struct nf_flowtable *flow_table,
+                      void (*iter)(struct nf_flowtable *flowtable,
+                                   struct flow_offload *flow, void *data),
+                      void *data);
 
 void nf_flow_snat_port(const struct flow_offload *flow,
 		       struct sk_buff *skb, unsigned int thoff,

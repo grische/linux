@@ -160,13 +160,13 @@
 
 				trips {
 					cpu_passive: cpu-passive {
-						temperature = <57000>;
+						temperature = <77000>;
 						hysteresis = <2000>;
 						type = "passive";
 					};
 
 					cpu_active: cpu-active {
-						temperature = <67000>;
+						temperature = <82000>;
 						hysteresis = <2000>;
 						type = "active";
 					};
@@ -380,6 +380,8 @@
 		clocks = <&pericfg CLK_PERI_UART0_SEL>,
 			 <&pericfg CLK_PERI_UART0>;
 		clock-names = "baud", "bus";
+		assigned-clocks = <&pericfg CLK_PERI_UART0_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_UART_SEL>;
 		status = "disabled";
 	};
 
@@ -391,6 +393,8 @@
 		clocks = <&pericfg CLK_PERI_UART1_SEL>,
 			 <&pericfg CLK_PERI_UART1>;
 		clock-names = "baud", "bus";
+		assigned-clocks = <&pericfg CLK_PERI_UART1_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_UART_SEL>;
 		status = "disabled";
 	};
 
@@ -402,6 +406,8 @@
 		clocks = <&pericfg CLK_PERI_UART2_SEL>,
 			 <&pericfg CLK_PERI_UART2>;
 		clock-names = "baud", "bus";
+		assigned-clocks = <&pericfg CLK_PERI_UART2_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_UART_SEL>;
 		status = "disabled";
 	};
 
@@ -413,6 +419,8 @@
 		clocks = <&pericfg CLK_PERI_UART3_SEL>,
 			 <&pericfg CLK_PERI_UART3>;
 		clock-names = "baud", "bus";
+		assigned-clocks = <&pericfg CLK_PERI_UART3_SEL>;
+		assigned-clock-parents = <&topckgen CLK_TOP_UART_SEL>;
 		status = "disabled";
 	};
 
@@ -995,17 +1003,15 @@
 	};
 
 	crypto: crypto@1b240000 {
-		compatible = "mediatek,eip97-crypto";
+		compatible = "inside-secure,safexcel-eip97";
 		reg = <0 0x1b240000 0 0x20000>;
 		interrupts = <GIC_SPI 82 IRQ_TYPE_LEVEL_LOW>,
 			     <GIC_SPI 83 IRQ_TYPE_LEVEL_LOW>,
 			     <GIC_SPI 84 IRQ_TYPE_LEVEL_LOW>,
-			     <GIC_SPI 91 IRQ_TYPE_LEVEL_LOW>,
-			     <GIC_SPI 97 IRQ_TYPE_LEVEL_LOW>;
+			     <GIC_SPI 91 IRQ_TYPE_LEVEL_LOW>;
+		interrupt-names = "ring0", "ring1", "ring2", "ring3";
 		clocks = <&ethsys CLK_ETHSYS_CRYPTO>;
-		clock-names = "cryp";
-		power-domains = <&scpsys MT2701_POWER_DOMAIN_ETH>;
-		status = "disabled";
+		status = "okay";
 	};
 
 	bdpsys: syscon@1c000000 {

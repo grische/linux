@@ -6,6 +6,7 @@
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/jiffies.h>
+#include <linux/leds.h>
 #include <linux/mdio/mdio-i2c.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
@@ -206,6 +207,16 @@ static const enum gpiod_flags gpio_flags[] = {
 #define T_PROBE_RETRY_SLOW	msecs_to_jiffies(5000)
 #define R_PROBE_RETRY_SLOW	12
 
+/* Polling interval and consecutive-failure threshold for the I2C presence
+ * probe used on boards without a MOD_DEF0 GPIO (see sfp_i2c_get_state()).
+ * A single successful read asserts presence immediately; R_PROBE_ABSENT
+ * consecutive failures are required to declare a live module removed, to ride
+ * out a transient I2C error. Insertion is thus detected within
+ * T_PROBE_PRESENT and removal within T_PROBE_PRESENT * R_PROBE_ABSENT.
+ */
+#define T_PROBE_PRESENT		msecs_to_jiffies(500)
+#define R_PROBE_ABSENT		3
+
 /* SFP modules appear to always have their PHY configured for bus address
  * 0x56 (which with mdio-i2c, translates to a PHY address of 22).
  * RollBall SFPs access phy via SFP Enhanced Digital Diagnostic Interface
@@ -226,6 +237,26 @@ struct sff_data {
 	unsigned int gpios;
 	bool (*module_supported)(const struct sfp_eeprom_id *id);
 };
+
+#if IS_ENABLED(CONFIG_LEDS_TRIGGERS)
+enum {
+	SFP_LED_PRESENT,
+	SFP_LED_LOS,
+	SFP_LED_TX_FAULT,
+	SFP_LED_ERROR,
+	SFP_LED_FAULT,
+	SFP_LED_MAX,
+};
+
+static const char *const sfp_led_names[SFP_LED_MAX] = {
+	"present", "los", "tx-fault", "error", "fault",
+};
+
+struct sfp_led {
+	struct led_trigger trig;
+	bool active;
+};
+#endif
 
 struct sfp {
 	struct device *dev;
@@ -248,6 +279,13 @@ struct sfp {
 	int gpio_irq[GPIO_MAX];
 
 	bool need_poll;
+
+	/* I2C-probed presence, for boards without a MOD_DEF0 GPIO.
+	 * Access rules: st_mutex held (updated from the poll/state machine).
+	 */
+	bool i2c_present;
+	u8 i2c_present_nak;
+	unsigned long i2c_present_next;
 
 	/* Access rules:
 	 * state_hw_drive: st_mutex held
@@ -297,6 +335,10 @@ struct sfp {
 
 #if IS_ENABLED(CONFIG_DEBUG_FS)
 	struct dentry *debugfs_dir;
+#endif
+
+#if IS_ENABLED(CONFIG_LEDS_TRIGGERS)
+	struct sfp_led led[SFP_LED_MAX];
 #endif
 };
 
@@ -382,6 +424,12 @@ static void sfp_fixup_nokia(struct sfp *sfp)
 {
 	sfp_fixup_long_startup(sfp);
 	sfp_fixup_ignore_los(sfp);
+}
+
+static void sfp_fixup_zyxel(struct sfp *sfp)
+{
+	sfp_fixup_ignore_tx_fault_and_los(sfp);
+	sfp->module_t_wait = T_START_UP_BAD_GPON;
 }
 
 // For 10GBASE-T short-reach modules
@@ -498,6 +546,15 @@ static void sfp_quirk_ubnt_uf_instant(const struct sfp_eeprom_id *id,
 	{ .vendor = _v, .part = _p, .support = _s, .fixup = _f, }
 #define SFP_QUIRK_S(_v, _p, _s) SFP_QUIRK(_v, _p, _s, NULL)
 #define SFP_QUIRK_F(_v, _p, _f) SFP_QUIRK(_v, _p, NULL, _f)
+/* Like SFP_QUIRK_F, but matches the part as a prefix; the vendor name
+ * is still matched exactly. Use for modules whose EEPROM vendor PN
+ * field reads back with garbage past the legitimate characters instead
+ * of the SFF-8472-mandated space padding, so sfp_strlen can't trim the
+ * field down to the legitimate length.
+ */
+#define SFP_QUIRK_F_PREFIX(_v, _p, _f) \
+	{ .vendor = _v, .part = _p, .support = NULL, .fixup = _f, \
+	  .part_prefix_match = true }
 
 static const struct sfp_quirk sfp_quirks[] = {
 	// Alcatel Lucent G-010S-P can operate at 2500base-X, but incorrectly
@@ -529,6 +586,13 @@ static const struct sfp_quirk sfp_quirks[] = {
 	// NRZ in their EEPROM
 	SFP_QUIRK("FS", "GPON-ONU-34-20BI", sfp_quirk_2500basex,
 		  sfp_fixup_ignore_tx_fault),
+
+	// Fiberstore XGS-SFP-ONT-MACI is a MAC-mode XGS-PON ONT stick with
+	// ONT-class serial-passthrough TX_FAULT/LOS wiring and slow startup;
+	// mask both signals and extend T_START_UP via the potron fixup. The
+	// PN is the product name (XGS-SFP-ONT-MAC-I) truncated at the 16-byte
+	// field width, so the field is fully occupied and matches exactly.
+	SFP_QUIRK_F("FS", "XGS-SFP-ONT-MACI", sfp_fixup_potron),
 
 	SFP_QUIRK_F("HALNy", "HL-GSFP", sfp_fixup_halny_gsfp),
 
@@ -576,6 +640,9 @@ static const struct sfp_quirk sfp_quirks[] = {
 
 	SFP_QUIRK_F("YV", "SFP+ONU-XGSPON", sfp_fixup_potron),
 
+	// HORACO HC-10GE-113C uses Rollball protocol to talk to the PHY.
+	SFP_QUIRK_F("OEM", "HC-10GE-113C", sfp_fixup_rollball),
+
 	// OEM SFP-GE-T is a 1000Base-T module with broken TX_FAULT indicator
 	SFP_QUIRK_F("OEM", "SFP-GE-T", sfp_fixup_ignore_tx_fault),
 
@@ -587,9 +654,26 @@ static const struct sfp_quirk sfp_quirks[] = {
 	SFP_QUIRK_S("OEM", "SFP-2.5G-LH20-A", sfp_quirk_2500basex),
 	SFP_QUIRK_F("OEM", "RTSFP-10", sfp_fixup_rollball_cc),
 	SFP_QUIRK_F("OEM", "RTSFP-10G", sfp_fixup_rollball_cc),
+
+	// OEM SFP+ONU-XGSPON is a XGS-PON ONT stick with broken TX_FAULT and
+	// LOS indicators and slow startup, just like potron.
+	SFP_QUIRK_F("OEM", "SFP+ONU-XGSPON", sfp_fixup_potron),
+
+	// OEM XGSPONST2001 is an XGS-PON ONT stick with broken TX_FAULT and
+	// LOS indicators and slow startup, just like potron. On cold
+	// power-up the EEPROM vendor PN field reads back with non-printable
+	// garbage past the legitimate string instead of space padding, so
+	// match the part as a prefix.
+	SFP_QUIRK_F_PREFIX("OEM", "XGSPONST2001", sfp_fixup_potron),
+
+	SFP_QUIRK_F("QINIYEK", "BJ-SFP-10G-T", sfp_fixup_fs_10gt),
 	SFP_QUIRK_F("Turris", "RTSFP-2.5G", sfp_fixup_rollball),
 	SFP_QUIRK_F("Turris", "RTSFP-10", sfp_fixup_rollball),
 	SFP_QUIRK_F("Turris", "RTSFP-10G", sfp_fixup_rollball),
+
+	SFP_QUIRK_S("ZOERAX", "SFP-2.5G-T", sfp_quirk_oem_2_5g),
+	SFP_QUIRK_S("TP-LINK", "TL-SM410U", sfp_quirk_oem_2_5g),
+	SFP_QUIRK("ZYXEL", "PMG3000-D20B", sfp_quirk_disable_autoneg, sfp_fixup_zyxel),
 };
 
 static size_t sfp_strlen(const char *str, size_t maxlen)
@@ -606,13 +690,16 @@ static size_t sfp_strlen(const char *str, size_t maxlen)
 	return size;
 }
 
-static bool sfp_match(const char *qs, const char *str, size_t len)
+static bool sfp_match(const char *qs, const char *str, size_t len, bool prefix)
 {
+	size_t qs_len;
+
 	if (!qs)
 		return true;
-	if (strlen(qs) != len)
+	qs_len = strlen(qs);
+	if (prefix ? qs_len > len : qs_len != len)
 		return false;
-	return !strncmp(qs, str, len);
+	return !strncmp(qs, str, qs_len);
 }
 
 static const struct sfp_quirk *sfp_lookup_quirk(const struct sfp_eeprom_id *id)
@@ -625,8 +712,9 @@ static const struct sfp_quirk *sfp_lookup_quirk(const struct sfp_eeprom_id *id)
 	ps = sfp_strlen(id->base.vendor_pn, ARRAY_SIZE(id->base.vendor_pn));
 
 	for (i = 0, q = sfp_quirks; i < ARRAY_SIZE(sfp_quirks); i++, q++)
-		if (sfp_match(q->vendor, id->base.vendor_name, vs) &&
-		    sfp_match(q->part, id->base.vendor_pn, ps))
+		if (sfp_match(q->vendor, id->base.vendor_name, vs, false) &&
+		    sfp_match(q->part, id->base.vendor_pn, ps,
+			      q->part_prefix_match))
 			return q;
 
 	return NULL;
@@ -860,6 +948,45 @@ static void sfp_i2c_mdiobus_destroy(struct sfp *sfp)
 static int sfp_read(struct sfp *sfp, bool a2, u8 addr, void *buf, size_t len)
 {
 	return sfp->read(sfp, a2, addr, buf, len);
+}
+
+/* Probe whether a module is physically present by attempting a single-byte
+ * I2C read of the EEPROM identifier (an empty cage NAKs). Used as the presence
+ * source on boards that do not wire MOD_DEF0 to a GPIO.
+ */
+static bool sfp_module_present_i2c(struct sfp *sfp)
+{
+	u8 id;
+
+	return sfp_read(sfp, false, SFP_PHYS_ID, &id, sizeof(id)) == sizeof(id);
+}
+
+/* get_state variant for boards without a MOD_DEF0 GPIO. Instead of assuming
+ * the module is always present, derive SFP_F_PRESENT from a throttled I2C
+ * probe so that hot-insertion and removal are detected. A single ACK asserts
+ * presence; R_PROBE_ABSENT consecutive failures clear it, to ride out a
+ * transient I2C error on a live module.
+ */
+static unsigned int sfp_i2c_get_state(struct sfp *sfp)
+{
+	unsigned int state = sfp_gpio_get_state(sfp);
+
+	if (time_after_eq(jiffies, sfp->i2c_present_next)) {
+		if (sfp_module_present_i2c(sfp)) {
+			sfp->i2c_present = true;
+			sfp->i2c_present_nak = 0;
+		} else if (sfp->i2c_present &&
+			   ++sfp->i2c_present_nak >= R_PROBE_ABSENT) {
+			sfp->i2c_present = false;
+			sfp->i2c_present_nak = 0;
+		}
+		sfp->i2c_present_next = jiffies + T_PROBE_PRESENT;
+	}
+
+	if (sfp->i2c_present)
+		state |= SFP_F_PRESENT;
+
+	return state;
 }
 
 static int sfp_write(struct sfp *sfp, bool a2, u8 addr, void *buf, size_t len)
@@ -1966,23 +2093,27 @@ static void sfp_sm_link_down(struct sfp *sfp)
 	sfp_link_down(sfp->sfp_bus);
 }
 
-static void sfp_sm_link_check_los(struct sfp *sfp)
+static bool sfp_los_asserted(struct sfp *sfp)
 {
 	const __be16 los_inverted = cpu_to_be16(SFP_OPTIONS_LOS_INVERTED);
 	const __be16 los_normal = cpu_to_be16(SFP_OPTIONS_LOS_NORMAL);
 	__be16 los_options = sfp->id.ext.options & (los_inverted | los_normal);
-	bool los = false;
 
 	/* If neither SFP_OPTIONS_LOS_INVERTED nor SFP_OPTIONS_LOS_NORMAL
 	 * are set, we assume that no LOS signal is available. If both are
 	 * set, we assume LOS is not implemented (and is meaningless.)
 	 */
 	if (los_options == los_inverted)
-		los = !(sfp->state & SFP_F_LOS);
-	else if (los_options == los_normal)
-		los = !!(sfp->state & SFP_F_LOS);
+		return !(sfp->state & SFP_F_LOS);
+	if (los_options == los_normal)
+		return !!(sfp->state & SFP_F_LOS);
 
-	if (los)
+	return false;
+}
+
+static void sfp_sm_link_check_los(struct sfp *sfp)
+{
+	if (sfp_los_asserted(sfp))
 		sfp_sm_next(sfp, SFP_S_WAIT_LOS, 0);
 	else
 		sfp_sm_link_up(sfp);
@@ -2841,6 +2972,102 @@ static void sfp_sm_main(struct sfp *sfp, unsigned int event)
 	}
 }
 
+#if IS_ENABLED(CONFIG_LEDS_TRIGGERS)
+static unsigned int sfp_led_states(struct sfp *sfp)
+{
+	unsigned int states = 0;
+	bool tx_fault, error;
+
+	if (sfp->state & SFP_F_PRESENT)
+		states |= BIT(SFP_LED_PRESENT);
+
+	if (sfp->sm_mod_state == SFP_MOD_PRESENT && sfp_los_asserted(sfp))
+		states |= BIT(SFP_LED_LOS);
+
+	tx_fault = sfp->sm_state == SFP_S_INIT_TX_FAULT ||
+		   sfp->sm_state == SFP_S_TX_FAULT ||
+		   sfp->sm_state == SFP_S_REINIT ||
+		   sfp->sm_state == SFP_S_TX_DISABLE;
+	error = sfp->sm_mod_state == SFP_MOD_ERROR ||
+		sfp->sm_state == SFP_S_FAIL;
+
+	if (tx_fault)
+		states |= BIT(SFP_LED_TX_FAULT);
+	if (error)
+		states |= BIT(SFP_LED_ERROR);
+	if (tx_fault || error)
+		states |= BIT(SFP_LED_FAULT);
+
+	return states;
+}
+
+static void sfp_led_update(struct sfp *sfp)
+{
+	unsigned int states = sfp_led_states(sfp);
+	struct sfp_led *led;
+	bool active;
+	int i;
+
+	for (i = 0; i < SFP_LED_MAX; i++) {
+		led = &sfp->led[i];
+		active = states & BIT(i);
+
+		if (!led->trig.name || led->active == active)
+			continue;
+
+		led->active = active;
+		led_trigger_event(&led->trig, active ? LED_FULL : LED_OFF);
+	}
+}
+
+static int sfp_led_activate(struct led_classdev *led_cdev)
+{
+	struct sfp_led *led =
+		container_of(led_cdev->trigger, struct sfp_led, trig);
+
+	led_set_brightness(led_cdev, led->active ? LED_FULL : LED_OFF);
+
+	return 0;
+}
+
+static int sfp_led_register(struct sfp *sfp)
+{
+	struct sfp_led *led;
+	int i, err;
+
+	for (i = 0; i < SFP_LED_MAX; i++) {
+		led = &sfp->led[i];
+
+		led->trig.name = devm_kasprintf(sfp->dev, GFP_KERNEL,
+						"sfp-%s:%s", dev_name(sfp->dev),
+						sfp_led_names[i]);
+		if (!led->trig.name)
+			return -ENOMEM;
+
+		led->trig.activate = sfp_led_activate;
+
+		err = devm_led_trigger_register(sfp->dev, &led->trig);
+		if (err) {
+			dev_warn(sfp->dev,
+				 "failed to register LED trigger %s: %pe\n",
+				 led->trig.name, ERR_PTR(err));
+			led->trig.name = NULL;
+		}
+	}
+
+	return 0;
+}
+#else
+static void sfp_led_update(struct sfp *sfp)
+{
+}
+
+static int sfp_led_register(struct sfp *sfp)
+{
+	return 0;
+}
+#endif
+
 static void __sfp_sm_event(struct sfp *sfp, unsigned int event)
 {
 	dev_dbg(sfp->dev, "SM: enter %s:%s:%s event %s\n",
@@ -2857,6 +3084,8 @@ static void __sfp_sm_event(struct sfp *sfp, unsigned int event)
 		mod_state_to_str(sfp->sm_mod_state),
 		dev_state_to_str(sfp->sm_dev_state),
 		sm_state_to_str(sfp->sm_state));
+
+	sfp_led_update(sfp);
 }
 
 static void sfp_sm_event(struct sfp *sfp, unsigned int event)
@@ -3160,9 +3389,30 @@ static int sfp_probe(struct platform_device *pdev)
 	sfp->get_state = sfp_gpio_get_state;
 	sfp->set_state = sfp_gpio_set_state;
 
-	/* Modules that have no detect signal are always present */
-	if (!(sfp->gpio[GPIO_MODDEF0]))
-		sfp->get_state = sff_gpio_get_state;
+	/* An SFP cage with no MOD_DEF0 GPIO has no hardware presence signal.
+	 * Assuming the module is always present traps an empty cage in
+	 * MOD_ERROR and never detects hot-insertion, so derive presence from a
+	 * throttled I2C probe and poll for changes instead. sfp_i2c_configure()
+	 * has already set i2c_max_block_size; seed i2c_block_size so the
+	 * presence read does not issue a zero-length transfer before the first
+	 * EEPROM read. Seed i2c_present_next to jiffies so the first probe
+	 * happens immediately (a zero value would be in the past relative to
+	 * the negative INITIAL_JIFFIES at boot and delay detection).
+	 *
+	 * A soldered-down module (sff,sff) has no presence signal and is
+	 * genuinely always present, so it keeps the always-present behaviour;
+	 * the I2C probe is gated on the cage type advertising SFP_F_PRESENT.
+	 */
+	if (!sfp->gpio[GPIO_MODDEF0]) {
+		if (sff->gpios & SFP_F_PRESENT) {
+			sfp->get_state = sfp_i2c_get_state;
+			sfp->i2c_block_size = sfp->i2c_max_block_size;
+			sfp->i2c_present_next = jiffies;
+			sfp->need_poll = true;
+		} else {
+			sfp->get_state = sff_gpio_get_state;
+		}
+	}
 
 	device_property_read_u32(&pdev->dev, "maximum-power-milliwatt",
 				 &sfp->max_power_mW);
@@ -3175,6 +3425,10 @@ static int sfp_probe(struct platform_device *pdev)
 
 	dev_info(sfp->dev, "Host maximum power %u.%uW\n",
 		 sfp->max_power_mW / 1000, (sfp->max_power_mW / 100) % 10);
+
+	err = sfp_led_register(sfp);
+	if (err)
+		return err;
 
 	/* Get the initial state, and always signal TX disable,
 	 * since the network interface will not be up.

@@ -36,3 +36,11 @@
 		reg = <2>;
 	};
 };
+
+&gmac1 {
+	sfp = <&sfp2>;
+	managed = "in-band-status";
+	phy-mode = "usxgmii";
+	openwrt,netdev-name = "sfp-lan";
+	status = "okay";
+};

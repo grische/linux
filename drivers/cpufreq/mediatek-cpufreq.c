@@ -15,14 +15,28 @@
 #include <linux/platform_device.h>
 #include <linux/pm_opp.h>
 #include <linux/regulator/consumer.h>
+#include <linux/nvmem-consumer.h>
+
+struct mtk_cpufreq_corr_data {
+	unsigned int freq;
+	unsigned int vbase;
+	unsigned int vscale;
+	unsigned int vmax;
+};
 
 struct mtk_cpufreq_platform_data {
+	/* cpufreq correction data specification */
+	const struct mtk_cpufreq_corr_data *corr_data;
 	int min_volt_shift;
 	int max_volt_shift;
 	int proc_max_volt;
 	int sram_min_volt;
 	int sram_max_volt;
 	bool ccifreq_supported;
+	/* whether voltage correction via nvmem is supported */
+	bool nvmem_volt_corr;
+	/* Flag indicating whether the processor voltage is fixed */
+	bool proc_fixed_volt;
 };
 
 /*
@@ -164,6 +178,9 @@ static int mtk_cpufreq_set_voltage(struct mtk_cpu_dvfs_info *info, int vproc)
 	const struct mtk_cpufreq_platform_data *soc_data = info->soc_data;
 	int ret;
 
+	if (soc_data->proc_fixed_volt)
+		return 0;
+
 	if (info->need_voltage_tracking)
 		ret = mtk_cpufreq_voltage_tracking(info, vproc);
 	else
@@ -195,6 +212,50 @@ static bool is_ccifreq_ready(struct mtk_cpu_dvfs_info *info)
 	info->ccifreq_bound = true;
 
 	return true;
+}
+
+static int mtk_cpufreq_nvmem_volt_corr(struct mtk_cpu_dvfs_info *info,
+				      struct cpufreq_policy *policy)
+{
+	const struct mtk_cpufreq_corr_data *corr_data;
+	unsigned int target_voltage;
+	struct nvmem_cell *cell;
+	unsigned int cal_data;
+	const u8 *buf;
+	size_t len;
+	int i;
+
+	cell = nvmem_cell_get(info->cpu_dev, "calibration-data");
+	if (IS_ERR(cell))
+		return PTR_ERR(cell);
+
+	buf = nvmem_cell_read(cell, &len);
+	nvmem_cell_put(cell);
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
+
+	cal_data = buf[0] & 0x1f;
+	pr_debug("%s: read vbinning value: %d\n", __func__, cal_data);
+	kfree(buf);
+	if (!info->soc_data->corr_data) {
+		pr_err("voltage correction data not found\n");
+		return -EINVAL;
+	}
+
+	corr_data = &info->soc_data->corr_data[0];
+	for (i = 0 ; i < corr_data->freq ; i++) {
+		target_voltage =  corr_data->vbase + cal_data * corr_data->vscale;
+		if (target_voltage > corr_data->vmax) {
+			pr_warn("freq %u exceeds max voltage\n", corr_data->freq);
+			pr_warn("force update voltage to %u\n", corr_data->vmax);
+			target_voltage = corr_data->vmax;
+		}
+		dev_pm_opp_remove(info->cpu_dev, corr_data->freq);
+		dev_pm_opp_add(info->cpu_dev, corr_data->freq, target_voltage);
+		corr_data = &info->soc_data->corr_data[i + 1];
+	}
+
+	return 0;
 }
 
 static int mtk_cpufreq_set_target(struct cpufreq_policy *policy,
@@ -591,6 +652,15 @@ static int mtk_cpufreq_init(struct cpufreq_policy *policy)
 		return -EINVAL;
 	}
 
+	if (info->soc_data->nvmem_volt_corr) {
+		ret = mtk_cpufreq_nvmem_volt_corr(info, policy);
+		if (ret) {
+			pr_err("failed to correction voltage for cpu%d: %d\n",
+			       policy->cpu, ret);
+			return ret;
+		}
+	}
+
 	ret = dev_pm_opp_init_cpufreq_table(info->cpu_dev, &freq_table);
 	if (ret) {
 		dev_err(info->cpu_dev,
@@ -682,6 +752,16 @@ static struct platform_driver mtk_cpufreq_platdrv = {
 	.probe		= mtk_cpufreq_probe,
 };
 
+struct mtk_cpufreq_corr_data mt7988_volt_corr_data[] = {
+	{
+		.freq = 1800000000,
+		.vbase = 850000,
+		.vscale = 10000,
+		.vmax = 1120000,
+	},
+	{ } /* sentinel */
+};
+
 static const struct mtk_cpufreq_platform_data mt2701_platform_data = {
 	.min_volt_shift = 100000,
 	.max_volt_shift = 200000,
@@ -707,13 +787,21 @@ static const struct mtk_cpufreq_platform_data mt7623_platform_data = {
 	.ccifreq_supported = false,
 };
 
+static const struct mtk_cpufreq_platform_data mt7987_platform_data = {
+	.proc_max_volt = 1023000,
+	.ccifreq_supported = false,
+	.proc_fixed_volt = true,
+};
+
 static const struct mtk_cpufreq_platform_data mt7988_platform_data = {
 	.min_volt_shift = 100000,
 	.max_volt_shift = 200000,
-	.proc_max_volt = 900000,
+	.proc_max_volt = 1120000,
 	.sram_min_volt = 0,
 	.sram_max_volt = 1150000,
 	.ccifreq_supported = true,
+	.nvmem_volt_corr = 1,
+	.corr_data = mt7988_volt_corr_data,
 };
 
 static const struct mtk_cpufreq_platform_data mt8183_platform_data = {
@@ -749,7 +837,9 @@ static const struct of_device_id mtk_cpufreq_machines[] __initconst __maybe_unus
 	{ .compatible = "mediatek,mt2712", .data = &mt2701_platform_data },
 	{ .compatible = "mediatek,mt7622", .data = &mt7622_platform_data },
 	{ .compatible = "mediatek,mt7623", .data = &mt7623_platform_data },
+	{ .compatible = "mediatek,mt7987", .data = &mt7987_platform_data },
 	{ .compatible = "mediatek,mt7988a", .data = &mt7988_platform_data },
+	{ .compatible = "mediatek,mt7988d", .data = &mt7988_platform_data },
 	{ .compatible = "mediatek,mt8167", .data = &mt8516_platform_data },
 	{ .compatible = "mediatek,mt817x", .data = &mt2701_platform_data },
 	{ .compatible = "mediatek,mt8173", .data = &mt2701_platform_data },

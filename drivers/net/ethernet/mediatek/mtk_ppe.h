@@ -8,6 +8,17 @@
 #include <linux/bitfield.h>
 #include <linux/rhashtable.h>
 
+struct cfg80211_flow_info;
+
+/*
+ * Selects hardware entries by their flow, every entry when @fn is NULL. @rx is
+ * set for an entry that carries the frames of the station.
+ */
+struct mtk_flow_match {
+	bool (*fn)(const struct cfg80211_flow_info *info, bool rx, void *arg);
+	void *arg;
+};
+
 #define MTK_PPE_ENTRIES_SHIFT		4
 #define MTK_PPE_ENTRIES			(1024 << MTK_PPE_ENTRIES_SHIFT)
 #define MTK_PPE_HASH_MASK		(MTK_PPE_ENTRIES - 1)
@@ -96,6 +107,8 @@ enum {
 #define MTK_FOE_WINFO_AMSDU_HF		BIT(23)
 #define MTK_FOE_WINFO_AMSDU_EN		BIT(24)
 
+#define MTK_FOE_TPORT_IDX		GENMASK(3, 0)
+
 enum {
 	MTK_FOE_STATE_INVALID,
 	MTK_FOE_STATE_UNBIND,
@@ -124,6 +137,8 @@ struct mtk_foe_mac_info {
 	/* netsys_v3 */
 	u32 w3info;
 	u32 amsdu;
+	u16 tinfo;
+	u16 tport;
 };
 
 /* software-only entry type */
@@ -286,7 +301,12 @@ enum {
 
 struct mtk_flow_entry {
 	union {
-		struct hlist_node list;
+		/* regular flows + L2 subflows */
+		struct {
+			struct hlist_node list;
+			struct hlist_node l2_list;
+		};
+		/* L2 flows */
 		struct {
 			struct rhash_head l2_node;
 			struct hlist_head l2_flows;
@@ -294,17 +314,16 @@ struct mtk_flow_entry {
 	};
 	u8 type;
 	s8 wed_index;
+	s8 rx_wed_index;
 	u8 ppe_index;
 	u16 hash;
-	union {
-		struct mtk_foe_entry data;
-		struct {
-			struct mtk_flow_entry *base_flow;
-			struct hlist_node list;
-		} l2_data;
-	};
+	u16 wcid;
+	u16 rx_wcid;
+	struct mtk_foe_entry data;
 	struct rhash_head node;
 	unsigned long cookie;
+	u64 prev_packets, prev_bytes;
+	u64 packets, bytes;
 };
 
 struct mtk_mib_entry {
@@ -350,11 +369,14 @@ void mtk_ppe_update_mtu(struct mtk_ppe *ppe, int mtu);
 void mtk_ppe_start(struct mtk_ppe *ppe);
 int mtk_ppe_stop(struct mtk_ppe *ppe);
 int mtk_ppe_prepare_reset(struct mtk_ppe *ppe);
+struct mtk_foe_accounting *mtk_ppe_mib_entry_read(struct mtk_ppe *ppe, u16 index);
 
-void __mtk_ppe_check_skb(struct mtk_ppe *ppe, struct sk_buff *skb, u16 hash);
+void __mtk_ppe_check_skb(struct mtk_ppe *ppe, struct sk_buff *skb, u16 hash,
+			 int rx_wed_index, u16 rx_wcid);
 
 static inline void
-mtk_ppe_check_skb(struct mtk_ppe *ppe, struct sk_buff *skb, u16 hash)
+mtk_ppe_check_skb(struct mtk_ppe *ppe, struct sk_buff *skb, u16 hash,
+		  int rx_wed_index, u16 rx_wcid)
 {
 	u16 now, diff;
 
@@ -370,7 +392,7 @@ mtk_ppe_check_skb(struct mtk_ppe *ppe, struct sk_buff *skb, u16 hash)
 		return;
 
 	ppe->foe_check_time[hash] = now;
-	__mtk_ppe_check_skb(ppe, skb, hash);
+	__mtk_ppe_check_skb(ppe, skb, hash, rx_wed_index, rx_wcid);
 }
 
 int mtk_foe_entry_prepare(struct mtk_eth *eth, struct mtk_foe_entry *entry,
@@ -399,9 +421,12 @@ int mtk_foe_entry_set_queue(struct mtk_eth *eth, struct mtk_foe_entry *entry,
 			    unsigned int queue);
 int mtk_foe_entry_commit(struct mtk_ppe *ppe, struct mtk_flow_entry *entry);
 void mtk_foe_entry_clear(struct mtk_ppe *ppe, struct mtk_flow_entry *entry);
-int mtk_foe_entry_idle_time(struct mtk_ppe *ppe, struct mtk_flow_entry *entry);
+void mtk_foe_entry_unbind(struct mtk_ppe *ppe, struct mtk_flow_entry *entry,
+			  bool rx, const struct mtk_flow_match *match);
+int mtk_foe_entry_flow_idle(struct mtk_ppe *ppe, struct mtk_flow_entry *entry,
+			    bool rx, const struct mtk_flow_match *match);
 int mtk_ppe_debugfs_init(struct mtk_ppe *ppe, int index);
-struct mtk_foe_accounting *mtk_foe_entry_get_mib(struct mtk_ppe *ppe, u32 index,
-						 struct mtk_foe_accounting *diff);
+void mtk_foe_entry_get_stats(struct mtk_ppe *ppe, struct mtk_flow_entry *entry,
+			     int *idle);
 
 #endif

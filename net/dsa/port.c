@@ -457,7 +457,13 @@ static void dsa_port_bridge_destroy(struct dsa_port *dp,
 {
 	struct dsa_bridge *bridge = dp->bridge;
 
-	dp->bridge = NULL;
+	WRITE_ONCE(dp->bridge, NULL);
+
+	/* Wait for the FDB events that still see the bridge, then release the
+	 * host addresses the port holds, before the drivers are told it left.
+	 */
+	dsa_flush_workqueue();
+	dsa_user_bridge_host_fdb_purge(dp, bridge);
 
 	if (!refcount_dec_and_test(&bridge->refcount))
 		return;
@@ -528,7 +534,9 @@ out_rollback_unoffload:
 					&dsa_user_switchdev_blocking_notifier);
 	dsa_flush_workqueue();
 out_rollback_unbridge:
+	dsa_port_bridge_destroy(dp, br);
 	dsa_broadcast(DSA_NOTIFIER_BRIDGE_LEAVE, &info);
+	return err;
 out_rollback:
 	dsa_port_bridge_destroy(dp, br);
 	return err;
@@ -872,6 +880,17 @@ bool dsa_port_skip_vlan_configuration(struct dsa_port *dp)
 	return !ds->configure_vlan_while_not_filtering && !br_vlan_enabled(br);
 }
 
+int dsa_port_vlan_protocol(struct dsa_port *dp, u16 proto,
+			   struct netlink_ext_ack *extack)
+{
+	struct dsa_switch *ds = dp->ds;
+
+	if (!ds->ops->port_vlan_protocol)
+		return -EOPNOTSUPP;
+
+	return ds->ops->port_vlan_protocol(ds, dp->index, proto, extack);
+}
+
 int dsa_port_ageing_time(struct dsa_port *dp, clock_t ageing_clock)
 {
 	unsigned long ageing_jiffies = clock_t_to_jiffies(ageing_clock);
@@ -1040,13 +1059,14 @@ int dsa_port_standalone_host_fdb_add(struct dsa_port *dp,
 	return dsa_port_host_fdb_add(dp, addr, vid, db);
 }
 
-int dsa_port_bridge_host_fdb_add(struct dsa_port *dp,
-				 const unsigned char *addr, u16 vid)
+int __dsa_port_bridge_host_fdb_add(struct dsa_port *dp,
+				   const struct dsa_bridge *bridge,
+				   const unsigned char *addr, u16 vid)
 {
 	struct net_device *conduit = dsa_port_to_conduit(dp);
 	struct dsa_db db = {
 		.type = DSA_DB_BRIDGE,
-		.bridge = *dp->bridge,
+		.bridge = *bridge,
 	};
 	int err;
 
@@ -1064,6 +1084,12 @@ int dsa_port_bridge_host_fdb_add(struct dsa_port *dp,
 	}
 
 	return dsa_port_host_fdb_add(dp, addr, vid, db);
+}
+
+int dsa_port_bridge_host_fdb_add(struct dsa_port *dp,
+				 const unsigned char *addr, u16 vid)
+{
+	return __dsa_port_bridge_host_fdb_add(dp, dp->bridge, addr, vid);
 }
 
 static int dsa_port_host_fdb_del(struct dsa_port *dp,
@@ -1091,13 +1117,14 @@ int dsa_port_standalone_host_fdb_del(struct dsa_port *dp,
 	return dsa_port_host_fdb_del(dp, addr, vid, db);
 }
 
-int dsa_port_bridge_host_fdb_del(struct dsa_port *dp,
-				 const unsigned char *addr, u16 vid)
+int __dsa_port_bridge_host_fdb_del(struct dsa_port *dp,
+				   const struct dsa_bridge *bridge,
+				   const unsigned char *addr, u16 vid)
 {
 	struct net_device *conduit = dsa_port_to_conduit(dp);
 	struct dsa_db db = {
 		.type = DSA_DB_BRIDGE,
-		.bridge = *dp->bridge,
+		.bridge = *bridge,
 	};
 	int err;
 
@@ -1111,6 +1138,12 @@ int dsa_port_bridge_host_fdb_del(struct dsa_port *dp,
 	}
 
 	return dsa_port_host_fdb_del(dp, addr, vid, db);
+}
+
+int dsa_port_bridge_host_fdb_del(struct dsa_port *dp,
+				 const unsigned char *addr, u16 vid)
+{
+	return __dsa_port_bridge_host_fdb_del(dp, dp->bridge, addr, vid);
 }
 
 int dsa_port_lag_fdb_add(struct dsa_port *dp, const unsigned char *addr,

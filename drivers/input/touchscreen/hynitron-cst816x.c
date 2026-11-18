@@ -11,12 +11,16 @@
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/input.h>
+#include <linux/input/touchscreen.h>
 #include <linux/unaligned.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/spinlock.h>
+#include <linux/timer.h>
 
 #define CST816X_RD_REG		0x01
 #define CST816X_NUM_KEYS	5
+#define CST816X_GEST_HOLD_MS	40
 
 struct cst816x_touch {
 	u8 gest;
@@ -31,33 +35,49 @@ struct cst816x_priv {
 	struct input_dev *input;
 	unsigned int keycode[CST816X_NUM_KEYS];
 	unsigned int keycodemax;
+	struct timer_list release_timer;
+	/* lock keeps the timeout out of the middle of a report */
+	spinlock_t lock;
+	struct touchscreen_properties prop;
 };
 
 static int cst816x_parse_keycodes(struct device *dev, struct cst816x_priv *priv)
 {
 	int count;
 	int error;
+	int i;
 
-	if (device_property_present(dev, "linux,keycodes")) {
-		count = device_property_count_u32(dev, "linux,keycodes");
-		if (count < 0) {
-			error = count;
-			dev_err(dev, "failed to count keys: %d\n", error);
-			return error;
-		} else if (count > ARRAY_SIZE(priv->keycode)) {
-			dev_err(dev, "too many keys defined: %d\n", count);
-			return -EINVAL;
-		}
-		priv->keycodemax = count;
+	if (!device_property_present(dev, "linux,keycodes"))
+		return 0;
 
-		error = device_property_read_u32_array(dev, "linux,keycodes",
-						       priv->keycode,
-						       priv->keycodemax);
-		if (error) {
-			dev_err(dev, "failed to read keycodes: %d\n", error);
-			return error;
-		}
+	count = device_property_count_u32(dev, "linux,keycodes");
+	if (count < 0) {
+		error = count;
+		dev_err(dev, "failed to count keys: %d\n", error);
+		return error;
 	}
+
+	if (count > ARRAY_SIZE(priv->keycode)) {
+		dev_err(dev, "too many keys defined: %d\n", count);
+		return -EINVAL;
+	}
+
+	error = device_property_read_u32_array(dev, "linux,keycodes",
+					       priv->keycode, count);
+	if (error) {
+		dev_err(dev, "failed to read keycodes: %d\n", error);
+		return error;
+	}
+
+	for (i = 0; i < count; i++) {
+		if (priv->keycode[i] <= KEY_MAX)
+			continue;
+
+		dev_err(dev, "keycode %u out of range\n", priv->keycode[i]);
+		return -EINVAL;
+	}
+
+	priv->keycodemax = count;
 
 	return 0;
 }
@@ -92,24 +112,19 @@ static int cst816x_i2c_read_register(struct cst816x_priv *priv, u8 reg,
 	return 0;
 }
 
-static u8 cst816x_gest_idx(u8 gest)
+static unsigned int cst816x_gest_keycode(struct cst816x_priv *priv, u8 gest)
 {
-	u8 index;
-
 	switch (gest) {
 	case 0x01: /* Slide up gesture */
 	case 0x02: /* Slide down gesture */
 	case 0x03: /* Slide left gesture */
 	case 0x04: /* Slide right gesture */
-		index = gest;
-		break;
+		return priv->keycode[gest - 1];
 	case 0x0c: /* Long press gesture */
+		return priv->keycode[CST816X_NUM_KEYS - 1];
 	default:
-		index = CST816X_NUM_KEYS;
-		break;
+		return KEY_RESERVED;
 	}
-
-	return index - 1;
 }
 
 static bool cst816x_process_touch(struct cst816x_priv *priv,
@@ -142,6 +157,8 @@ static int cst816x_register_input(struct cst816x_priv *priv)
 	input_set_abs_params(priv->input, ABS_X, 0, 240, 0, 0);
 	input_set_abs_params(priv->input, ABS_Y, 0, 240, 0, 0);
 	input_set_capability(priv->input, EV_KEY, BTN_TOUCH);
+	__set_bit(INPUT_PROP_DIRECT, priv->input->propbit);
+	touchscreen_parse_properties(priv->input, false, &priv->prop);
 
 	priv->input->keycode = priv->keycode;
 	priv->input->keycodesize = sizeof(priv->keycode[0]);
@@ -165,27 +182,77 @@ static void cst816x_reset(struct cst816x_priv *priv)
 	msleep(100);
 }
 
+static bool cst816x_release_keys(struct cst816x_priv *priv)
+{
+	bool released = false;
+	unsigned int key;
+	unsigned int i;
+
+	for (i = 0; i < priv->keycodemax; i++) {
+		key = priv->keycode[i];
+		if (!test_bit(key, priv->input->key))
+			continue;
+
+		input_report_key(priv->input, key, 0);
+		released = true;
+	}
+
+	return released;
+}
+
+static void cst816x_release_timeout(struct timer_list *t)
+{
+	struct cst816x_priv *priv = timer_container_of(priv, t, release_timer);
+	unsigned long flags;
+
+	spin_lock_irqsave(&priv->lock, flags);
+
+	/* a re-arm while this waited for the lock supersedes the timeout */
+	if (!timer_pending(&priv->release_timer) && cst816x_release_keys(priv))
+		input_sync(priv->input);
+
+	spin_unlock_irqrestore(&priv->lock, flags);
+}
+
 static irqreturn_t cst816x_irq_cb(int irq, void *cookie)
 {
 	struct cst816x_priv *priv = cookie;
 	struct cst816x_touch tch;
+	unsigned long flags;
+	unsigned int key;
 
 	if (!cst816x_process_touch(priv, &tch))
 		return IRQ_HANDLED;
 
-	input_report_abs(priv->input, ABS_X, tch.abs_x);
-	input_report_abs(priv->input, ABS_Y, tch.abs_y);
+	spin_lock_irqsave(&priv->lock, flags);
 
-	if (tch.gest)
-		input_report_key(priv->input,
-				 priv->keycode[cst816x_gest_idx(tch.gest)],
-				 tch.active);
+	touchscreen_report_pos(priv->input, &priv->prop,
+			       tch.abs_x, tch.abs_y, false);
+
+	key = cst816x_gest_keycode(priv, tch.gest);
+	if (key != KEY_RESERVED) {
+		input_report_key(priv->input, key, 1);
+		mod_timer(&priv->release_timer,
+			  jiffies + msecs_to_jiffies(CST816X_GEST_HOLD_MS));
+	} else {
+		timer_delete(&priv->release_timer);
+		cst816x_release_keys(priv);
+	}
 
 	input_report_key(priv->input, BTN_TOUCH, tch.active);
 
 	input_sync(priv->input);
 
+	spin_unlock_irqrestore(&priv->lock, flags);
+
 	return IRQ_HANDLED;
+}
+
+static void cst816x_timer_stop(void *data)
+{
+	struct cst816x_priv *priv = data;
+
+	timer_shutdown_sync(&priv->release_timer);
 }
 
 static int cst816x_probe(struct i2c_client *client)
@@ -199,6 +266,8 @@ static int cst816x_probe(struct i2c_client *client)
 		return -ENOMEM;
 
 	priv->client = client;
+	spin_lock_init(&priv->lock);
+	timer_setup(&priv->release_timer, cst816x_release_timeout, 0);
 
 	priv->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(priv->reset))
@@ -215,6 +284,10 @@ static int cst816x_probe(struct i2c_client *client)
 	error = cst816x_register_input(priv);
 	if (error)
 		return dev_err_probe(dev, error, "input register failed\n");
+
+	error = devm_add_action_or_reset(dev, cst816x_timer_stop, priv);
+	if (error)
+		return error;
 
 	error = devm_request_threaded_irq(dev, client->irq,
 					  NULL, cst816x_irq_cb, IRQF_ONESHOT,

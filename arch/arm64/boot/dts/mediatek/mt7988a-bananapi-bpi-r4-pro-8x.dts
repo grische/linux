@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright (C) 2025 MediaTek Inc.
+ * Author: Frank Wunderlich <frank-w@public-files.de>
+ */
+
+/dts-v1/;
+
+#include "mt7988a-bananapi-bpi-r4-pro.dtsi"
+
+/ {
+	model = "Bananapi BPI-R4 Pro 8X";
+	compatible = "bananapi,bpi-r4-pro-8x",
+		     "bananapi,bpi-r4-pro",
+		     "mediatek,mt7988a";
+};
+
+&gmac1 {
+	openwrt,netdev-name = "wan";
+};
+
+&switch16 {
+	ports {
+		port@13 {
+			reg = <13>;
+			label = "lan6";
+			status = "disabled";
+		};
+	};
+};
+
+&mdio_bus {
+	/* external Aeonsemi AS2101x connected to MXL switch */
+
+	phy24: ethernet-phy@24 {
+		reg = <24>;
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reset-gpios = <&pio 83 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <1000000>;
+		reset-deassert-us = <1000000>;
+		firmware-name = "as21x1x_fw.bin";
+
+		leds {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			led@0 {
+				reg = <0>;
+				linux,default-trigger = "netdev";
+				color = <LED_COLOR_ID_GREEN>;
+				function = LED_FUNCTION_LAN;
+				active-high;
+			};
+
+			led@1 {
+				reg = <1>;
+				linux,default-trigger = "netdev";
+				color = <LED_COLOR_ID_YELLOW>;
+				function = LED_FUNCTION_LAN;
+				active-high;
+			};
+		};
+	};
+
+	/* external Aeonsemi AS2101x connected to eth-mux on gmac1 */
+	phy28: ethernet-phy@28 {
+		reg = <28>;
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reset-gpios = <&pio 82 GPIO_ACTIVE_LOW>;
+		reset-assert-us = <1000000>;
+		reset-deassert-us = <1000000>;
+		firmware-name = "as21x1x_fw.bin";
+
+		leds {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			led@0 {
+				reg = <0>;
+				linux,default-trigger = "netdev";
+				color = <LED_COLOR_ID_GREEN>;
+				function = LED_FUNCTION_WAN;
+				active-high;
+			};
+
+			led@1 {
+				reg = <1>;
+				linux,default-trigger = "netdev";
+				color = <LED_COLOR_ID_YELLOW>;
+				function = LED_FUNCTION_WAN;
+				active-high;
+			};
+		};
+	};
+};

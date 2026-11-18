@@ -10,6 +10,8 @@
 #include <net/flow_offload.h>
 #include <net/pkt_cls.h>
 #include <net/dsa.h>
+#include <linux/dsa/8021q.h>
+#include <linux/dsa/yt922x.h>
 #include "mtk_eth_soc.h"
 #include "mtk_wed.h"
 
@@ -92,6 +94,9 @@ static int
 mtk_flow_get_wdma_info(struct net_device *dev, const u8 *addr, struct mtk_wdma_info *info)
 {
 	struct net_device_path_stack stack;
+	struct net_device_path_ctx ctx = {
+		.dev = dev,
+	};
 	struct net_device_path *path;
 	int err;
 
@@ -101,8 +106,10 @@ mtk_flow_get_wdma_info(struct net_device *dev, const u8 *addr, struct mtk_wdma_i
 	if (!IS_ENABLED(CONFIG_NET_MEDIATEK_SOC_WED))
 		return -1;
 
+	ether_addr_copy(ctx.daddr, addr);
+
 	rcu_read_lock();
-	err = dev_fill_forward_path(dev, addr, &stack);
+	err = dev_fill_forward_path(&ctx, &stack);
 	rcu_read_unlock();
 	if (err)
 		return err;
@@ -166,8 +173,26 @@ mtk_flow_mangle_ipv4(const struct flow_action_entry *act,
 	return 0;
 }
 
+/*
+ * Inspect *dev as a DSA user netdev.  On success, substitute *dev with
+ * the conduit netdev, return the DSA user port's dp->index, and in
+ * *push_vid hand back either 0 (native MTK tag; the PPE injects its
+ * magic etype later via mtk_foe_entry_set_dsa()) or the outer 802.1Q
+ * VID the PPE should push on the egressing frame (tag_8021q taggers
+ * that use an outer Q-in-Q tag with a standalone per-port VID, i.e.
+ * the MxL862xx tag_8021q tagger), or the full VLAN TCI for the
+ * VLAN-shaped YT922x four-byte port tag.
+ *
+ * push_vid may be NULL for callers that only want the idev->conduit
+ * substitution (e.g. ingress-side ppe_idx selection, where no VID
+ * is to be pushed on the flow entry).
+ *
+ * Other tag_8021q-based taggers (sja1105, ocelot_8021q, ...) use
+ * different tag layers and/or bridge-scoped VIDs; do not extend the
+ * switch below to cover them without per-tagger review.
+ */
 static int
-mtk_flow_get_dsa_port(struct net_device **dev)
+mtk_flow_get_dsa_port(struct net_device **dev, u16 *push_vid)
 {
 #if IS_ENABLED(CONFIG_NET_DSA)
 	struct dsa_port *dp;
@@ -176,8 +201,29 @@ mtk_flow_get_dsa_port(struct net_device **dev)
 	if (IS_ERR(dp))
 		return -ENODEV;
 
-	if (dp->cpu_dp->tag_ops->proto != DSA_TAG_PROTO_MTK)
+	switch (dp->cpu_dp->tag_ops->proto) {
+	case DSA_TAG_PROTO_MTK:
+		if (push_vid)
+			*push_vid = 0;
+		break;
+	case DSA_TAG_PROTO_MXL862_8021Q:
+		if (push_vid)
+			*push_vid = dsa_tag_8021q_standalone_vid(dp);
+		break;
+	case DSA_TAG_PROTO_YT922X_4B:
+		/* The software tagger supplies access-port PVIDs. PPE cannot
+		 * reproduce this policy yet, so retain the software path.
+		 */
+		if (dsa_port_is_vlan_filtering(dp))
+			return -EOPNOTSUPP;
+		if (!yt922x_4b_port_tag(dp->index))
+			return -ENODEV;
+		if (push_vid)
+			*push_vid = yt922x_4b_port_tag(dp->index);
+		break;
+	default:
 		return -ENODEV;
+	}
 
 	*dev = dsa_port_to_conduit(dp);
 
@@ -190,10 +236,12 @@ mtk_flow_get_dsa_port(struct net_device **dev)
 static int
 mtk_flow_set_output_device(struct mtk_eth *eth, struct mtk_foe_entry *foe,
 			   struct net_device *dev, const u8 *dest_mac,
-			   int *wed_index)
+			   int *wed_index, u16 *wcid, unsigned int num_tags)
 {
 	struct mtk_wdma_info info = {};
-	int pse_port, dsa_port, queue;
+	struct mtk_mac *mac;
+	int pse_port, dsa_port, queue, err;
+	u16 push_vid = 0;
 
 	if (mtk_flow_get_wdma_info(dev, dest_mac, &info) == 0) {
 		mtk_foe_entry_set_wdma(eth, foe, info.wdma_idx, info.queue,
@@ -216,10 +264,11 @@ mtk_flow_set_output_device(struct mtk_eth *eth, struct mtk_foe_entry *foe,
 			pse_port = 3;
 		}
 		*wed_index = info.wdma_idx;
+		*wcid = info.wcid;
 		goto out;
 	}
 
-	dsa_port = mtk_flow_get_dsa_port(&dev);
+	dsa_port = mtk_flow_get_dsa_port(&dev, &push_vid);
 
 	if (dev == eth->netdev[0])
 		pse_port = PSE_GDM1_PORT;
@@ -231,8 +280,23 @@ mtk_flow_set_output_device(struct mtk_eth *eth, struct mtk_foe_entry *foe,
 		return -EOPNOTSUPP;
 
 	if (dsa_port >= 0) {
-		mtk_foe_entry_set_dsa(eth, foe, dsa_port);
-		queue = 3 + dsa_port;
+		if (push_vid) {
+			/* Reserve one of the PPE's two VLAN slots for the CPU tag.
+			 * Preserve the full TCI: YT9224 port 7 uses bit 12 (DEI).
+			 */
+			if (num_tags >= 2)
+				return -EOPNOTSUPP;
+			err = mtk_foe_entry_set_vlan(eth, foe, push_vid);
+			if (err)
+				return err;
+		} else {
+			mtk_foe_entry_set_dsa(eth, foe, dsa_port);
+		}
+	}
+
+	if (dsa_port >= 0 && dsa_port < MTK_DSA_USER_PORT_MAX) {
+		mac = netdev_priv(dev);
+		queue = mac->dsa_queue_base + mac->dsa_port_rank[dsa_port];
 	} else {
 		queue = pse_port - 1;
 	}
@@ -276,11 +340,13 @@ mtk_flow_offload_replace(struct mtk_eth *eth, struct flow_cls_offload *f,
 	int offload_type = 0;
 	int wed_index = -1;
 	u16 addr_type = 0;
+	u16 wcid = 0;
 	u8 l4proto = 0;
 	int err = 0;
 	int i;
 
-	if (rhashtable_lookup(&eth->flow_table, &f->cookie, mtk_flow_ht_params))
+	if (rhashtable_lookup_fast(&eth->flow_table, &f->cookie,
+				   mtk_flow_ht_params))
 		return -EEXIST;
 
 	if (flow_rule_match_key(rule, FLOW_DISSECTOR_KEY_META)) {
@@ -289,6 +355,17 @@ mtk_flow_offload_replace(struct mtk_eth *eth, struct flow_cls_offload *f,
 		flow_rule_match_meta(rule, &match);
 		if (mtk_is_netsys_v2_or_greater(eth)) {
 			idev = __dev_get_by_index(&init_net, match.key->ingress_ifindex);
+			/*
+			 * If idev is a DSA user netdev, substitute it with
+			 * its conduit so the valid-idev check below passes
+			 * and ppe_index picks up the conduit's PPE engine.
+			 * Without this, upstream flows from a DSA user port
+			 * (e.g. MxL862xx lanN) install on ppe[0] while the
+			 * conduit's GDMA routes ingress through its own
+			 * ppe[mac->ppe_idx]; the lookup misses and the
+			 * flow never binds in HW.
+			 */
+			mtk_flow_get_dsa_port(&idev, NULL);
 			if (mtk_flow_is_valid_idev(eth, idev)) {
 				struct mtk_mac *mac = netdev_priv(idev);
 
@@ -369,6 +446,7 @@ mtk_flow_offload_replace(struct mtk_eth *eth, struct flow_cls_offload *f,
 		case FLOW_ACTION_REDIRECT:
 			odev = act->dev;
 			break;
+		case FLOW_ACTION_PRIORITY:
 		case FLOW_ACTION_CSUM:
 			break;
 		case FLOW_ACTION_VLAN_PUSH:
@@ -471,6 +549,15 @@ mtk_flow_offload_replace(struct mtk_eth *eth, struct flow_cls_offload *f,
 			return err;
 	}
 
+	err = mtk_flow_set_output_device(eth, &foe, odev, data.eth.h_dest,
+					 &wed_index, &wcid,
+					 data.vlan.num + data.pppoe.num);
+	if (err)
+		return err;
+
+	if (wed_index >= 0 && (err = mtk_wed_flow_add(wed_index)) < 0)
+		return err;
+
 	if (offload_type == MTK_PPE_PKT_TYPE_BRIDGE)
 		foe.bridge.vlan = data.vlan_in;
 
@@ -480,14 +567,6 @@ mtk_flow_offload_replace(struct mtk_eth *eth, struct flow_cls_offload *f,
 	if (data.pppoe.num == 1)
 		mtk_foe_entry_set_pppoe(eth, &foe, data.pppoe.sid);
 
-	err = mtk_flow_set_output_device(eth, &foe, odev, data.eth.h_dest,
-					 &wed_index);
-	if (err)
-		return err;
-
-	if (wed_index >= 0 && (err = mtk_wed_flow_add(wed_index)) < 0)
-		return err;
-
 	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 	if (!entry)
 		return -ENOMEM;
@@ -495,7 +574,9 @@ mtk_flow_offload_replace(struct mtk_eth *eth, struct flow_cls_offload *f,
 	entry->cookie = f->cookie;
 	memcpy(&entry->data, &foe, sizeof(entry->data));
 	entry->wed_index = wed_index;
+	entry->rx_wed_index = -1;
 	entry->ppe_index = ppe_index;
+	entry->wcid = wcid;
 
 	err = mtk_foe_entry_commit(eth->ppe[entry->ppe_index], entry);
 	if (err < 0)
@@ -522,8 +603,8 @@ mtk_flow_offload_destroy(struct mtk_eth *eth, struct flow_cls_offload *f)
 {
 	struct mtk_flow_entry *entry;
 
-	entry = rhashtable_lookup(&eth->flow_table, &f->cookie,
-				  mtk_flow_ht_params);
+	entry = rhashtable_lookup_fast(&eth->flow_table, &f->cookie,
+				       mtk_flow_ht_params);
 	if (!entry)
 		return -ENOENT;
 
@@ -541,23 +622,20 @@ static int
 mtk_flow_offload_stats(struct mtk_eth *eth, struct flow_cls_offload *f)
 {
 	struct mtk_flow_entry *entry;
-	struct mtk_foe_accounting diff;
-	u32 idle;
+	u64 packets, bytes;
+	int idle;
 
-	entry = rhashtable_lookup(&eth->flow_table, &f->cookie,
-				  mtk_flow_ht_params);
+	entry = rhashtable_lookup_fast(&eth->flow_table, &f->cookie,
+				       mtk_flow_ht_params);
 	if (!entry)
 		return -ENOENT;
 
-	idle = mtk_foe_entry_idle_time(eth->ppe[entry->ppe_index], entry);
+	packets = entry->packets;
+	bytes = entry->bytes;
+	mtk_foe_entry_get_stats(eth->ppe[entry->ppe_index], entry, &idle);
+	f->stats.pkts += entry->packets - packets;
+	f->stats.bytes += entry->bytes - bytes;
 	f->stats.lastused = jiffies - idle * HZ;
-
-	if (entry->hash != 0xFFFF &&
-	    mtk_foe_entry_get_mib(eth->ppe[entry->ppe_index], entry->hash,
-				  &diff)) {
-		f->stats.pkts += diff.packets;
-		f->stats.bytes += diff.bytes;
-	}
 
 	return 0;
 }
@@ -587,6 +665,96 @@ int mtk_flow_offload_cmd(struct mtk_eth *eth, struct flow_cls_offload *cls,
 	mutex_unlock(&mtk_flow_offload_mutex);
 
 	return err;
+}
+
+/* @rx is set for an entry that carries the frames of the station */
+static bool
+mtk_flow_entry_wcid_match(struct mtk_flow_entry *entry, int wed_index, u16 wcid,
+			  bool *rx)
+{
+	*rx = false;
+	if (entry->wed_index == wed_index && entry->wcid == wcid)
+		return true;
+
+	*rx = true;
+	return entry->rx_wed_index == wed_index && entry->rx_wcid == wcid;
+}
+
+static void
+mtk_flow_offload_walk_wcid(struct mtk_eth *eth, int wed_index, u16 wcid,
+			   void (*fn)(struct mtk_ppe *ppe,
+				      struct mtk_flow_entry *entry, bool rx,
+				      void *arg),
+			   void *arg)
+{
+	struct mtk_flow_entry *entry;
+	struct rhashtable_iter iter;
+	bool rx;
+
+	mutex_lock(&mtk_flow_offload_mutex);
+
+	rhashtable_walk_enter(&eth->flow_table, &iter);
+	rhashtable_walk_start(&iter);
+	while ((entry = rhashtable_walk_next(&iter)) != NULL) {
+		if (IS_ERR(entry)) {
+			if (PTR_ERR(entry) != -EAGAIN)
+				break;
+			continue;
+		}
+
+		if (!mtk_flow_entry_wcid_match(entry, wed_index, wcid, &rx))
+			continue;
+
+		fn(eth->ppe[entry->ppe_index], entry, rx, arg);
+	}
+	rhashtable_walk_stop(&iter);
+	rhashtable_walk_exit(&iter);
+
+	mutex_unlock(&mtk_flow_offload_mutex);
+}
+
+static void
+mtk_flow_entry_unbind_cb(struct mtk_ppe *ppe, struct mtk_flow_entry *entry,
+			 bool rx, void *arg)
+{
+	mtk_foe_entry_unbind(ppe, entry, rx, arg);
+}
+
+void mtk_flow_offload_unbind_wcid(struct mtk_eth *eth, int wed_index, u16 wcid,
+				  struct mtk_flow_match *match)
+{
+	mtk_flow_offload_walk_wcid(eth, wed_index, wcid,
+				   mtk_flow_entry_unbind_cb, match);
+}
+
+struct mtk_flow_idle {
+	const struct mtk_flow_match *match;
+	int idle;
+};
+
+static void
+mtk_flow_entry_idle_cb(struct mtk_ppe *ppe, struct mtk_flow_entry *entry,
+		       bool rx, void *arg)
+{
+	struct mtk_flow_idle *data = arg;
+	int idle = mtk_foe_entry_flow_idle(ppe, entry, rx, data->match);
+
+	if (idle >= 0 && (data->idle < 0 || idle < data->idle))
+		data->idle = idle;
+}
+
+int mtk_flow_offload_idle_wcid(struct mtk_eth *eth, int wed_index, u16 wcid,
+			       const struct mtk_flow_match *match)
+{
+	struct mtk_flow_idle data = {
+		.match = match,
+		.idle = -ENOENT,
+	};
+
+	mtk_flow_offload_walk_wcid(eth, wed_index, wcid,
+				   mtk_flow_entry_idle_cb, &data);
+
+	return data.idle;
 }
 
 static int

@@ -150,14 +150,14 @@ static void nf_flow_tuple_encap(struct sk_buff *skb,
 	int i = 0;
 
 	if (skb_vlan_tag_present(skb)) {
-		tuple->encap[i].id = skb_vlan_tag_get(skb);
+		tuple->encap[i].id = skb_vlan_tag_get_id(skb);
 		tuple->encap[i].proto = skb->vlan_proto;
 		i++;
 	}
 	switch (skb->protocol) {
 	case htons(ETH_P_8021Q):
 		veth = (struct vlan_ethhdr *)skb_mac_header(skb);
-		tuple->encap[i].id = ntohs(veth->h_vlan_TCI);
+		tuple->encap[i].id = ntohs(veth->h_vlan_TCI) & VLAN_VID_MASK;
 		tuple->encap[i].proto = skb->protocol;
 		break;
 	case htons(ETH_P_PPP_SES):
@@ -416,6 +416,12 @@ static int nf_flow_offload_forward(struct nf_flowtable_ctx *ctx,
 
 	ip_decrease_ttl(iph);
 	skb_clear_tstamp(skb);
+
+	/* As ip_forward() does for the packets the flow did not take. */
+	if (flow->priority)
+		skb->priority = flow->priority;
+	else if (READ_ONCE(dev_net(skb->dev)->ipv4.sysctl_ip_fwd_update_priority))
+		skb->priority = rt_tos2priority(iph->tos);
 
 	if (flow_table->flags & NF_FLOWTABLE_COUNTER)
 		nf_ct_acct_update(flow->ct, tuplehash->tuple.dir, skb->len);
@@ -704,6 +710,9 @@ static int nf_flow_offload_ipv6_forward(struct nf_flowtable_ctx *ctx,
 
 	ip6h->hop_limit--;
 	skb_clear_tstamp(skb);
+
+	if (flow->priority)
+		skb->priority = flow->priority;
 
 	if (flow_table->flags & NF_FLOWTABLE_COUNTER)
 		nf_ct_acct_update(flow->ct, tuplehash->tuple.dir, skb->len);
