@@ -4,6 +4,7 @@
  */
 
 #include <linux/crc32.h>
+#include <linux/ctype.h>
 #include <linux/etherdevice.h>
 #include <linux/export.h>
 #include <linux/if_ether.h>
@@ -37,9 +38,6 @@ static int u_boot_env_read_post_process_ethaddr(void *context, const char *id, i
 {
 	u8 mac[ETH_ALEN];
 
-	if (bytes != MAC_ADDR_STR_LEN)
-		return -EINVAL;
-
 	if (!mac_pton(buf, mac))
 		return -EINVAL;
 
@@ -56,6 +54,8 @@ static int u_boot_env_parse_cells(struct device *dev, struct nvmem_device *nvmem
 {
 	char *data = buf + data_offset;
 	char *var, *value, *eq;
+	const char *mac_vars[] = {"ethaddr", "RADIOADDR", "wanaddr", "wlanaddr",
+				  "macaddr", "mac_addr", "wifiaddr", "athaddr"};
 
 	for (var = data;
 	     var < data + data_len && *var;
@@ -74,7 +74,51 @@ static int u_boot_env_parse_cells(struct device *dev, struct nvmem_device *nvmem
 		info.offset = data_offset + value - data;
 		info.bytes = strlen(value);
 		info.np = of_get_child_by_name(dev->of_node, info.name);
-		if (!strcmp(var, "ethaddr")) {
+
+		for (int i = 0; i < ARRAY_SIZE(mac_vars); i++) {
+			if (!strcmp(var, mac_vars[i]) && info.bytes == MAC_ADDR_STR_LEN) {
+				info.raw_len = strlen(value);
+				info.bytes = ETH_ALEN;
+				info.read_post_process = u_boot_env_read_post_process_ethaddr;
+				break;
+			}
+			/* Handle quotation which increases length by 2 and offset by 1 if present. */
+			if (!strcmp(var, mac_vars[i]) && info.bytes == MAC_ADDR_STR_LEN + 2) {
+				info.offset = data_offset + value - data + 1;
+				info.raw_len = strlen(value);
+				info.bytes = ETH_ALEN;
+				info.read_post_process = u_boot_env_read_post_process_ethaddr;
+				break;
+			}
+		}
+
+		/* Process eth[0-9]addr variables as a MAC address. */
+		if (!strncmp(var, "eth", 3) && isdigit(var[3]) && !strncmp(var + 4, "addr", 4) &&
+		    strlen(var) == 8 && info.bytes == MAC_ADDR_STR_LEN) {
+			info.raw_len = strlen(value);
+			info.bytes = ETH_ALEN;
+			info.read_post_process = u_boot_env_read_post_process_ethaddr;
+		}
+		/* Handle quotation which increases length by 2 and offset by 1 if present. */
+		if (!strncmp(var, "eth", 3) && isdigit(var[3]) && !strncmp(var + 4, "addr", 4) &&
+		    strlen(var) == 8 && info.bytes == MAC_ADDR_STR_LEN + 2) {
+			info.offset = data_offset + value - data + 1;
+			info.raw_len = strlen(value);
+			info.bytes = ETH_ALEN;
+			info.read_post_process = u_boot_env_read_post_process_ethaddr;
+		}
+
+		/* Process RADIOADDR[0-9] variables as a MAC address. */
+		if (!strncmp(var, "RADIOADDR", 9) && isdigit(var[9]) &&
+		    strlen(var) == 10 && info.bytes == MAC_ADDR_STR_LEN) {
+			info.raw_len = strlen(value);
+			info.bytes = ETH_ALEN;
+			info.read_post_process = u_boot_env_read_post_process_ethaddr;
+		}
+		/* Handle quotation which increases length by 2 and offset by 1 if present. */
+		if (!strncmp(var, "RADIOADDR", 9) && isdigit(var[9]) &&
+		    strlen(var) == 10 && info.bytes == MAC_ADDR_STR_LEN + 2) {
+			info.offset = data_offset + value - data + 1;
 			info.raw_len = strlen(value);
 			info.bytes = ETH_ALEN;
 			info.read_post_process = u_boot_env_read_post_process_ethaddr;
@@ -89,6 +133,7 @@ static int u_boot_env_parse_cells(struct device *dev, struct nvmem_device *nvmem
 int u_boot_env_parse(struct device *dev, struct nvmem_device *nvmem,
 		     enum u_boot_env_format format)
 {
+	struct device_node *np = dev->of_node;
 	size_t crc32_data_offset;
 	size_t crc32_data_len;
 	size_t crc32_offset;
@@ -99,10 +144,12 @@ int u_boot_env_parse(struct device *dev, struct nvmem_device *nvmem,
 	uint32_t crc32;
 	uint32_t calc;
 	uint8_t *buf;
+	u32 env_size;
 	int bytes;
 	int err;
 
-	dev_size = nvmem_dev_size(nvmem);
+	dev_size = device_property_read_u32(dev, "env-size", &env_size) ?
+		nvmem_dev_size(nvmem) : (size_t)env_size;
 
 	buf = kzalloc(dev_size, GFP_KERNEL);
 	if (!buf) {
@@ -151,7 +198,7 @@ int u_boot_env_parse(struct device *dev, struct nvmem_device *nvmem,
 	calc = crc32_le(~0, buf + crc32_data_offset, crc32_data_len) ^ ~0L;
 	if (calc != crc32) {
 		dev_err(dev, "Invalid calculated CRC32: 0x%08x (expected: 0x%08x)\n", calc, crc32);
-		err = -EINVAL;
+		err = of_property_read_bool(np, "allow-probe-defer") ? -EPROBE_DEFER : -EINVAL;
 		goto err_kfree;
 	}
 

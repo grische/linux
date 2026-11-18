@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2018-2019 MediaTek Inc.
-/* A library for MediaTek SGMII circuit
+/* A library and platform driver for the MediaTek LynxI SGMII circuit
  *
  * Author: Sean Wang <sean.wang@mediatek.com>
  * Author: Alexander Couzens <lynxis@fe80.eu>
@@ -8,17 +8,29 @@
  *
  */
 
+#include <linux/clk.h>
 #include <linux/mdio.h>
+#include <linux/mfd/syscon.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
+#include <linux/workqueue.h>
+#include <linux/of_platform.h>
 #include <linux/pcs/pcs-mtk-lynxi.h>
+#include <linux/phy/phy-common-props.h>
+#include <linux/pcs/pcs-provider.h>
+#include <linux/phy/phy.h>
 #include <linux/phylink.h>
+#include <linux/platform_device.h>
 #include <linux/regmap.h>
+#include <linux/reset.h>
+#include <linux/rtnetlink.h>
 
 /* SGMII subsystem config registers */
 /* BMCR (low 16) BMSR (high 16) */
 #define SGMSYS_PCS_CONTROL_1		0x0
 #define SGMII_BMCR			GENMASK(15, 0)
 #define SGMII_BMSR			GENMASK(31, 16)
+#define SGMII_REF_CK_SEL		BIT(24)
 
 #define SGMSYS_PCS_DEVICE_ID		0x4
 #define SGMII_LYNXI_DEV_ID		0x4d544950
@@ -46,6 +58,8 @@
 #define SGMII_SPEED_1000		FIELD_PREP(SGMII_SPEED_MASK, 2)
 #define SGMII_DUPLEX_HALF		BIT(4)
 #define SGMII_REMOTE_FAULT_DIS		BIT(8)
+#define SGMII_TRXBUF_THR_MASK		GENMASK(31, 16)
+#define SGMII_TRXBUF_THR(x)		FIELD_PREP(SGMII_TRXBUF_THR_MASK, (x))
 
 /* Register to reset SGMII design */
 #define SGMSYS_RESERVED_0		0x34
@@ -62,8 +76,12 @@
 
 /* Register to QPHY wrapper control */
 #define SGMSYS_QPHY_WRAP_CTRL		0xec
-#define SGMII_PN_SWAP_MASK		GENMASK(1, 0)
-#define SGMII_PN_SWAP_TX_RX		(BIT(0) | BIT(1))
+#define SGMII_PN_SWAP_RX		BIT(1)
+#define SGMII_PN_SWAP_TX		BIT(0)
+
+#define MTK_SGMII_FLAG_PHYA_TRX_CK	BIT(2)
+
+#define MTK_NETSYS_V3_AMA_RGC3		0x128
 
 /* struct mtk_pcs_lynxi -  This structure holds each sgmii regmap andassociated
  *                         data
@@ -72,15 +90,37 @@
  * @dev:                   Pointer to device owning the PCS
  * @ana_rgc3:              The offset of register ANA_RGC3 relative to regmap
  * @interface:             Currently configured interface mode
+ * @neg_mode:              Currently configured negotiation mode
+ * @advertising:           Currently configured advertisement
  * @pcs:                   Phylink PCS structure
  * @flags:                 Flags indicating hardware properties
+ * @last_get_state:        Jiffies at last pcs_get_state call
+ * @link_poll:             Delayed work for link polling when phylink does
+ *                         not poll the PCS
+ * @rstc:                  Reset controller
+ * @sgmii_sel:             SGMII Register Clock
+ * @sgmii_rx:              SGMII RX Clock
+ * @sgmii_tx:              SGMII TX Clock
+ * @node:                  List node
  */
 struct mtk_pcs_lynxi {
 	struct regmap		*regmap;
+	struct device		*dev;
 	u32			ana_rgc3;
 	phy_interface_t		interface;
+	unsigned int		neg_mode;
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(advertising);
 	struct			phylink_pcs pcs;
 	u32			flags;
+	struct fwnode_handle	*fwnode;
+	unsigned long		last_get_state;
+	struct delayed_work	link_poll;
+	struct reset_control	*rstc;
+	struct clk		*sgmii_sel;
+	struct clk		*sgmii_rx;
+	struct clk		*sgmii_tx;
+	struct phy		*xfi_tphy;
+	struct list_head	node;
 };
 
 static struct mtk_pcs_lynxi *pcs_to_mtk_pcs_lynxi(struct phylink_pcs *pcs)
@@ -102,20 +142,54 @@ static unsigned int mtk_pcs_lynxi_inband_caps(struct phylink_pcs *pcs,
 	}
 }
 
-static void mtk_pcs_lynxi_get_state(struct phylink_pcs *pcs,
-				    unsigned int neg_mode,
-				    struct phylink_link_state *state)
+static int mtk_pcs_config_polarity(struct mtk_pcs_lynxi *mpcs,
+				   phy_interface_t interface)
 {
-	struct mtk_pcs_lynxi *mpcs = pcs_to_mtk_pcs_lynxi(pcs);
-	unsigned int bm, adv;
+	struct fwnode_handle *fwnode = mpcs->fwnode, *pcs_fwnode;
+	unsigned int pol, default_pol = PHY_POL_NORMAL;
+	unsigned int val = 0;
+	int ret;
 
-	/* Read the BMSR and LPA */
-	regmap_read(mpcs->regmap, SGMSYS_PCS_CONTROL_1, &bm);
-	regmap_read(mpcs->regmap, SGMSYS_PCS_ADVERTISE, &adv);
+	if (!fwnode)
+		return 0;
 
-	phylink_mii_c22_pcs_decode_state(state, neg_mode,
-					 FIELD_GET(SGMII_BMSR, bm),
-					 FIELD_GET(SGMII_LPA, adv));
+	if (fwnode_property_read_bool(fwnode, "mediatek,pnswap"))
+		default_pol = PHY_POL_INVERT;
+
+	pcs_fwnode = fwnode_get_named_child_node(fwnode, "pcs");
+
+	ret = phy_get_rx_polarity(pcs_fwnode, phy_modes(interface),
+				  BIT(PHY_POL_NORMAL) | BIT(PHY_POL_INVERT),
+				  default_pol, &pol);
+	if (ret) {
+		fwnode_handle_put(pcs_fwnode);
+		return ret;
+	}
+	if (pol == PHY_POL_INVERT)
+		val |= SGMII_PN_SWAP_RX;
+
+	ret = phy_get_tx_polarity(pcs_fwnode, phy_modes(interface),
+				  BIT(PHY_POL_NORMAL) | BIT(PHY_POL_INVERT),
+				  default_pol, &pol);
+	fwnode_handle_put(pcs_fwnode);
+	if (ret)
+		return ret;
+	if (pol == PHY_POL_INVERT)
+		val |= SGMII_PN_SWAP_TX;
+
+	return regmap_update_bits(mpcs->regmap, SGMSYS_QPHY_WRAP_CTRL,
+				  SGMII_PN_SWAP_RX | SGMII_PN_SWAP_TX, val);
+}
+
+static void mtk_sgmii_reset(struct mtk_pcs_lynxi *mpcs)
+{
+	if (!mpcs->rstc)
+		return;
+
+	reset_control_assert(mpcs->rstc);
+	udelay(100);
+	reset_control_deassert(mpcs->rstc);
+	mdelay(1);
 }
 
 static int mtk_pcs_lynxi_config(struct phylink_pcs *pcs, unsigned int neg_mode,
@@ -125,11 +199,17 @@ static int mtk_pcs_lynxi_config(struct phylink_pcs *pcs, unsigned int neg_mode,
 {
 	struct mtk_pcs_lynxi *mpcs = pcs_to_mtk_pcs_lynxi(pcs);
 	bool mode_changed = false, changed;
-	unsigned int rgc3, sgm_mode, bmcr;
+	unsigned int rgc3, sgm_mode, bmcr, trxbuf_thr = 0x3112;
 	int advertise, link_timer;
+	int ret;
+
+	mpcs->neg_mode = neg_mode;
+
+	if (advertising)
+		linkmode_copy(mpcs->advertising, advertising);
 
 	advertise = phylink_mii_c22_pcs_encode_advertisement(interface,
-							     advertising);
+							     mpcs->advertising);
 	if (advertise < 0)
 		return advertise;
 
@@ -153,6 +233,12 @@ static int mtk_pcs_lynxi_config(struct phylink_pcs *pcs, unsigned int neg_mode,
 		bmcr = 0;
 	}
 
+	/* Configure SGMII PCS clock source */
+	if (mpcs->flags & MTK_SGMII_FLAG_PHYA_TRX_CK) {
+		bmcr |= SGMII_REF_CK_SEL;
+		trxbuf_thr = 0x2111;
+	}
+
 	if (mpcs->interface != interface) {
 		link_timer = phylink_get_link_timer_ns(interface);
 		if (link_timer < 0)
@@ -163,13 +249,16 @@ static int mtk_pcs_lynxi_config(struct phylink_pcs *pcs, unsigned int neg_mode,
 				SGMII_PHYA_PWD);
 
 		/* Reset SGMII PCS state */
+		if (mpcs->xfi_tphy)
+			phy_reset(mpcs->xfi_tphy);
+
+		mtk_sgmii_reset(mpcs);
 		regmap_set_bits(mpcs->regmap, SGMSYS_RESERVED_0,
 				SGMII_SW_RESET);
 
-		if (mpcs->flags & MTK_SGMII_FLAG_PN_SWAP)
-			regmap_update_bits(mpcs->regmap, SGMSYS_QPHY_WRAP_CTRL,
-					   SGMII_PN_SWAP_MASK,
-					   SGMII_PN_SWAP_TX_RX);
+		ret = mtk_pcs_config_polarity(mpcs, interface);
+		if (ret)
+			return ret;
 
 		if (interface == PHY_INTERFACE_MODE_2500BASEX)
 			rgc3 = SGMII_PHY_SPEED_3_125G;
@@ -194,12 +283,14 @@ static int mtk_pcs_lynxi_config(struct phylink_pcs *pcs, unsigned int neg_mode,
 
 	/* Update the sgmsys mode register */
 	regmap_update_bits(mpcs->regmap, SGMSYS_SGMII_MODE,
+			   SGMII_TRXBUF_THR_MASK |
 			   SGMII_REMOTE_FAULT_DIS | SGMII_SPEED_DUPLEX_AN |
-			   SGMII_IF_MODE_SGMII, sgm_mode);
+			   SGMII_IF_MODE_SGMII,
+			   SGMII_TRXBUF_THR(trxbuf_thr) | sgm_mode);
 
 	/* Update the BMCR */
 	regmap_update_bits(mpcs->regmap, SGMSYS_PCS_CONTROL_1,
-			   BMCR_ANENABLE, bmcr);
+			   SGMII_REF_CK_SEL | BMCR_ANENABLE, bmcr);
 
 	/* Release PHYA power down state
 	 * Only removing bit SGMII_PHYA_PWD isn't enough.
@@ -213,7 +304,39 @@ static int mtk_pcs_lynxi_config(struct phylink_pcs *pcs, unsigned int neg_mode,
 	usleep_range(50, 100);
 	regmap_write(mpcs->regmap, SGMSYS_QPHY_PWR_STATE_CTRL, 0);
 
+	/* Setup PMA/PMD */
+	if (mpcs->xfi_tphy)
+		phy_set_mode_ext(mpcs->xfi_tphy, PHY_MODE_ETHERNET, interface);
+
 	return changed || mode_changed;
+}
+
+static void mtk_pcs_lynxi_get_state(struct phylink_pcs *pcs,
+				    unsigned int neg_mode,
+				    struct phylink_link_state *state)
+{
+	struct mtk_pcs_lynxi *mpcs = pcs_to_mtk_pcs_lynxi(pcs);
+	unsigned int bm, adv;
+
+	/* Read the BMSR and LPA */
+	regmap_read(mpcs->regmap, SGMSYS_PCS_CONTROL_1, &bm);
+	regmap_read(mpcs->regmap, SGMSYS_PCS_ADVERTISE, &adv);
+
+	phylink_mii_c22_pcs_decode_state(state, neg_mode,
+					 FIELD_GET(SGMII_BMSR, bm),
+					 FIELD_GET(SGMII_LPA, adv));
+
+	mpcs->last_get_state = jiffies;
+
+	/* The XFI T-PHY's analog calibration may settle at a bad
+	 * operating point after hard reset, leaving the TX output
+	 * non-functional. Re-initialize to get another chance.
+	 */
+	if (!state->link && mpcs->xfi_tphy) {
+		mpcs->interface = PHY_INTERFACE_MODE_NA;
+		mtk_pcs_lynxi_config(pcs, mpcs->neg_mode,
+				     state->interface, NULL, false);
+	}
 }
 
 static void mtk_pcs_lynxi_restart_an(struct phylink_pcs *pcs)
@@ -230,6 +353,16 @@ static void mtk_pcs_lynxi_link_up(struct phylink_pcs *pcs,
 {
 	struct mtk_pcs_lynxi *mpcs = pcs_to_mtk_pcs_lynxi(pcs);
 	unsigned int sgm_mode;
+
+	/* In force mode the PCS provides no link status feedback,
+	 * so re-init the T-PHY here as the only chance to recover
+	 * from a bad analog calibration. In-band modes are handled
+	 * by pcs_get_state and the link_poll worker instead.
+	 */
+	if (mpcs->xfi_tphy && neg_mode != PHYLINK_PCS_NEG_INBAND_ENABLED) {
+		mpcs->interface = PHY_INTERFACE_MODE_NA;
+		mtk_pcs_lynxi_config(pcs, neg_mode, interface, NULL, false);
+	}
 
 	if (neg_mode != PHYLINK_PCS_NEG_INBAND_ENABLED) {
 		/* Force the speed and duplex setting */
@@ -249,11 +382,71 @@ static void mtk_pcs_lynxi_link_up(struct phylink_pcs *pcs,
 	}
 }
 
+/* Fallback link poll worker for cases where phylink does not poll the
+ * PCS (e.g. when an SFP module has a PHY and phylink uses MLO_AN_PHY).
+ * Defers to pcs_get_state when phylink IS polling the PCS.
+ */
+static void mtk_pcs_lynxi_link_poll(struct work_struct *work)
+{
+	struct mtk_pcs_lynxi *mpcs = container_of(work,
+						  struct mtk_pcs_lynxi,
+						  link_poll.work);
+	phy_interface_t interface;
+	unsigned int bm;
+
+	/* pcs_get_state handles re-init when phylink polls the PCS */
+	if (time_is_after_jiffies(mpcs->last_get_state + 2 * HZ))
+		goto reschedule;
+
+	interface = mpcs->interface;
+	if (interface == PHY_INTERFACE_MODE_NA)
+		goto reschedule;
+
+	regmap_read(mpcs->regmap, SGMSYS_PCS_CONTROL_1, &bm);
+	if (FIELD_GET(SGMII_BMSR, bm) & BMSR_LSTATUS)
+		goto reschedule;
+
+	mpcs->interface = PHY_INTERFACE_MODE_NA;
+	mtk_pcs_lynxi_config(&mpcs->pcs, mpcs->neg_mode,
+			     interface, NULL, false);
+
+reschedule:
+	schedule_delayed_work(&mpcs->link_poll, HZ);
+}
+
+static int mtk_pcs_lynxi_enable(struct phylink_pcs *pcs)
+{
+	struct mtk_pcs_lynxi *mpcs = pcs_to_mtk_pcs_lynxi(pcs);
+
+	if (mpcs->sgmii_tx && mpcs->sgmii_rx) {
+		clk_prepare_enable(mpcs->sgmii_rx);
+		clk_prepare_enable(mpcs->sgmii_tx);
+	}
+
+	if (mpcs->xfi_tphy) {
+		phy_power_on(mpcs->xfi_tphy);
+		schedule_delayed_work(&mpcs->link_poll, HZ);
+	}
+
+	return 0;
+}
+
 static void mtk_pcs_lynxi_disable(struct phylink_pcs *pcs)
 {
 	struct mtk_pcs_lynxi *mpcs = pcs_to_mtk_pcs_lynxi(pcs);
 
+	regmap_set_bits(mpcs->regmap, SGMSYS_QPHY_PWR_STATE_CTRL, SGMII_PHYA_PWD);
+
+	if (mpcs->sgmii_tx && mpcs->sgmii_rx) {
+		clk_disable_unprepare(mpcs->sgmii_tx);
+		clk_disable_unprepare(mpcs->sgmii_rx);
+	}
+
 	mpcs->interface = PHY_INTERFACE_MODE_NA;
+	if (mpcs->xfi_tphy) {
+		cancel_delayed_work_sync(&mpcs->link_poll);
+		phy_power_off(mpcs->xfi_tphy);
+	}
 }
 
 static const struct phylink_pcs_ops mtk_pcs_lynxi_ops = {
@@ -263,65 +456,166 @@ static const struct phylink_pcs_ops mtk_pcs_lynxi_ops = {
 	.pcs_an_restart = mtk_pcs_lynxi_restart_an,
 	.pcs_link_up = mtk_pcs_lynxi_link_up,
 	.pcs_disable = mtk_pcs_lynxi_disable,
+	.pcs_enable = mtk_pcs_lynxi_enable,
 };
 
-struct phylink_pcs *mtk_pcs_lynxi_create(struct device *dev,
-					 struct regmap *regmap, u32 ana_rgc3,
-					 u32 flags)
+static struct phylink_pcs *mtk_pcs_lynxi_init(struct device *dev,
+					      struct fwnode_handle *fwnode,
+					      struct regmap *regmap, u32 ana_rgc3,
+					      struct mtk_pcs_lynxi *prealloc)
 {
 	struct mtk_pcs_lynxi *mpcs;
-	u32 id, ver;
+	u32 id, ver, flags = 0;
 	int ret;
 
 	ret = regmap_read(regmap, SGMSYS_PCS_DEVICE_ID, &id);
 	if (ret < 0)
-		return NULL;
+		return ERR_PTR(ret);
 
 	if (id != SGMII_LYNXI_DEV_ID) {
 		dev_err(dev, "unknown PCS device id %08x\n", id);
-		return NULL;
+		return ERR_PTR(-ENODEV);
 	}
 
 	ret = regmap_read(regmap, SGMSYS_PCS_SCRATCH, &ver);
 	if (ret < 0)
-		return NULL;
+		return ERR_PTR(ret);
 
 	ver = FIELD_GET(SGMII_DEV_VERSION, ver);
 	if (ver != 0x1) {
 		dev_err(dev, "unknown PCS device version %04x\n", ver);
-		return NULL;
+		return ERR_PTR(-ENODEV);
 	}
+
+	if (fwnode_device_is_compatible(fwnode, "mediatek,mt7987-sgmii"))
+		flags |= MTK_SGMII_FLAG_PHYA_TRX_CK;
 
 	dev_dbg(dev, "MediaTek LynxI SGMII PCS (id 0x%08x, ver 0x%04x)\n", id,
 		ver);
 
-	mpcs = kzalloc(sizeof(*mpcs), GFP_KERNEL);
-	if (!mpcs)
-		return NULL;
+	if (prealloc) {
+		mpcs = prealloc;
+	} else {
+		mpcs = kzalloc(sizeof(*mpcs), GFP_KERNEL);
+		if (!mpcs)
+			return ERR_PTR(-ENOMEM);
+	};
 
 	mpcs->ana_rgc3 = ana_rgc3;
 	mpcs->regmap = regmap;
-	mpcs->flags = flags;
 	mpcs->pcs.ops = &mtk_pcs_lynxi_ops;
 	mpcs->pcs.poll = true;
 	mpcs->interface = PHY_INTERFACE_MODE_NA;
+	mpcs->flags = flags;
+	mpcs->fwnode = fwnode_handle_get(fwnode);
+	INIT_DELAYED_WORK(&mpcs->link_poll, mtk_pcs_lynxi_link_poll);
 
 	__set_bit(PHY_INTERFACE_MODE_SGMII, mpcs->pcs.supported_interfaces);
 	__set_bit(PHY_INTERFACE_MODE_1000BASEX, mpcs->pcs.supported_interfaces);
 	__set_bit(PHY_INTERFACE_MODE_2500BASEX, mpcs->pcs.supported_interfaces);
 
 	return &mpcs->pcs;
+};
+
+struct phylink_pcs *mtk_pcs_lynxi_create(struct device *dev,
+					 struct fwnode_handle *fwnode,
+					 struct regmap *regmap, u32 ana_rgc3)
+{
+	return mtk_pcs_lynxi_init(dev, fwnode, regmap, ana_rgc3, NULL);
 }
 EXPORT_SYMBOL(mtk_pcs_lynxi_create);
 
 void mtk_pcs_lynxi_destroy(struct phylink_pcs *pcs)
 {
+	struct mtk_pcs_lynxi *mpcs;
+
 	if (!pcs)
 		return;
 
-	kfree(pcs_to_mtk_pcs_lynxi(pcs));
+	mpcs = pcs_to_mtk_pcs_lynxi(pcs);
+	fwnode_handle_put(mpcs->fwnode);
+	kfree(mpcs);
 }
 EXPORT_SYMBOL(mtk_pcs_lynxi_destroy);
 
+#ifdef CONFIG_FWNODE_PCS
+static int mtk_pcs_lynxi_probe(struct platform_device *pdev)
+{
+	struct fwnode_pcs_provider *provider;
+	struct device *dev = &pdev->dev;
+	struct device_node *np = dev->of_node;
+	struct mtk_pcs_lynxi *mpcs;
+	struct phylink_pcs *pcs;
+	struct regmap *regmap;
+
+	mpcs = devm_kzalloc(dev, sizeof(*mpcs), GFP_KERNEL);
+	if (!mpcs)
+		return -ENOMEM;
+
+	mpcs->dev = dev;
+	regmap = syscon_node_to_regmap(np->parent);
+	if (IS_ERR(regmap))
+		return PTR_ERR(regmap);
+
+	if (of_parse_phandle(np->parent, "resets", 0)) {
+		mpcs->rstc = of_reset_control_get_shared(np->parent, NULL);
+		if (IS_ERR(mpcs->rstc))
+			return PTR_ERR(mpcs->rstc);
+	} else
+		mpcs->rstc = NULL;
+
+	reset_control_deassert(mpcs->rstc);
+	mpcs->sgmii_sel = devm_clk_get_enabled(dev, "sgmii_sel");
+	if (IS_ERR(mpcs->sgmii_sel))
+		return PTR_ERR(mpcs->sgmii_sel);
+
+	mpcs->sgmii_rx = devm_clk_get(dev, "sgmii_rx");
+	if (IS_ERR(mpcs->sgmii_rx))
+		return PTR_ERR(mpcs->sgmii_rx);
+
+	mpcs->sgmii_tx = devm_clk_get(dev, "sgmii_tx");
+	if (IS_ERR(mpcs->sgmii_tx))
+		return PTR_ERR(mpcs->sgmii_tx);
+
+	mpcs->xfi_tphy = devm_of_phy_optional_get(mpcs->dev, np, NULL);
+	if (IS_ERR(mpcs->xfi_tphy))
+		return PTR_ERR(mpcs->xfi_tphy);
+
+	pcs = mtk_pcs_lynxi_init(dev, of_fwnode_handle(np), regmap,
+				 (uintptr_t)of_device_get_match_data(dev),
+				 mpcs);
+	if (IS_ERR(pcs))
+		return PTR_ERR(pcs);
+
+	regmap_set_bits(mpcs->regmap, SGMSYS_QPHY_PWR_STATE_CTRL, SGMII_PHYA_PWD);
+
+	platform_set_drvdata(pdev, mpcs);
+
+	provider = devm_fwnode_pcs_add_provider(dev, of_fwnode_handle(np),
+						fwnode_pcs_simple_xlate, &mpcs->pcs);
+	if (IS_ERR(provider))
+		return dev_err_probe(dev, PTR_ERR(provider), "Failed to add PCS provider\n");
+
+	return 0;
+}
+
+static const struct of_device_id mtk_pcs_lynxi_of_match[] = {
+	{ .compatible = "mediatek,mt7987-sgmii", .data = (void *)MTK_NETSYS_V3_AMA_RGC3 },
+	{ .compatible = "mediatek,mt7988-sgmii", .data = (void *)MTK_NETSYS_V3_AMA_RGC3 },
+	{ /* sentinel */ },
+};
+MODULE_DEVICE_TABLE(of, mtk_pcs_lynxi_of_match);
+
+static struct platform_driver mtk_pcs_lynxi_driver = {
+	.driver = {
+		.name			= "mtk-pcs-lynxi",
+		.of_match_table		= mtk_pcs_lynxi_of_match,
+	},
+	.probe = mtk_pcs_lynxi_probe,
+};
+module_platform_driver(mtk_pcs_lynxi_driver);
+#endif
+
+MODULE_AUTHOR("Daniel Golle <daniel@makrotopia.org>");
 MODULE_DESCRIPTION("MediaTek SGMII library for LynxI");
 MODULE_LICENSE("GPL");

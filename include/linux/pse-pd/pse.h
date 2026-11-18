@@ -10,6 +10,7 @@
 #include <linux/kfifo.h>
 #include <uapi/linux/ethtool.h>
 #include <uapi/linux/ethtool_netlink_generated.h>
+#include <linux/leds.h>
 #include <linux/regulator/driver.h>
 
 /* Maximum current in uA according to IEEE 802.3-2022 Table 145-1 */
@@ -21,6 +22,7 @@ struct net_device;
 struct phy_device;
 struct pse_controller_dev;
 struct netlink_ext_ack;
+struct notifier_block;
 
 /* C33 PSE extended state and substate. */
 struct ethtool_c33_pse_ext_state_info {
@@ -267,6 +269,25 @@ struct pse_pi {
 };
 
 /**
+ * struct pse_pi_led_triggers - LED trigger state for a PSE PI
+ *
+ * @delivering: LED trigger for power delivering state
+ * @enabled: LED trigger for admin enabled state
+ * @fault: LED trigger for power fault state
+ * @last_delivering: cached delivering state for change detection
+ * @last_enabled: cached enabled state for change detection
+ * @last_fault: cached fault state for change detection
+ */
+struct pse_pi_led_triggers {
+	struct led_trigger delivering;
+	struct led_trigger enabled;
+	struct led_trigger fault;
+	bool last_delivering;
+	bool last_enabled;
+	bool last_fault;
+};
+
+/**
  * struct pse_ntf - PSE notification element
  *
  * @id: ID of the PSE control
@@ -292,12 +313,19 @@ struct pse_ntf {
  * @pi: table of PSE PIs described in this controller device
  * @no_of_pse_pi: flag set if the pse_pis devicetree node is not used
  * @irq: PSE interrupt
+ * @polling: flag indicating poll-based event detection is active
+ * @poll_interval_ms: poll interval in milliseconds
+ * @poll_work: delayed work for poll-based event detection
+ * @poll_desc: copy of the driver's event descriptor for polling
+ * @poll_notifs: per-PI notification scratch space for poll worker
+ * @poll_notifs_mask: bitmap of PIs with events for poll worker
  * @pis_prio_max: Maximum value allowed for the PSE PIs priority
  * @supp_budget_eval_strategies: budget evaluation strategies supported
  *				 by the PSE
  * @ntf_work: workqueue for PSE notification management
  * @ntf_fifo: PSE notifications FIFO
  * @ntf_fifo_lock: protect @ntf_fifo writer
+ * @pi_led_trigs: per-PI LED trigger state array
  */
 struct pse_controller_dev {
 	const struct pse_controller_ops *ops;
@@ -312,11 +340,18 @@ struct pse_controller_dev {
 	struct pse_pi *pi;
 	bool no_of_pse_pi;
 	int irq;
+	bool polling;
+	unsigned int poll_interval_ms;
+	struct delayed_work poll_work;
+	struct pse_irq_desc poll_desc;
+	unsigned long *poll_notifs;
+	unsigned long *poll_notifs_mask;
 	unsigned int pis_prio_max;
 	u32 supp_budget_eval_strategies;
 	struct work_struct ntf_work;
 	DECLARE_KFIFO_PTR(ntf_fifo, struct pse_ntf);
 	spinlock_t ntf_fifo_lock; /* Protect @ntf_fifo writer */
+	struct pse_pi_led_triggers *pi_led_trigs;
 };
 
 /**
@@ -337,6 +372,24 @@ enum pse_budget_eval_strategies {
 	PSE_BUDGET_EVAL_STRAT_DYNAMIC	= 1 << 2,
 };
 
+/**
+ * enum pse_controller_event - PSE controller lifecycle events
+ *
+ * Event data in callbacks is always a pointer to the struct
+ * pse_controller_dev firing the event.
+ *
+ * @PSE_REGISTERED: controller added to pse_controller_list and
+ *	resolvable by of_pse_control_get().
+ * @PSE_UNREGISTERED: controller about to be removed from
+ *	pse_controller_list. Subscribers holding pse_control references
+ *	targeting it must drop them before returning and must not
+ *	acquire new references for it.
+ */
+enum pse_controller_event {
+	PSE_REGISTERED,
+	PSE_UNREGISTERED,
+};
+
 #if IS_ENABLED(CONFIG_PSE_CONTROLLER)
 int pse_controller_register(struct pse_controller_dev *pcdev);
 void pse_controller_unregister(struct pse_controller_dev *pcdev);
@@ -345,6 +398,8 @@ int devm_pse_controller_register(struct device *dev,
 				 struct pse_controller_dev *pcdev);
 int devm_pse_irq_helper(struct pse_controller_dev *pcdev, int irq,
 			int irq_flags, const struct pse_irq_desc *d);
+int devm_pse_poll_helper(struct pse_controller_dev *pcdev,
+			 const struct pse_irq_desc *d);
 
 struct pse_control *of_pse_control_get(struct device_node *node,
 				       struct phy_device *phydev);
@@ -365,6 +420,23 @@ int pse_ethtool_set_prio(struct pse_control *psec,
 
 bool pse_has_podl(struct pse_control *psec);
 bool pse_has_c33(struct pse_control *psec);
+
+bool pse_control_matches_pcdev(struct pse_control *psec,
+			       struct pse_controller_dev *pcdev);
+
+int pse_register_notifier(struct notifier_block *nb);
+int pse_unregister_notifier(struct notifier_block *nb);
+
+void pse_phy_lock(void);
+void pse_phy_unlock(void);
+
+#ifdef CONFIG_LOCKDEP
+void pse_phy_lock_assert_held(void);
+#else
+static inline void pse_phy_lock_assert_held(void)
+{
+}
+#endif
 
 #else
 
@@ -414,6 +486,34 @@ static inline bool pse_has_podl(struct pse_control *psec)
 static inline bool pse_has_c33(struct pse_control *psec)
 {
 	return false;
+}
+
+static inline bool pse_control_matches_pcdev(struct pse_control *psec,
+					     struct pse_controller_dev *pcdev)
+{
+	return false;
+}
+
+static inline int pse_register_notifier(struct notifier_block *nb)
+{
+	return 0;
+}
+
+static inline int pse_unregister_notifier(struct notifier_block *nb)
+{
+	return 0;
+}
+
+static inline void pse_phy_lock(void)
+{
+}
+
+static inline void pse_phy_unlock(void)
+{
+}
+
+static inline void pse_phy_lock_assert_held(void)
+{
 }
 
 #endif

@@ -45,7 +45,7 @@
 			 <&g3dsys CLK_G3DSYS_CORE>;
 		clock-names = "bus", "core";
 		power-domains = <&scpsys MT2701_POWER_DOMAIN_MFG>;
-		resets = <&g3dsys MT2701_G3DSYS_CORE_RST>;
+		/* resets = <&g3dsys MT2701_G3DSYS_CORE_RST>; */
 	};
 
 	mmsys: syscon@14000000 {

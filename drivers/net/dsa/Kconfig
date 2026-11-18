@@ -24,6 +24,15 @@ config NET_DSA_LOOP
 	  This enables support for a fake mock-up switch chip which
 	  exercises the DSA APIs.
 
+config NET_DSA_AN8855
+	tristate "Airoha AN8855 Ethernet switch support"
+	depends on MFD_AIROHA_AN8855
+	depends on NET_DSA
+	select NET_DSA_TAG_MTK
+	help
+	  This enables support for the Airoha AN8855 Ethernet switch
+	  chip.
+
 source "drivers/net/dsa/hirschmann/Kconfig"
 
 source "drivers/net/dsa/lantiq/Kconfig"
@@ -73,6 +82,8 @@ config NET_DSA_MV88E6060
 source "drivers/net/dsa/microchip/Kconfig"
 
 source "drivers/net/dsa/mv88e6xxx/Kconfig"
+
+source "drivers/net/dsa/mxl862xx/Kconfig"
 
 source "drivers/net/dsa/ocelot/Kconfig"
 
@@ -154,4 +165,13 @@ config NET_DSA_VITESSE_VSC73XX_PLATFORM
 	  This enables support for the Vitesse VSC7385, VSC7388, VSC7395
 	  and VSC7398 SparX integrated ethernet switches, connected over
 	  a CPU-attached address bus and work in memory-mapped I/O mode.
+
+config NET_DSA_YT92XX
+	tristate "Motorcomm YT9215 and YT9224 ethernet switch chip support"
+	select NET_DSA_TAG_YT921X
+	select NET_DSA_TAG_YT922X
+	select NET_IEEE8021Q_HELPERS if DCB
+	help
+	  This enables support for the Motorcomm YT9215 and YT9224 ethernet switch
+	  chip.
 endmenu

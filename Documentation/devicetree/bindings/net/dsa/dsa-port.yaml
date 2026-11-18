@@ -58,6 +58,8 @@ properties:
       - rtl8_4
       - rtl8_4t
       - seville
+      - yt922x
+      - yt922x_4b
 
 # CPU and DSA ports must have phylink-compatible link descriptions
 if:

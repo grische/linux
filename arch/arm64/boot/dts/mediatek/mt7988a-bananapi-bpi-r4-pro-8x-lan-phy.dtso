@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright (C) 2025 MediaTek Inc.
+ * Author: Frank Wunderlich <frank-w@public-files.de>
+ */
+
+/* This enables LAN-PHY on BPI-R4-Pro */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	compatible = "bananapi,bpi-r4-pro", "mediatek,mt7988a";
+};
+
+&{/soc/ethernet@15100000/mdio-bus/switch@16/ports} {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	port@13 {
+		reg = <13>;
+		managed = "in-band-status";
+		phy-mode = "usxgmii";
+		phy-handle = <&phy24>;
+		status = "okay";
+	};
+};
+
+&{/soc/pinctrl@1001f000} {
+	lan-phy-hog {
+		gpio-hog;
+		gpios = <54 GPIO_ACTIVE_HIGH>;
+		output-high; /* select phy */
+	};
+};

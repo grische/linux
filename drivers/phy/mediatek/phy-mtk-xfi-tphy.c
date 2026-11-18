@@ -18,10 +18,9 @@
 #include <linux/reset.h>
 #include <linux/phy.h>
 #include <linux/phy/phy.h>
+#include <linux/phy/phy-mtk-xfi-tphy.h>
 
 #include "phy-mtk-io.h"
-
-#define MTK_XFI_TPHY_NUM_CLOCKS		2
 
 #define REG_DIG_GLB_70			0x0070
 #define  XTP_PCS_RX_EQ_IN_PROGRESS(x)	FIELD_PREP(GENMASK(25, 24), (x))
@@ -55,22 +54,6 @@
 #define  XTP_GLB_USXGMII_SEL_MASK	GENMASK(3, 1)
 #define  XTP_GLB_USXGMII_SEL(x)		FIELD_PREP(GENMASK(3, 1), (x))
 #define  XTP_GLB_USXGMII_EN		BIT(0)
-
-/**
- * struct mtk_xfi_tphy - run-time data of the XFI phy instance
- * @base: IO memory area to access phy registers.
- * @dev: Kernel device used to output prefixed debug info.
- * @reset: Reset control corresponding to the phy instance.
- * @clocks: All clocks required for the phy to operate.
- * @da_war: Enables work-around for 10GBase-R mode.
- */
-struct mtk_xfi_tphy {
-	void __iomem		*base;
-	struct device		*dev;
-	struct reset_control	*reset;
-	struct clk_bulk_data	clocks[MTK_XFI_TPHY_NUM_CLOCKS];
-	bool			da_war;
-};
 
 /**
  * mtk_xfi_tphy_setup() - Setup phy for specified interface mode.

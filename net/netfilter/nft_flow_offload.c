@@ -46,6 +46,23 @@ static void flow_offload_ct_tcp(struct nf_conn *ct)
 	spin_unlock_bh(&ct->lock);
 }
 
+/* The priority a rule set before "flow add". IPv4 forwarding gives every
+ * packet one derived from its TOS unless ip_forward_update_priority is off:
+ * that one is not the flow's but each packet's, so the fast path derives it
+ * per packet again, and hardware classifies on the DSCP itself.
+ */
+static u32 nft_flow_offload_priority(const struct nft_pktinfo *pkt)
+{
+	const struct sk_buff *skb = pkt->skb;
+
+	if (nft_pf(pkt) == NFPROTO_IPV4 &&
+	    READ_ONCE(nft_net(pkt)->ipv4.sysctl_ip_fwd_update_priority) &&
+	    skb->priority == rt_tos2priority(ip_hdr(skb)->tos))
+		return 0;
+
+	return skb->priority;
+}
+
 static void nft_flow_offload_eval(const struct nft_expr *expr,
 				  struct nft_regs *regs,
 				  const struct nft_pktinfo *pkt)
@@ -115,6 +132,8 @@ static void nft_flow_offload_eval(const struct nft_expr *expr,
 	flow_offload_route_init(flow, &route);
 	if (tcph)
 		flow_offload_ct_tcp(ct);
+
+	flow->priority = nft_flow_offload_priority(pkt);
 
 	__set_bit(NF_FLOW_HW_BIDIRECTIONAL, &flow->flags);
 	ret = flow_offload_add(flowtable, flow);
@@ -239,47 +258,14 @@ static struct nft_expr_type nft_flow_offload_type __read_mostly = {
 	.owner		= THIS_MODULE,
 };
 
-static int flow_offload_netdev_event(struct notifier_block *this,
-				     unsigned long event, void *ptr)
-{
-	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
-
-	if (event != NETDEV_DOWN)
-		return NOTIFY_DONE;
-
-	nf_flow_table_cleanup(dev);
-
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block flow_offload_netdev_notifier = {
-	.notifier_call	= flow_offload_netdev_event,
-};
-
 static int __init nft_flow_offload_module_init(void)
 {
-	int err;
-
-	err = register_netdevice_notifier(&flow_offload_netdev_notifier);
-	if (err)
-		goto err;
-
-	err = nft_register_expr(&nft_flow_offload_type);
-	if (err < 0)
-		goto register_expr;
-
-	return 0;
-
-register_expr:
-	unregister_netdevice_notifier(&flow_offload_netdev_notifier);
-err:
-	return err;
+	return nft_register_expr(&nft_flow_offload_type);
 }
 
 static void __exit nft_flow_offload_module_exit(void)
 {
 	nft_unregister_expr(&nft_flow_offload_type);
-	unregister_netdevice_notifier(&flow_offload_netdev_notifier);
 }
 
 module_init(nft_flow_offload_module_init);

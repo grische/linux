@@ -486,6 +486,13 @@ static const struct pwm_mediatek_of_data mt7986_pwm_data = {
 	.chanreg_width = 0x40,
 };
 
+static const struct pwm_mediatek_of_data mt7987_pwm_data = {
+	.num_pwms = 3,
+	.pwm45_fixup = false,
+	.chanreg_base = 0x100,
+	.chanreg_width = 0x100,
+};
+
 static const struct pwm_mediatek_of_data mt7988_pwm_data = {
 	.num_pwms = 8,
 	.pwm45_fixup = false,
@@ -535,6 +542,7 @@ static const struct of_device_id pwm_mediatek_of_match[] = {
 	{ .compatible = "mediatek,mt7629-pwm", .data = &mt7629_pwm_data },
 	{ .compatible = "mediatek,mt7981-pwm", .data = &mt7981_pwm_data },
 	{ .compatible = "mediatek,mt7986-pwm", .data = &mt7986_pwm_data },
+	{ .compatible = "mediatek,mt7987-pwm", .data = &mt7987_pwm_data },
 	{ .compatible = "mediatek,mt7988-pwm", .data = &mt7988_pwm_data },
 	{ .compatible = "mediatek,mt8183-pwm", .data = &mt8183_pwm_data },
 	{ .compatible = "mediatek,mt8365-pwm", .data = &mt8365_pwm_data },

@@ -20,3 +20,16 @@
 	pinctrl-0 = <&i2p5gbe_led0_pins>;
 	pinctrl-names = "i2p5gbe-led";
 };
+
+&gmac1 {
+	phy-mode = "internal";
+	phy-connection-type = "internal";
+	phy = <&int_2p5g_phy>;
+	openwrt,netdev-name = "lan4";
+	status = "okay";
+};
+
+&int_2p5g_phy {
+	pinctrl-names = "i2p5gbe-led";
+	pinctrl-0 = <&i2p5gbe_led0_pins>;
+};

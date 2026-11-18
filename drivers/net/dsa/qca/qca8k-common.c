@@ -322,6 +322,36 @@ exit:
 	return ret;
 }
 
+static int qca8k_fdb_purge_dynamic(struct qca8k_priv *priv, const u8 *mac,
+				   u16 vid)
+{
+	struct qca8k_fdb fdb = { 0 };
+	int ret;
+
+	mutex_lock(&priv->reg_mutex);
+
+	qca8k_fdb_write(priv, vid, 0, mac, 0);
+	ret = qca8k_fdb_access(priv, QCA8K_FDB_SEARCH, -1);
+	if (ret < 0)
+		goto exit;
+
+	ret = qca8k_fdb_read(priv, &fdb);
+	if (ret < 0)
+		goto exit;
+
+	/* Nothing to purge, or a deliberately configured static entry */
+	if (!fdb.aging || fdb.aging == QCA8K_ATU_STATUS_STATIC) {
+		ret = 0;
+		goto exit;
+	}
+
+	ret = qca8k_fdb_access(priv, QCA8K_FDB_PURGE, -1);
+
+exit:
+	mutex_unlock(&priv->reg_mutex);
+	return ret;
+}
+
 static int qca8k_vlan_access(struct qca8k_priv *priv,
 			     enum qca8k_vlan_cmd cmd, u16 vid)
 {
@@ -829,6 +859,29 @@ int qca8k_port_fdb_add(struct dsa_switch *ds, int port,
 	struct qca8k_priv *priv = ds->priv;
 	u16 port_mask = BIT(port);
 
+	/* The ATU forwards a unicast hit to every port set in the
+	 * destination mask, so a host entry spanning multiple CPU ports
+	 * would deliver one copy of each host-bound frame per CPU port.
+	 * Skip host entries entirely: unknown unicast is already forwarded
+	 * to all CPU ports by GLOBAL_FW_CTRL1 and filtered by the ingress
+	 * port LOOKUP_MEMBER, so host-bound frames reach exactly one CPU
+	 * port, the conduit of the ingress port.
+	 */
+	if (dsa_is_cpu_port(ds, port) || dsa_is_dsa_port(ds, port)) {
+		/* The bridge now sees {addr, vid} on a software port behind
+		 * the CPU (e.g. a wireless interface). A dynamically-learned
+		 * ATU entry may still point at the user port the station
+		 * roamed away from; a unicast hit on it forwards host-bound
+		 * frames to that stale port, where the ingress port filter
+		 * discards them, instead of flooding them to the CPU. Purge
+		 * such an entry so the address is unknown unicast again.
+		 */
+		if (!vid)
+			vid = QCA8K_PORT_VID_DEF;
+
+		return qca8k_fdb_purge_dynamic(priv, addr, vid);
+	}
+
 	return qca8k_port_fdb_insert(priv, addr, port_mask, vid);
 }
 
@@ -838,6 +891,9 @@ int qca8k_port_fdb_del(struct dsa_switch *ds, int port,
 {
 	struct qca8k_priv *priv = ds->priv;
 	u16 port_mask = BIT(port);
+
+	if (dsa_is_cpu_port(ds, port) || dsa_is_dsa_port(ds, port))
+		return 0;
 
 	if (!vid)
 		vid = QCA8K_PORT_VID_DEF;
@@ -1225,6 +1281,42 @@ int qca8k_port_lag_leave(struct dsa_switch *ds, int port,
 			 struct dsa_lag lag)
 {
 	return qca8k_lag_refresh_portmap(ds, port, lag, true);
+}
+
+int qca8k_lag_fdb_add(struct dsa_switch *ds, struct dsa_lag lag,
+		      const unsigned char *addr, u16 vid,
+		      struct dsa_db db)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+	struct dsa_port *dp;
+	u16 port_mask = 0;
+
+	/* Set the vid to the port vlan id if no vid is set */
+	if (!vid)
+		vid = QCA8K_PORT_VID_DEF;
+
+	dsa_lag_foreach_port(dp, ds->dst, &lag)
+		port_mask |= BIT(dp->index);
+
+	return qca8k_port_fdb_insert(priv, addr, port_mask, vid);
+}
+
+int qca8k_lag_fdb_del(struct dsa_switch *ds, struct dsa_lag lag,
+		      const unsigned char *addr, u16 vid,
+		      struct dsa_db db)
+{
+	struct qca8k_priv *priv = (struct qca8k_priv *)ds->priv;
+	struct dsa_port *dp;
+	u16 port_mask = 0;
+
+	/* Set the vid to the port vlan id if no vid is set */
+	if (!vid)
+		vid = QCA8K_PORT_VID_DEF;
+
+	dsa_lag_foreach_port(dp, ds->dst, &lag)
+	port_mask |= BIT(dp->index);
+
+	return qca8k_fdb_del(priv, addr, port_mask, vid);
 }
 
 int qca8k_read_switch_id(struct qca8k_priv *priv)

@@ -268,7 +268,7 @@ static const struct serial8250_config uart_config[] = {
 		.tx_loadsz	= 16,
 		.fcr		= UART_FCR_ENABLE_FIFO |
 				  UART_FCR_CLEAR_RCVR | UART_FCR_CLEAR_XMIT,
-		.flags		= UART_CAP_FIFO,
+		.flags		= UART_CAP_FIFO | UART_CAP_NMOD,
 	},
 	[PORT_NPCM] = {
 		.name		= "Nuvoton 16550",
@@ -2782,6 +2782,11 @@ serial8250_do_set_termios(struct uart_port *port, struct ktermios *termios,
 	lcr = serial8250_compute_lcr(up, termios->c_cflag);
 	baud = serial8250_get_baud_rate(port, termios, old);
 	quot = serial8250_get_divisor(port, baud, &frac);
+
+	if (up->capabilities & UART_CAP_NMOD) {
+		termios->c_cflag = 0;
+		return;
+	}
 
 	/*
 	 * Ok, we're now changing the port state. Do it with interrupts disabled.

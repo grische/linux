@@ -87,6 +87,8 @@
 #define LVTS_COEFF_B_MT8195			250460
 #define LVTS_COEFF_A_MT7988			-204650
 #define LVTS_COEFF_B_MT7988			204650
+#define LVTS_COEFF_A_MT7987			-204650
+#define LVTS_COEFF_B_MT7987			204650
 
 #define LVTS_MSR_IMMEDIATE_MODE		0
 #define LVTS_MSR_FILTERED_MODE		1
@@ -127,6 +129,7 @@ struct lvts_data {
 	const struct lvts_ctrl_data *lvts_ctrl;
 	const u32 *conn_cmd;
 	const u32 *init_cmd;
+	bool irq_enable;
 	int num_lvts_ctrl;
 	int num_conn_cmd;
 	int num_init_cmd;
@@ -408,6 +411,10 @@ static int lvts_set_trips(struct thermal_zone_device *tz, int low, int high)
 		lvts_ctrl->high_thresh = high;
 		lvts_ctrl->low_thresh = low;
 	}
+
+	if (!lvts_data->irq_enable)
+		return 0;
+
 	lvts_update_irq_mask(lvts_ctrl);
 
 	if (!should_update_thresh)
@@ -921,6 +928,8 @@ static void lvts_write_config(struct lvts_ctrl *lvts_ctrl, const u32 *cmds, int 
 
 static int lvts_irq_init(struct lvts_ctrl *lvts_ctrl)
 {
+	const struct lvts_data *lvts_data = lvts_ctrl->lvts_data;
+
 	/*
 	 * LVTS_PROTCTL : Thermal Protection Sensor Selection
 	 *
@@ -954,7 +963,8 @@ static int lvts_irq_init(struct lvts_ctrl *lvts_ctrl)
 	 * The LVTS_MONINT register layout is the same as the LVTS_MONINTSTS
 	 * register, except we set the bits to enable the interrupt.
 	 */
-	writel(0, LVTS_MONINT(lvts_ctrl->base));
+	if (lvts_data->irq_enable)
+		writel(0, LVTS_MONINT(lvts_ctrl->base));
 
 	return 0;
 }
@@ -1338,9 +1348,11 @@ static int lvts_probe(struct platform_device *pdev)
 	if (IS_ERR(lvts_td->reset))
 		return dev_err_probe(dev, PTR_ERR(lvts_td->reset), "Failed to get reset control\n");
 
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0)
-		return irq;
+	if (lvts_data->irq_enable) {
+		irq = platform_get_irq(pdev, 0);
+		if (irq < 0)
+			return irq;
+	}
 
 	golden_temp_offset = lvts_data->temp_offset;
 
@@ -1352,10 +1364,12 @@ static int lvts_probe(struct platform_device *pdev)
 	 * At this point the LVTS is initialized and enabled. We can
 	 * safely enable the interrupt.
 	 */
-	ret = devm_request_threaded_irq(dev, irq, NULL, lvts_irq_handler,
-					IRQF_ONESHOT, dev_name(dev), lvts_td);
-	if (ret)
-		return dev_err_probe(dev, ret, "Failed to request interrupt\n");
+	if (lvts_data->irq_enable) {
+		ret = devm_request_threaded_irq(dev, irq, NULL, lvts_irq_handler,
+						IRQF_ONESHOT, dev_name(dev), lvts_td);
+		if (ret)
+			return dev_err_probe(dev, ret, "Failed to request interrupt\n");
+	}
 
 	platform_set_drvdata(pdev, lvts_td);
 
@@ -1372,6 +1386,19 @@ static void lvts_remove(struct platform_device *pdev)
 	for (i = 0; i < lvts_td->num_lvts_ctrl; i++)
 		lvts_ctrl_set_enable(&lvts_td->lvts_ctrl[i], false);
 }
+
+static const struct lvts_ctrl_data mt7987_lvts_ap_data_ctrl[] = {
+	{
+		.lvts_sensor = {
+			{ .dt_id = MT7987_CPU,
+			  .cal_offsets = { 0x04, 0x05, 0x06 } },
+			{ .dt_id = MT7987_ETH2P5G,
+			  .cal_offsets = { 0x08, 0x09, 0x0a } },
+		},
+		VALID_SENSOR_MAP(1, 1, 0, 0),
+		.offset = 0x0,
+	},
+};
 
 static const struct lvts_ctrl_data mt7988_lvts_ap_data_ctrl[] = {
 	{
@@ -1443,6 +1470,7 @@ static int lvts_resume(struct device *dev)
 }
 
 static const u32 default_conn_cmds[] = { 0xC103FFFF, 0xC502FF55 };
+static const u32 mt7987_conn_cmds[] = { 0xC103FFFF, 0xC502FC55 };
 static const u32 mt7988_conn_cmds[] = { 0xC103FFFF, 0xC502FC55 };
 
 /*
@@ -1453,6 +1481,12 @@ static const u32 default_init_cmds[] = {
 	0xC10307A6, 0xC10306B8, 0xC1030500, 0xC1030420, 0xC1030300,
 	0xC1030030, 0xC10300F6, 0xC1030050, 0xC1030060, 0xC10300AC,
 	0xC10300FC, 0xC103009D, 0xC10300F1, 0xC10300E1
+};
+
+static const u32 mt7987_init_cmds[] = {
+	0xC1030300, 0xC1030420, 0xC1030500, 0xC10307A6, 0xC10308C7,
+	0xC103098D, 0xC1030C7C, 0xC1030AA8, 0xC10308CE, 0xC10308C7,
+	0xC1030B04, 0xC1030E01, 0xC10306B8
 };
 
 static const u32 mt7988_init_cmds[] = {
@@ -1753,7 +1787,21 @@ static const struct lvts_ctrl_data mt8195_lvts_ap_data_ctrl[] = {
 	}
 };
 
+static const struct lvts_data mt7987_lvts_ap_data = {
+	.irq_enable	= false,
+	.lvts_ctrl	= mt7987_lvts_ap_data_ctrl,
+	.conn_cmd	= mt7987_conn_cmds,
+	.init_cmd	= mt7987_init_cmds,
+	.num_lvts_ctrl	= ARRAY_SIZE(mt7987_lvts_ap_data_ctrl),
+	.num_conn_cmd	= ARRAY_SIZE(mt7987_conn_cmds),
+	.num_init_cmd	= ARRAY_SIZE(mt7987_init_cmds),
+	.temp_factor	= LVTS_COEFF_A_MT7987,
+	.temp_offset	= LVTS_COEFF_B_MT7987,
+	.gt_calib_bit_offset = 24,
+};
+
 static const struct lvts_data mt7988_lvts_ap_data = {
+	.irq_enable	= true,
 	.lvts_ctrl	= mt7988_lvts_ap_data_ctrl,
 	.conn_cmd	= mt7988_conn_cmds,
 	.init_cmd	= mt7988_init_cmds,
@@ -1766,6 +1814,7 @@ static const struct lvts_data mt7988_lvts_ap_data = {
 };
 
 static const struct lvts_data mt8186_lvts_data = {
+	.irq_enable	= true,
 	.lvts_ctrl	= mt8186_lvts_data_ctrl,
 	.conn_cmd	= default_conn_cmds,
 	.init_cmd	= default_init_cmds,
@@ -1779,6 +1828,7 @@ static const struct lvts_data mt8186_lvts_data = {
 };
 
 static const struct lvts_data mt8188_lvts_mcu_data = {
+	.irq_enable	= true,
 	.lvts_ctrl	= mt8188_lvts_mcu_data_ctrl,
 	.conn_cmd	= default_conn_cmds,
 	.init_cmd	= default_init_cmds,
@@ -1792,6 +1842,7 @@ static const struct lvts_data mt8188_lvts_mcu_data = {
 };
 
 static const struct lvts_data mt8188_lvts_ap_data = {
+	.irq_enable	= true,
 	.lvts_ctrl	= mt8188_lvts_ap_data_ctrl,
 	.conn_cmd	= default_conn_cmds,
 	.init_cmd	= default_init_cmds,
@@ -1805,6 +1856,7 @@ static const struct lvts_data mt8188_lvts_ap_data = {
 };
 
 static const struct lvts_data mt8192_lvts_mcu_data = {
+	.irq_enable	= true,
 	.lvts_ctrl	= mt8192_lvts_mcu_data_ctrl,
 	.conn_cmd	= default_conn_cmds,
 	.init_cmd	= default_init_cmds,
@@ -1818,6 +1870,7 @@ static const struct lvts_data mt8192_lvts_mcu_data = {
 };
 
 static const struct lvts_data mt8192_lvts_ap_data = {
+	.irq_enable	= true,
 	.lvts_ctrl	= mt8192_lvts_ap_data_ctrl,
 	.conn_cmd	= default_conn_cmds,
 	.init_cmd	= default_init_cmds,
@@ -1831,6 +1884,7 @@ static const struct lvts_data mt8192_lvts_ap_data = {
 };
 
 static const struct lvts_data mt8195_lvts_mcu_data = {
+	.irq_enable	= true,
 	.lvts_ctrl	= mt8195_lvts_mcu_data_ctrl,
 	.conn_cmd	= default_conn_cmds,
 	.init_cmd	= default_init_cmds,
@@ -1844,6 +1898,7 @@ static const struct lvts_data mt8195_lvts_mcu_data = {
 };
 
 static const struct lvts_data mt8195_lvts_ap_data = {
+	.irq_enable	= true,
 	.lvts_ctrl	= mt8195_lvts_ap_data_ctrl,
 	.conn_cmd	= default_conn_cmds,
 	.init_cmd	= default_init_cmds,
@@ -1857,6 +1912,7 @@ static const struct lvts_data mt8195_lvts_ap_data = {
 };
 
 static const struct of_device_id lvts_of_match[] = {
+	{ .compatible = "mediatek,mt7987-lvts-ap", .data = &mt7987_lvts_ap_data },
 	{ .compatible = "mediatek,mt7988-lvts-ap", .data = &mt7988_lvts_ap_data },
 	{ .compatible = "mediatek,mt8186-lvts", .data = &mt8186_lvts_data },
 	{ .compatible = "mediatek,mt8188-lvts-mcu", .data = &mt8188_lvts_mcu_data },

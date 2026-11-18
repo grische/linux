@@ -2615,6 +2615,7 @@ static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
 	md->disk->major	= MMC_BLOCK_MAJOR;
 	md->disk->minors = perdev_minors;
 	md->disk->first_minor = devidx * perdev_minors;
+	md->disk->flags = GENHD_FL_NVMEM;
 	md->disk->fops = &mmc_bdops;
 	md->disk->private_data = md;
 	md->parent = parent;
@@ -2649,6 +2650,10 @@ static struct mmc_blk_data *mmc_blk_alloc_req(struct mmc_card *card,
 	if (area_type == MMC_BLK_DATA_AREA_MAIN)
 		dev_set_drvdata(&card->dev, md);
 	disk_fwnode = mmc_blk_get_partitions_node(parent, subname);
+	if (!disk_fwnode)
+		disk_fwnode = device_get_named_child_node(subname ? md->parent->parent :
+							  md->parent,
+							  subname ? subname : "block");
 	ret = add_disk_fwnode(md->parent, md->disk, mmc_disk_attr_groups,
 			      disk_fwnode);
 	if (ret)
