@@ -1402,6 +1402,7 @@ struct nvmem_cell *of_nvmem_cell_get(struct device_node *np, const char *id)
 	struct nvmem_cell_entry *cell_entry;
 	struct nvmem_cell *cell;
 	struct of_phandle_args cell_spec;
+	bool layout_bound;
 	int index = 0;
 	int cell_index = 0;
 	int ret;
@@ -1452,11 +1453,20 @@ struct nvmem_cell *of_nvmem_cell_get(struct device_node *np, const char *id)
 		return ERR_PTR(ret);
 	}
 
+	/*
+	 * A layout adds all its cells in its probe, so a cell that is missing
+	 * once the layout device is bound will never appear. Read the bound
+	 * state first, as the probe may add the cell right after the lookup.
+	 */
+	layout_bound = nvmem->layout && device_is_bound(&nvmem->layout->dev);
 	cell_entry = nvmem_find_cell_entry_by_node(nvmem, cell_np);
 	of_node_put(cell_np);
 	if (!cell_entry) {
 		nvmem_layout_module_put(nvmem);
-		ret = nvmem->layout ? -EPROBE_DEFER : -ENOENT;
+		if (nvmem->layout && !layout_bound)
+			ret = -EPROBE_DEFER;
+		else
+			ret = -ENOENT;
 		__nvmem_device_put(nvmem);
 		return ERR_PTR(ret);
 	}
