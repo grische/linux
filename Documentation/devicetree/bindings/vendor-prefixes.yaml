@@ -114,6 +114,8 @@ patternProperties:
     description: Advanced Micro Devices (AMD), Inc.
   "^amediatech,.*":
     description: Shenzhen Amediatech Technology Co., Ltd
+  "^amit,.*":
+    description: AMIT Wireless Inc.
   "^amlogic,.*":
     description: Amlogic, Inc.
   "^ampere,.*":
