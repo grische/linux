@@ -137,6 +137,7 @@ struct codegen_context {
 	int b2p[MAX_BPF_JIT_REG + 2];
 	unsigned int exentry_idx;
 	unsigned int alt_exit_addr;
+	bool is_subprog;
 };
 
 #define bpf_to_ppc(r)	(ctx->b2p[r])

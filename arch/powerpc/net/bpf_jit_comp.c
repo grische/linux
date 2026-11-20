@@ -117,6 +117,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *fp)
 
 	/* Make sure that the stack is quadword aligned. */
 	cgctx.stack_size = round_up(fp->aux->stack_depth, 16);
+	cgctx.is_subprog = fp->aux->func_idx != 0;
 
 	/* Scouting faux-generate pass 0 */
 	if (bpf_jit_build_body(fp, 0, &cgctx, addrs, 0, false)) {
