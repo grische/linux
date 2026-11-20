@@ -1508,6 +1508,9 @@ out:
 BPF_CALL_2(bpf_kptr_xchg, void *, map_value, void *, ptr)
 {
 	unsigned long *kptr = map_value;
+#if (BITS_PER_LONG == 32) && defined(__BIG_ENDIAN)
+	kptr++;
+#endif
 
 	return xchg(kptr, (unsigned long)ptr);
 }
