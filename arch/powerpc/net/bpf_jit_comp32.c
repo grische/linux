@@ -232,6 +232,89 @@ int bpf_jit_emit_func_call_rel(u32 *image, struct codegen_context *ctx, u64 func
 	return 0;
 }
 
+static int bpf_jit_emit_kfunc_call(struct bpf_prog *fp, u32 *image, struct codegen_context *ctx, const struct bpf_insn *insn, u64 func_addr)
+{
+	const struct btf_func_model *fm;
+	int next_reg, next_stack, i, ret;
+
+	fm = bpf_jit_find_kfunc_model(fp, insn);
+	if (!fm)
+		return -EINVAL;
+
+	// kfunc arguments can only be pointers or integers, so as far as
+	// we're concerned here it's only 32- or 64-bit integers.
+	//
+	// calling convention is to use r3-r10 for arguments.
+	// 32-bit args simply use the next available register.
+	// 64-bit args use two registers. If the next available register
+	// is even, skip it: the arg always starts on an odd register.
+	// If we run out of registers, remaining args are pushed to the
+	// stack starting at 8(r1). 64-bit args again might need to skip
+	// one slot for alignment.
+
+	// Since the eBPF argument registers are always 64-bit, we can just
+	// sequentially move data as needed without needing to worry about
+	// overwriting anything.
+
+	next_reg = _R3;
+	next_stack = 8;
+	for (i = 0; i < fm->nr_args; i++) {
+		int bpf_reg_h, bpf_reg;
+		bool is_u64;
+
+		if (i > 4)
+			return -EINVAL;
+		bpf_reg = bpf_to_ppc(BPF_REG_1 + i);
+		bpf_reg_h = bpf_reg - 1;
+		is_u64 = (fm->arg_size[i] > sizeof(u32));
+
+		// 64-bit arguments must start on odd-numbered registers.
+		if (is_u64 && ((next_reg & 0x1) == 0))
+			next_reg++;
+		// When pushing to the stack, 64-bit arguments must also be
+		// 8-byte aligned, but we never push more than one argument.
+
+		// Mark arguments as used.
+		if (is_u64)
+			bpf_set_seen_register(ctx, bpf_reg_h);
+		bpf_set_seen_register(ctx, bpf_reg);
+
+		if (next_reg > 10) {
+			// Need to push to the stack.
+			if (is_u64) {
+				EMIT(PPC_RAW_STW(bpf_reg_h, _R1, next_stack));
+				next_stack += 4;
+			}
+			EMIT(PPC_RAW_STW(bpf_reg, _R1, next_stack));
+			next_stack += 4;
+		}
+		else {
+			if (is_u64) {
+				if (bpf_reg_h != next_reg)
+					EMIT(PPC_RAW_MR(next_reg, bpf_reg_h));
+				next_reg++;
+			}
+			if (bpf_reg != next_reg)
+				EMIT(PPC_RAW_MR(next_reg, bpf_reg));
+			next_reg++;
+		}
+	}
+
+	ret = bpf_jit_emit_func_call_rel(image, ctx, func_addr);
+	if (ret)
+		return ret;
+
+	if (fm->ret_size > sizeof(u32)) {
+		EMIT(PPC_RAW_MR(bpf_to_ppc(BPF_REG_0) - 1, _R3));
+		EMIT(PPC_RAW_MR(bpf_to_ppc(BPF_REG_0), _R4));
+	} else if (fm->ret_size) {
+		EMIT(PPC_RAW_LI(bpf_to_ppc(BPF_REG_0) - 1, 0));
+		EMIT(PPC_RAW_MR(bpf_to_ppc(BPF_REG_0), _R3));
+	}
+
+	return 0;
+}
+
 static int bpf_jit_emit_tail_call(u32 *image, struct codegen_context *ctx, u32 out)
 {
 	/*
@@ -1075,6 +1158,13 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, struct codegen_context *
 						    &func_addr, &func_addr_fixed);
 			if (ret < 0)
 				return ret;
+
+			if (insn[i].src_reg == BPF_PSEUDO_KFUNC_CALL) {
+				ret = bpf_jit_emit_kfunc_call(fp, image, ctx, &insn[i], func_addr);
+				if (ret)
+					return ret;
+				break;
+			}
 
 			/* We can't know which arguments the called function will use,
 			 * so if this is a subprogram, assume the worst case where it
