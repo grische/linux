@@ -320,6 +320,7 @@ int bpf_jit_build_body(struct bpf_prog *fp, u32 *image, struct codegen_context *
 		if (i && (BPF_CLASS(code) == BPF_ALU64 || BPF_CLASS(code) == BPF_ALU) &&
 		    (BPF_CLASS(prevcode) == BPF_ALU64 || BPF_CLASS(prevcode) == BPF_ALU) &&
 		    BPF_OP(prevcode) == BPF_MOV && BPF_SRC(prevcode) == BPF_X &&
+		    BPF_OP(code) != BPF_MOV &&
 		    insn[i - 1].dst_reg == insn[i].dst_reg && insn[i - 1].imm != 1) {
 			src2_reg = bpf_to_ppc(insn[i - 1].src_reg);
 			src2_reg_h = src2_reg - 1;
