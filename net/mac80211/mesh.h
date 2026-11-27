@@ -332,6 +332,8 @@ u32 airtime_link_metric_get(struct ieee80211_local *local,
 void mesh_neighbour_update(struct ieee80211_sub_if_data *sdata,
 			   u8 *hw_addr, struct ieee802_11_elems *ie,
 			   struct ieee80211_rx_status *rx_status);
+void mesh_neighbour_mismatch(struct ieee80211_sub_if_data *sdata,
+			     const u8 *addr);
 bool mesh_peer_accepts_plinks(struct ieee802_11_elems *ie);
 u64 mesh_accept_plinks_update(struct ieee80211_sub_if_data *sdata);
 void mesh_plink_timer(struct timer_list *t);

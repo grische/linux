@@ -655,6 +655,31 @@ out:
 	ieee80211_mbss_info_change_notify(sdata, changed);
 }
 
+/**
+ * mesh_neighbour_mismatch - remove a peer whose mesh profile differs from ours
+ *
+ * @sdata: local meshif
+ * @addr: peer's address
+ *
+ * A peer that changed its mesh profile without sending a Mesh Peering
+ * Close keeps ACKing our unicast frames, so the peer link would never expire.
+ */
+void mesh_neighbour_mismatch(struct ieee80211_sub_if_data *sdata,
+			     const u8 *addr)
+{
+	struct sta_info *sta;
+
+	if (sdata->u.mesh.user_mpm)
+		return;
+
+	sta = sta_info_get(sdata, addr);
+	if (!sta || sta->mesh->plink_state != NL80211_PLINK_ESTAB)
+		return;
+
+	mpl_dbg(sdata, "Mesh plink: %pM left our mesh, removing\n", addr);
+	WARN_ON(__sta_info_destroy(sta));
+}
+
 void mesh_plink_timer(struct timer_list *t)
 {
 	struct mesh_sta *mesh = timer_container_of(mesh, t, plink_timer);

@@ -49,6 +49,34 @@ static void ieee80211_mesh_housekeeping_timer(struct timer_list *t)
 }
 
 /**
+ * mesh_profile_matches - check if the mesh profile of a mesh point matches ours
+ *
+ * @sdata: local mesh subif
+ * @ie: information elements of a management frame from the mesh peer
+ *
+ * The mesh profile is the mesh ID and the mesh configuration identifiers.
+ * A mesh STA does not change its mesh profile while it stays in the MBSS.
+ *
+ * Returns: %true if both nodes use the same mesh profile
+ */
+static bool mesh_profile_matches(struct ieee80211_sub_if_data *sdata,
+				 struct ieee802_11_elems *ie)
+{
+	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
+
+	if (!ie->mesh_config)
+		return false;
+
+	return ifmsh->mesh_id_len == ie->mesh_id_len &&
+	       memcmp(ifmsh->mesh_id, ie->mesh_id, ie->mesh_id_len) == 0 &&
+	       ifmsh->mesh_pp_id == ie->mesh_config->meshconf_psel &&
+	       ifmsh->mesh_pm_id == ie->mesh_config->meshconf_pmetric &&
+	       ifmsh->mesh_cc_id == ie->mesh_config->meshconf_congest &&
+	       ifmsh->mesh_sp_id == ie->mesh_config->meshconf_synch &&
+	       ifmsh->mesh_auth_id == ie->mesh_config->meshconf_auth;
+}
+
+/**
  * mesh_matches_local - check if the config of a mesh point matches ours
  *
  * @sdata: local mesh subif
@@ -62,7 +90,6 @@ static void ieee80211_mesh_housekeeping_timer(struct timer_list *t)
 bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
 			struct ieee802_11_elems *ie)
 {
-	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 	u32 basic_rates = 0;
 	struct cfg80211_chan_def sta_chan_def;
 	struct ieee80211_supported_band *sband;
@@ -78,16 +105,7 @@ bool mesh_matches_local(struct ieee80211_sub_if_data *sdata,
 	 *   - MDA enabled
 	 * - Power management control on fc
 	 */
-	if (!ie->mesh_config)
-		return false;
-
-	if (!(ifmsh->mesh_id_len == ie->mesh_id_len &&
-	     memcmp(ifmsh->mesh_id, ie->mesh_id, ie->mesh_id_len) == 0 &&
-	     (ifmsh->mesh_pp_id == ie->mesh_config->meshconf_psel) &&
-	     (ifmsh->mesh_pm_id == ie->mesh_config->meshconf_pmetric) &&
-	     (ifmsh->mesh_cc_id == ie->mesh_config->meshconf_congest) &&
-	     (ifmsh->mesh_sp_id == ie->mesh_config->meshconf_synch) &&
-	     (ifmsh->mesh_auth_id == ie->mesh_config->meshconf_auth)))
+	if (!mesh_profile_matches(sdata, ie))
 		return false;
 
 	sband = ieee80211_get_sband(sdata);
@@ -1517,6 +1535,13 @@ static void ieee80211_mesh_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
 		if (ifmsh->csa_role != IEEE80211_MESH_CSA_ROLE_INIT &&
 		    !sdata->vif.bss_conf.csa_active)
 			ieee80211_mesh_process_chnswitch(sdata, elems, true);
+	} else if (channel == sdata->vif.bss_conf.chanreq.oper.chan &&
+		   !mesh_profile_matches(sdata, elems)) {
+		/*
+		 * Only a changed mesh profile shows that the peer left. Other
+		 * radios of the peer may use its address on other channels.
+		 */
+		mesh_neighbour_mismatch(sdata, mgmt->sa);
 	}
 
 	if (ifmsh->sync_ops)
